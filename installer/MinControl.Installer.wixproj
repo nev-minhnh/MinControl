@@ -1,20 +1,38 @@
 <Project Sdk="WixToolset.Sdk/6.0.2">
   <!--
-    MinControl MSI (per-machine, x64). Built by scripts/build-msi.ps1, which first publishes the agent
-    (self-contained win-x64) into $(AgentPublishDir). Build directly:
+    MinControl MSI (per-machine, x64, Vietnamese UI). Built by scripts/build-msi.ps1, which first publishes the agent
+    (self-contained win-x64) into $(AgentPublishDir), bakes the server URL in and converts vi-VN.wxl to cp1258.
       dotnet build installer/MinControl.Installer.wixproj -c Release -p:AgentPublishDir=<dir> -p:ProductVersion=0.1.0
+        [-p:DefaultServerUrl=https://…] [-p:LocalizationFile=<cp1258-ready wxl>]
+    DefaultServerUrl is the SERVERURL default inside the MSI: pass it at build time only, never commit it.
     WiX 6 (not 7): v7 requires accepting the OSMF EULA on every build; v6 has the same authoring features we use.
   -->
   <PropertyGroup>
-    <OutputName>MinControl</OutputName>
     <InstallerPlatform>x64</InstallerPlatform>
     <ProductVersion Condition="'$(ProductVersion)' == ''">0.1.0</ProductVersion>
+    <OutputName>MinControl-$(ProductVersion)</OutputName>
     <AgentPublishDir Condition="'$(AgentPublishDir)' == ''">$(MSBuildThisFileDirectory)..\artifacts\publish\agent</AgentPublishDir>
-    <DefineConstants>PublishDir=$(AgentPublishDir);ProductVersion=$(ProductVersion)</DefineConstants>
+    <DefaultServerUrl Condition="'$(DefaultServerUrl)' == ''"></DefaultServerUrl>
+    <DefineConstants>PublishDir=$(AgentPublishDir);ProductVersion=$(ProductVersion);DefaultServerUrl=$(DefaultServerUrl)</DefineConstants>
     <OutputPath>$(MSBuildThisFileDirectory)..\artifacts\msi\</OutputPath>
+    <!-- vi-VN first, stock en-US strings of the UI extension as fallback; one MSI. -->
+    <!-- per-machine Start-menu shortcut on a file KeyPath: ICE38/43/57 only fit per-user shortcuts -->
+    <SuppressIces>ICE38;ICE43;ICE57</SuppressIces>
+    <Cultures>vi-VN,en-US</Cultures>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <LocalizationFile Condition="'$(LocalizationFile)' == ''">vi-VN.wxl</LocalizationFile>
+    <!-- the CA project lives below this folder: keep its sources/obj out of the WiX globs -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);MinControl.Installer.CA\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="$(LocalizationFile)" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="WixToolset.Util.wixext" Version="6.0.2" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="6.0.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="MinControl.Installer.CA\MinControl.Installer.CA.csproj" />
   </ItemGroup>
   <Target Name="CheckAgentPublishDir" BeforeTargets="Build">
     <Error Condition="!Exists('$(AgentPublishDir)\MinControl.Service.exe')"

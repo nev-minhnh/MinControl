@@ -13,7 +13,14 @@ using MinControl.Setup;
 //   install  --server <https-url> [--chrome-ext <id>] [--edge-ext <id>] [--from-msi]
 //       Post-MSI configuration: writes %ProgramData%\MinControl\config.json (SYSTEM/Admins-only ACL) and the
 //       native-messaging host manifest next to MinControl.NativeHost.exe. The MSI runs it with its properties.
-//   enroll <code> [--server <https-url>] [--force]          (server defaults to config.json ServerUrl)
+//   enroll <code> [--server <https-url>] [--force] [--from-msi] [--attempt <id>] [--restart-service]
+//       Server defaults to config.json ServerUrl. Every run records its outcome in
+//       %ProgramData%\MinControl\enroll-status.json + HKLM\SOFTWARE\MinControl (EnrollStatus) for the MSI Finish
+//       dialog and the connect tool. --from-msi: "already enrolled" counts as success (re-install / upgrade).
+//       --restart-service: (re)start the MinControl service after a successful enrolment (connect tool).
+//   claim-start [--force] / claim-wait <claimId> [--timeout <s>] [--restart-service]
+//       QR pairing (API.md §10): the parent scans a QR code with the master app and approves (ClaimCommands.cs).
+//   connect                                                  opens the connect tool (MinControl.Connect.exe, QR screen)
 //   status                                                   (read-only)
 //   uninstall --yes [--purge] [--from-msi]
 //       Stops the service, removes WFP filters, browser policies (all profiles) + native host registration,
@@ -25,7 +32,7 @@ using MinControl.Setup;
 
 return await Cli.RunAsync(args);
 
-internal static class Cli
+internal static partial class Cli
 {
     private static readonly string AgentVersion =
         Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.1.0";
@@ -47,9 +54,17 @@ internal static class Cli
                         args.Contains("--insecure-http"));
                 case "enroll":
                     if (args.Length < 2 || args[1].StartsWith("--", StringComparison.Ordinal)) return Usage();
-                    var server = Opt(args, "--server") ?? (File.Exists(AgentConfig.PathIn(paths.Root)) ? AgentConfig.Load(paths.Root).ServerUrl : null);
-                    if (server is null) { Console.Error.WriteLine("no --server given and config.json has no ServerUrl (run install first)"); return 2; }
-                    return await EnrollAsync(paths, args[1], server, args.Contains("--force"), args.Contains("--insecure-http"));
+                    return await EnrollCommandAsync(paths, args[1], Opt(args, "--server"), args.Contains("--force"),
+                        args.Contains("--insecure-http"), args.Contains("--from-msi"), args.Contains("--restart-service"),
+                        Opt(args, "--attempt"), mirrorToRegistry: dataDir is null);
+                case "claim-start":
+                    return await ClaimStartAsync(paths, args.Contains("--force"), args.Contains("--insecure-http"));
+                case "claim-wait":
+                    if (args.Length < 2 || args[1].StartsWith("--", StringComparison.Ordinal)) return Usage();
+                    return await ClaimWaitAsync(paths, args[1], int.TryParse(Opt(args, "--timeout"), out var t) ? t : 30,
+                        args.Contains("--restart-service"), mirrorToRegistry: dataDir is null);
+                case "connect":
+                    return LaunchConnectTool(args.Skip(1).FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal)));
                 case "status":
                     return Status(paths);
                 case "uninstall":
@@ -74,7 +89,10 @@ internal static class Cli
         Console.Error.WriteLine("""
             usage (elevated):
               MinControl.Setup install --server <https://…> [--chrome-ext <id>] [--edge-ext <id>]
-              MinControl.Setup enroll <CODE> [--server <https://…>] [--force]
+              MinControl.Setup enroll <CODE> [--server <https://…>] [--force] [--restart-service]
+              MinControl.Setup claim-start [--force]   (QR pairing, JSON output; see ClaimCommands.cs)
+              MinControl.Setup claim-wait <claimId> [--timeout <s>] [--restart-service]
+              MinControl.Setup connect                 (window: QR code to scan with the master app)
               MinControl.Setup status
               MinControl.Setup uninstall --yes [--purge]
               MinControl.Setup unenroll --yes
@@ -141,53 +159,137 @@ internal static class Cli
     private sealed record EnrollKey(string KeyId, string Alg, string PublicKey);
     private sealed record EnrollResponse(string DeviceId, string ServerTime, IReadOnlyList<EnrollKey> MasterKeys, string MasterSealPubKey);
 
-    private static async Task<int> EnrollAsync(DataPaths paths, string rawCode, string server, bool force, bool allowHttp)
+    /// <summary>Runs one enrolment, records the outcome (<see cref="EnrollStatus"/>) and maps it to an exit code.</summary>
+    private static async Task<int> EnrollCommandAsync(DataPaths paths, string rawCode, string? serverArg, bool force, bool allowHttp,
+        bool fromMsi, bool restartService, string? attempt, bool mirrorToRegistry)
     {
         if (!IsElevated()) return RequireElevation();
-        var code = rawCode.Replace("-", "").Trim().ToUpperInvariant();
-        if (code.Length != 8 || code.Any(c => !"0123456789ABCDEFGHJKMNPQRSTVWXYZ".Contains(c)))
-        { Console.Error.WriteLine("pairing code must be 8 Crockford base32 characters (XXXX-XXXX)"); return 2; }
+        EnrollOutcome outcome;
+        try
+        {
+            var server = !string.IsNullOrWhiteSpace(serverArg) ? serverArg
+                : File.Exists(AgentConfig.PathIn(paths.Root)) ? AgentConfig.Load(paths.Root).ServerUrl : null;
+            outcome = string.IsNullOrWhiteSpace(server)
+                ? EnrollOutcome.Fail("no_server", EnrollMessages.NoServer, "no --server given and config.json has no ServerUrl (run install first)")
+                : await EnrollAsync(paths, rawCode, server, force, allowHttp);
+        }
+        catch (HttpRequestException e) { outcome = EnrollOutcome.Fail("network", EnrollMessages.Network, e.Message); }
+        catch (TaskCanceledException e) { outcome = EnrollOutcome.Fail("network", EnrollMessages.Network, "timeout: " + e.Message); }
+        catch (Exception e) { outcome = EnrollOutcome.Fail("error", EnrollMessages.Error, e.Message); }
+
+        EnrollStatus.Write(paths, outcome, attempt, mirrorToRegistry);
+
+        if (outcome.Ok && restartService && SystemTools.ServiceState() is { } state)
+        {
+            // The service polls for an identity once a minute; a restart makes it connect right away.
+            if (state == "RUNNING" && !SystemTools.StopService(TimeSpan.FromSeconds(45)))
+                Console.Error.WriteLine("warning: service did not stop within 45 s");
+            var (rc, output) = SystemTools.StartService();
+            Console.WriteLine(rc == 0 ? "service        : started" : $"warning: service start returned {rc} {output}");
+        }
+
+        if (outcome.Ok) Console.WriteLine(outcome.Reason == "already_enrolled" ? $"already enrolled as {outcome.DeviceId}" : $"enrolled as {outcome.DeviceId}");
+        else Console.Error.WriteLine($"enrolment failed ({outcome.Reason}): {outcome.Detail ?? outcome.Message}");
+        return outcome switch
+        {
+            { Ok: true, Reason: "already_enrolled" } when !fromMsi => 2,   // CLI: tell the operator to use --force
+            { Ok: true } => 0,
+            { Reason: "bad_format" or "no_server" } => 2,
+            _ => 1,
+        };
+    }
+
+    /// <summary>Normalises "xxxx-xxxx" / "xxxxxxxx" (any case, spaces ignored); null when it is not 8 Crockford chars.</summary>
+    internal static string? NormalizeCode(string raw)
+    {
+        var code = new string(raw.Where(c => c != '-' && !char.IsWhiteSpace(c)).ToArray()).ToUpperInvariant();
+        return code.Length == 8 && code.All(c => "0123456789ABCDEFGHJKMNPQRSTVWXYZ".Contains(c)) ? code : null;
+    }
+
+    private static async Task<EnrollOutcome> EnrollAsync(DataPaths paths, string rawCode, string server, bool force, bool allowHttp)
+    {
+        if (NormalizeCode(rawCode) is not { } code)
+            return EnrollOutcome.Fail("bad_format", EnrollMessages.BadFormat, "pairing code must be 8 Crockford base32 characters (XXXX-XXXX)");
         if (!Uri.TryCreate(server, UriKind.Absolute, out var baseUri) || !(baseUri.Scheme == "https" || (allowHttp && baseUri.Scheme == "http")))
-        { Console.Error.WriteLine("--server must be an absolute https:// URL"); return 2; }
+            return EnrollOutcome.Fail("no_server", EnrollMessages.NoServer, "--server must be an absolute https:// URL");
 
         paths.EnsureExists();
         paths.ApplyRestrictedAcl();   // I7: SYSTEM + Administrators only, before any secret is written
 
         using var store = new StateStore(paths.StateDb);
         if (store.GetMeta(StateStore.MetaKeys.DeviceId) is { } existing && !force)
-        { Console.Error.WriteLine($"already enrolled as {existing}; use --force to re-enrol (wipes local state)"); return 2; }
+            return new EnrollOutcome(true, "already_enrolled", EnrollMessages.AlreadyEnrolled, existing,
+                $"already enrolled as {existing}; use --force to re-enrol (wipes local state)");
 
         var users = LocalUsers.Enumerate();
         Console.WriteLine("Local users:");
         foreach (var u in users) Console.WriteLine($"  {u.Name,-24} {u.Sid}{(u.IsAdmin ? "  (admin - can never be managed)" : "")}");
 
+        // --force on an enrolled PC: keep the old key until the server accepted the new one, so a wrong or expired
+        // code never breaks a working enrolment.
+        byte[]? previousKey = File.Exists(paths.DeviceKey) ? File.ReadAllBytes(paths.DeviceKey) : null;
         using var identity = new DeviceIdentity(paths, new DpapiMachineKeyProtector());
-        var pub = identity.CreateNew();
-        var osv = Environment.OSVersion.Version;
-        var request = new JsonObject
+        var committed = false;
+        try
         {
-            ["code"] = code,
+            var pub = identity.CreateNew();
+            var request = DeviceInfo(pub, users);
+            request["code"] = code;
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            using var resp = await http.PostAsync(new Uri(baseUri, "/v1/enroll"), JsonContent.Create(request));
+            var text = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode)
+            {
+                var detail = $"HTTP {(int)resp.StatusCode} {text}";
+                var error = ServerErrorCode(text);
+                return ((int)resp.StatusCode, error) switch
+                {
+                    (_, "invalid_code") or (403, null) => EnrollOutcome.Fail("invalid_code", EnrollMessages.InvalidCode, detail),
+                    (_, "no_master") => EnrollOutcome.Fail("no_master", EnrollMessages.NoMaster, detail),
+                    _ => EnrollOutcome.Fail("server", EnrollMessages.Server, detail),
+                };
+            }
+            var (er, pinned) = ParseEnrollResponse(text);
+            CommitEnrollment(store, er, pinned, baseUri);
+            committed = true;
+
+            Console.WriteLine($"Enrolled as {er.DeviceId}. Pinned master keys: {string.Join(", ", pinned.Select(p => $"{p.KeyId} ({p.Alg})"))}");
+            Console.WriteLine("Compare the fingerprints with the master app, then choose managed users there.");
+            return new EnrollOutcome(true, "ok", EnrollMessages.Ok, er.DeviceId);
+        }
+        finally
+        {
+            if (!committed)
+            {
+                // previous identity back (or none): a failed --force leaves the old enrolment working
+                if (previousKey is not null) File.WriteAllBytes(paths.DeviceKey, previousKey);
+                else identity.Delete();
+            }
+        }
+    }
+
+    /// <summary>Device description sent with /v1/enroll and /v1/enroll/start (API.md §1, §10).</summary>
+    private static JsonObject DeviceInfo(byte[] pub, IReadOnlyList<LocalUser> users)
+    {
+        var osv = Environment.OSVersion.Version;
+        return new JsonObject
+        {
             ["devicePubKey"] = Base64Url.Encode(pub),
             ["hostname"] = Environment.MachineName,
             ["osVersion"] = $"{osv.Major}.{osv.Minor}.{osv.Build}",
             ["agentVersion"] = AgentVersion,
             ["localUsers"] = new JsonArray(users.Select(u => (JsonNode)new JsonObject { ["sid"] = u.Sid, ["name"] = u.Name, ["isAdmin"] = u.IsAdmin }).ToArray()),
         };
+    }
 
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        using var resp = await http.PostAsync(new Uri(baseUri, "/v1/enroll"), JsonContent.Create(request));
-        var text = await resp.Content.ReadAsStringAsync();
-        if (!resp.IsSuccessStatusCode)
-        {
-            identity.Delete();
-            Console.Error.WriteLine($"enrolment failed: HTTP {(int)resp.StatusCode} {text}");
-            return 1;
-        }
+    /// <summary>Validates an enrolment response (/v1/enroll 201 or an approved claim): deviceId, sign keys, seal key.</summary>
+    private static (EnrollResponse Response, List<PinnedKey> Pinned) ParseEnrollResponse(string text)
+    {
         var er = JsonSerializer.Deserialize<EnrollResponse>(text, ProtocolJson.Options) ?? throw new InvalidOperationException("empty enrol response");
         if (!UlidGenerator.IsValid(er.DeviceId)) throw new InvalidOperationException("server returned an invalid deviceId");
-
         var pinned = new List<PinnedKey>();
-        foreach (var k in er.MasterKeys)
+        foreach (var k in er.MasterKeys ?? [])
         {
             if (!Base64Url.TryDecode(k.PublicKey, out var kb) || !Signatures.IsValidPublicKey(k.Alg, kb))
                 throw new InvalidOperationException($"master key {k.KeyId} is malformed");
@@ -198,16 +300,35 @@ internal static class Cli
         if (pinned.Count == 0) throw new InvalidOperationException("server returned no master sign keys");
         if (!Base64Url.TryDecode(er.MasterSealPubKey, out var seal) || seal.Length != 32)
             throw new InvalidOperationException("masterSealPubKey must be 32 bytes");
+        return (er, pinned);
+    }
 
+    /// <summary>Pins the master keys and stores the device id (wipes previous local state).</summary>
+    private static void CommitEnrollment(StateStore store, EnrollResponse er, List<PinnedKey> pinned, Uri baseUri)
+    {
         store.WipeAll();
         store.ReplaceMasterKeys(pinned);
         store.SetMeta(StateStore.MetaKeys.MasterSealPubKey, er.MasterSealPubKey);
         store.SetMeta(StateStore.MetaKeys.ServerUrl, baseUri.GetLeftPart(UriPartial.Authority));
         store.SetMeta(StateStore.MetaKeys.EnrolledAt, Time.Utc(DateTimeOffset.UtcNow));
         store.SetMeta(StateStore.MetaKeys.DeviceId, er.DeviceId);
+    }
 
-        Console.WriteLine($"Enrolled as {er.DeviceId}. Pinned master keys: {string.Join(", ", pinned.Select(p => $"{p.KeyId} ({p.Alg})"))}");
-        Console.WriteLine("Compare the fingerprints with the master app, then choose managed users there.");
+    private static string? ServerErrorCode(string body)
+    {
+        try { return JsonNode.Parse(body)?["error"]?.GetValue<string>(); }
+        catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException) { return null; }
+    }
+
+    // ------------------------------------------------------------------------------------------------ connect
+
+    private static int LaunchConnectTool(string? code)
+    {
+        var exe = Path.Combine(InstallDir, "MinControl.Connect.exe");
+        if (!File.Exists(exe)) { Console.Error.WriteLine($"{exe} not found"); return 1; }
+        var psi = new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = true };
+        if (code is not null) psi.ArgumentList.Add(code);
+        System.Diagnostics.Process.Start(psi);
         return 0;
     }
 
@@ -243,7 +364,12 @@ internal static class Cli
         var manifest = Path.Combine(InstallDir, "com.mincontrol.nativehost.json");
         Line("native host", File.Exists(manifest) ? manifest : "manifest missing", File.Exists(manifest));
 
-        if (!File.Exists(paths.StateDb)) { Line("enrolment", "not enrolled (no state.db)", false); return 1; }
+        if (File.Exists(EnrollStatus.PathIn(paths.Root)))
+        {
+            var last = JsonNode.Parse(File.ReadAllText(EnrollStatus.PathIn(paths.Root)));
+            Line("last enrol", $"{(string?)last?["state"]} ({(string?)last?["reason"]}) at {(string?)last?["at"]} {(string?)last?["detail"]}".TrimEnd());
+        }
+        if (!File.Exists(paths.StateDb)) { Line("enrolment","not enrolled (no state.db)", false); return 1; }
         using var store = new StateStore(paths.StateDb);
         var id = store.GetMeta(StateStore.MetaKeys.DeviceId);
         Line("device id", id ?? "(not enrolled)", id is not null);
@@ -327,6 +453,7 @@ internal static class Cli
         if (File.Exists(paths.StateDb))
             using (var store = new StateStore(paths.StateDb)) store.WipeAll();
         using (var identity = new DeviceIdentity(paths, new DpapiMachineKeyProtector())) identity.Delete();
+        EnrollStatus.Clear(paths, registry: true);
         Console.WriteLine("Local identity and state removed. Revoke the device in the master app as well.");
         return 0;
     }

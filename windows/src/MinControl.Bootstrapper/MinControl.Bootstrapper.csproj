@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    MinControl-Setup.exe: the one file a parent runs on the child's PC. Welcome -> installs the embedded MSI silently
+    (msiexec /qn, SERVERURL baked into the MSI) -> QR pairing (PairingPanel, shared with MinControl.Connect) -> done.
+    Built by scripts/build-msi.ps1 after the MSI:
+      dotnet publish -r win-x64 -self-contained -p:PublishSingleFile=true -p:EmbeddedMsi=<path to MinControl-x.y.z.msi>
+    Without EmbeddedMsi it still compiles (dev build) and reports the missing payload at run time.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>MinControl.Bootstrapper</RootNamespace>
+    <AssemblyName>MinControl-Setup</AssemblyName>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Product>MinControl</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\MinControl.Connect\PairingPanel.cs" Link="Shared\PairingPanel.cs" />
+    <Compile Include="..\MinControl.Connect\SetupRunner.cs" Link="Shared\SetupRunner.cs" />
+    <Compile Include="..\MinControl.Connect\Theme.cs" Link="Shared\Theme.cs" />
+    <PackageReference Include="QRCoder" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(EmbeddedMsi)' != ''">
+    <EmbeddedResource Include="$(EmbeddedMsi)" LogicalName="MinControl.msi" />
+  </ItemGroup>
+</Project>
