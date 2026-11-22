@@ -15,5 +15,6 @@
     <ProjectReference Include="..\..\src\MinControl.NetGuard\MinControl.NetGuard.csproj" />
     <ProjectReference Include="..\..\src\MinControl.Browser\MinControl.Browser.csproj" />
     <Compile Include="..\..\src\MinControl.Service\Logic\*.cs" LinkBase="SessionLogic" />
+    <Compile Include="..\..\src\MinControl.Setup\PairingQr.cs" LinkBase="SetupLinked" />
   </ItemGroup>
 </Project>

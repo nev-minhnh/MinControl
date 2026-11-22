@@ -39,7 +39,7 @@ internal sealed class PairingPanel : UserControl
         };
         _title = Theme.Text("Kết nối với điện thoại", 15f, FontStyle.Bold);
         _title.Margin = new Padding(0, 0, 0, 6);
-        _hint = Theme.Text("Mở app MinControl trên điện thoại → Thêm máy tính → Quét mã", 10.5f, color: Theme.Muted);
+        _hint = Theme.Text("Mở app MinControl trên điện thoại → bấm Quét mã → quét mã này. Lần đầu dùng, app sẽ tự thiết lập.", 10.5f, color: Theme.Muted);
         _hint.Margin = new Padding(0, 0, 0, 12);
         _qr = new PictureBox { Size = new Size(240, 240), SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0, 0, 0, 10), Visible = false };
         _fingerprint = Theme.Text("", 10.5f, FontStyle.Bold);
