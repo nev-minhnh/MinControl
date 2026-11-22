@@ -1,6 +1,8 @@
 package io.github.nevminhnh.mincontrol.master.data.api
 
 import io.github.nevminhnh.mincontrol.master.data.protocol.AlertItem
+import io.github.nevminhnh.mincontrol.master.data.protocol.ApproveResponse
+import io.github.nevminhnh.mincontrol.master.data.protocol.ClaimInfo
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApiErrorBody
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApiJson
 import io.github.nevminhnh.mincontrol.master.data.protocol.CommandResponse
@@ -66,6 +68,10 @@ object AuthHeader {
 
     fun pathWithQuery(url: HttpUrl): String = url.encodedPath + (url.encodedQuery?.let { "?$it" } ?: "")
 
+    /** Canonical string of `POST /v1/master/claims/<claimId>/approve` (empty body) - signed by the `sign` key. */
+    fun approveCanonical(claimId: String, ts: String): String =
+        canonical("POST", "/v1/master/claims/$claimId/approve", ts, ByteArray(0))
+
     fun header(keyId: String, ts: String, signature: ByteArray) = "v1;$keyId;$ts;${B64Url.encode(signature)}"
 }
 
@@ -73,6 +79,11 @@ object AuthHeader {
 fun interface RequestSigner {
     /** Returns keyId and the 64-byte signature. */
     fun sign(data: ByteArray): Pair<String, ByteArray>
+}
+
+/** Signs with the biometric `sign` key (suspends while the prompt is shown). Returns keyId and 64-byte signature. */
+fun interface SignRoleSigner {
+    suspend fun sign(data: ByteArray): Pair<String, ByteArray>
 }
 
 /**
@@ -161,6 +172,30 @@ class MasterApi(
         callUnit("POST", "v1/master/push/subscribe",
             body = ApiJson.encodeToString(PushSubscribe.serializer(), PushSubscribe(token)).toByteArray())
     }
+
+    // --- §10 QR pairing initiated by the device ---
+    suspend fun claim(claimId: String): ClaimInfo =
+        call("GET", "v1/master/claims/${claimId.encodeSeg()}", out = ClaimInfo.serializer())
+
+    suspend fun claimByCode(code: String): ClaimInfo =
+        call("GET", "v1/master/claims/by-code/${code.encodeSeg()}", out = ClaimInfo.serializer())
+
+    /** Approval MUST be authenticated with a `sign`-role key (biometric), unlike every other call. */
+    suspend fun approveClaim(claimId: String, signWith: SignRoleSigner): ApproveResponse {
+        val url = url("v1/master/claims/${claimId.encodeSeg()}/approve")
+        val ts = clock().epochSecond.toString()
+        val canon = AuthHeader.canonical("POST", AuthHeader.pathWithQuery(url), ts, ByteArray(0)).toByteArray()
+        val (keyId, sig) = signWith.sign(canon)
+        return withContext(Dispatchers.IO) {
+            val req = Request.Builder().url(url).method("POST", ByteArray(0).toRequestBody(jsonType))
+                .header("X-MC-Auth", AuthHeader.header(keyId, ts, sig)).build()
+            ApiJson.decodeFromString(ApproveResponse.serializer(), exec(req).toString(Charsets.UTF_8))
+        }
+    }
+
+    suspend fun rejectClaim(claimId: String) { callUnit("POST", "v1/master/claims/${claimId.encodeSeg()}/reject", body = ByteArray(0)) }
+
+    private fun String.encodeSeg(): String = java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
 
     // --- plumbing ---
     private fun envelopeBytes(env: SignedEnvelope) =

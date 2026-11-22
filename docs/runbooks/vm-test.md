@@ -25,8 +25,12 @@ Add `-SaveTo C:\mc-test\results-<name>.csv` to any test script to keep the resul
 - Hyper-V enabled on the host, Windows 11 Pro ISO (x64), ~80 GB free.
 - Dev backend deployed: `docs/runbooks/deploy-cloud.md` with `-WorkerName mincontrol-dev …`; master app on the
   phone registered against it.
-- MSI built: `powershell -ExecutionPolicy Bypass -File scripts\build-msi.ps1 -Version 0.1.0`
-  → `artifacts\msi\MinControl.msi`.
+- Installer built: `powershell -ExecutionPolicy Bypass -File scripts\build-msi.ps1 -Version 0.1.0`
+  → `artifacts\MinControl-Setup-0.1.0.exe` (what a parent runs: install + QR pairing) and
+  `artifacts\msi\MinControl-0.1.0.msi` (advanced/silent); both also copied to `D:\Coding_Project\MinControl\release\dev\`.
+  Needs the cloud side of API.md §10 (`/v1/enroll/start`, `/v1/enroll/claim/<id>`) and the app's QR scanner.
+  The dev server URL is baked in as the `SERVERURL` default (read from `tools\secrets\cloud-dev.txt`
+  `SERVER_URL=`, or `-ServerUrl https://…`); nothing to type on the target PC.
 - Extension ids (Chrome Web Store + Edge Add-ons, unlisted — SPEC §8.5) if M5 is in scope.
 
 ## 2. Create the VM (host, elevated PowerShell)
@@ -54,8 +58,8 @@ Set-ExecutionPolicy -Scope LocalMachine RemoteSigned
 Log on once as `kid` (creates the profile, Edge first run), install Google Chrome as admin (per-machine),
 log off. Windows Update fully, then shut down.
 
-Copy files in (host): `Copy-VMFile $vm -SourcePath artifacts\msi\MinControl.msi -DestinationPath C:\mc-test\MinControl.msi -CreateFullPath -FileSource Host`
-(same for each `scripts\vm\*.ps1`), or use the enhanced-session clipboard.
+Copy files in (host): `Copy-VMFile $vm -SourcePath artifacts\MinControl-Setup-0.1.0.exe -DestinationPath C:\mc-test\MinControl-Setup-0.1.0.exe -CreateFullPath -FileSource Host`
+(same for `artifacts\msi\MinControl-0.1.0.msi` and each `scripts\vm\*.ps1`), or use the enhanced-session clipboard.
 
 ## 3. Checkpoints (before EVERY test group)
 ```powershell
@@ -66,20 +70,36 @@ Restore-VMCheckpoint -VMName MC-Test -Name "20-enrolled-policy" -Confirm:$false 
 ```
 Use **standard** checkpoints (not production) so the running state (logged-on sessions, clock) is captured.
 Restoring an enrolled checkpoint replays old `seq` values: if the device rejects policies after a restore,
-that is correct replay protection — re-enrol with `enroll <CODE> --force` from a fresh pairing code.
+that is correct replay protection — re-pair from the Start-menu shortcut (**Ghép nối lại**) or `enroll <CODE> --force`.
 
-## 4. Install (VM, admin, elevated)
-```powershell
-msiexec /i C:\mc-test\MinControl.msi SERVERURL=https://mincontrol-dev.<sub>.workers.dev CHROMEEXTID=<id> EDGEEXTID=<id> /qb /l*v C:\Users\Public\mincontrol-install.log
-C:\mc-test\verify-install.ps1        # INS-17 fails until enrolment - expected at this point
-```
-Without `SERVERURL` the MSI only installs; then run
-`& "C:\Program Files\MinControl\MinControl.Setup.exe" install --server https://… --chrome-ext <id> --edge-ext <id>`.
+## 4. Install + connect (VM, signed in as the admin `mcadmin`) — QR pairing, no typing
+1. VM: double-click `C:\mc-test\MinControl-Setup-0.1.0.exe` → UAC **Yes**.
+2. **Cài đặt MinControl** (welcome) → **Cài đặt** → "Đang cài MinControl…" (embedded MSI, silent, ~1 min).
+3. **Kết nối với điện thoại**: QR code, "Mở app MinControl trên điện thoại → Thêm máy tính → Quét mã",
+   "Mã nhận dạng máy: xxxx xxxx xxxx", fallback code `XXXX-XXXX` in small text, countdown (15 min; a new QR
+   appears automatically when it expires).
+4. Phone: master app → Thêm máy tính → scan → check the phone shows the **same** fingerprint → approve.
+5. VM (within ~2 s): "Đã kết nối. Chọn tài khoản của con trên điện thoại." → **Đóng**. The service was restarted
+   and is online; continue in the app (§5).
+6. `C:\mc-test\verify-install.ps1` (admin, elevated) → all PASS. `& "C:\Program Files\MinControl\MinControl.Setup.exe" status`
+   shows the device id and `last enrol : ok (ok)`; `C:\ProgramData\MinControl\enroll-status.json` holds the last
+   attempt (reason codes: `rejected`, `invalid_code`, `network`, `server`, `no_master`, `no_server`, `error`).
 
-## 5. Enrol + test policy
-1. Phone: master app → Devices → Add device → note the code `XXXX-XXXX` and the key fingerprints.
-2. VM (admin, elevated): `& "C:\Program Files\MinControl\MinControl.Setup.exe" enroll XXXX-XXXX`
-   → compare the printed master key ids with the app. `mcadmin` must be listed as "(admin - can never be managed)".
+Things to check while doing this (TC-01a…f):
+- TC-01a close the window at the QR step → warning "chưa kết nối… Vẫn đóng?" → Yes: MinControl installed,
+  service Running but idle (unpaired). Start menu → **Kết nối MinControl với điện thoại** (UAC) → the QR screen again.
+- TC-01b reject on the phone → red "Điện thoại đã từ chối…" + **Tạo mã mới**; nothing paired.
+- TC-01c let the QR expire (or set the VM clock aside) → a new QR + new fingerprint-stable claim appear by themselves.
+- TC-01d run the connect screen on a paired PC → "Máy này đã được kết nối" + **Ghép nối lại** (re-pair: the old
+  pairing keeps working until the phone approves the new one).
+- TC-01e double-click the plain MSI instead → Welcome → **Cài đặt** → Finish shows "Còn một bước…" with
+  **Mở màn hình kết nối** ticked → **Hoàn tất** → UAC → QR screen.
+- TC-01f advanced/silent (typed fallback code): `msiexec /i C:\mc-test\MinControl-0.1.0.msi PAIRCODE=XXXXXXXX /qn /l*v C:\Users\Public\mc.log`
+  from an elevated prompt → exit 0, enrolled; a wrong code still installs (exit 0) and records `invalid_code`.
+
+## 5. Test policy
+1. Compare the master key ids (`Setup status`, `master key` lines) with the fingerprints shown in the app.
+2. App: `mcadmin` must be greyed out ("admin - can never be managed").
 3. App: choose `kid` as managed (`mcadmin` greyed out), apply **policy T1**:
 
 | Field | T1 value (why) |
@@ -109,7 +129,7 @@ Mark each TC PASS/FAIL in a copy of this table; attach `collect-logs.ps1` output
 | TC-03 | kid: `test-tamper.ps1` TAM-17/18 (msiexec /x, Settings → Uninstall) | UAC asks for **admin credentials**; cancel → still installed |
 | TC-04 | Admin: Settings → Apps → MinControl → Uninstall (no PURGE) | uninstall succeeds; afterwards `verify-wfp.ps1` WFP-01 **FAIL (0 filters)** = expected; kid has normal internet (`test-network.ps1` NET-01 now "FAIL" = bypass works = expected after uninstall); Edge/Chrome policies for kid gone (`edge://policy` empty); SafeBoot keys gone; `C:\ProgramData\MinControl` kept |
 | TC-05 | Re-install MSI (same SERVERURL) | `Setup status`: same device id, policy present; enforcement resumes without re-enrol |
-| TC-06 | `msiexec /x MinControl.msi PURGE=1 /qb` | as TC-04 + `C:\ProgramData\MinControl` deleted; revoke device in master app |
+| TC-06 | `msiexec /x MinControl-0.1.0.msi PURGE=1 /qb` | as TC-04 + `C:\ProgramData\MinControl` deleted; revoke device in master app |
 | TC-07 | Major upgrade: build `-Version 0.1.1`, `msiexec /i` over 0.1.0 | one ARP entry v0.1.1; enrolment kept; filters never removed during upgrade (kid has no internet throughout) |
 
 ### 6.2 M2 — screen time ("managed user is logged off on time; admin unaffected")
@@ -193,5 +213,25 @@ Mark each TC PASS/FAIL in a copy of this table; attach `collect-logs.ps1` output
 ## 8. Exit criteria (M7)
 All TC-01…TC-80 PASS (TC-71/72 on the real PCs too). Only then install on a kid's PC — same §4/§5 steps,
 real (non-dev) backend, extension ids of the published unlisted extensions, and keep a USB stick with
-`MinControl.msi` + this runbook for recovery (`msiexec /x … PURGE=1` as admin removes everything, including
+`MinControl-<version>.msi` + this runbook for recovery (`msiexec /x … PURGE=1` as admin removes everything, including
 the WFP lock).
+
+---
+
+## Appendix A — command-line install / enrol (scripted or recovery; uses the typed fallback code)
+All from an elevated prompt in the VM.
+```powershell
+# install only, URL/extension ids on the command line (overrides the baked SERVERURL)
+msiexec /i C:\mc-test\MinControl-0.1.0.msi SERVERURL=https://mincontrol-dev.<sub>.workers.dev CHROMEEXTID=<id> EDGEEXTID=<id> /qb /l*v C:\Users\Public\mincontrol-install.log
+# install + enrol silently
+msiexec /i C:\mc-test\MinControl-0.1.0.msi PAIRCODE=XXXXXXXX /qn /l*v C:\Users\Public\mincontrol-install.log
+# MSI built without a URL (-NoServerUrl) and installed without SERVERURL: configure by hand
+& "C:\Program Files\MinControl\MinControl.Setup.exe" install --server https://… --chrome-ext <id> --edge-ext <id>
+# enrol / re-enrol (--force keeps the old enrolment if the new code fails); --restart-service connects at once
+& "C:\Program Files\MinControl\MinControl.Setup.exe" enroll XXXX-XXXX [--force] [--restart-service]
+& "C:\Program Files\MinControl\MinControl.Setup.exe" connect      # opens the QR connect window
+& "C:\Program Files\MinControl\MinControl.Setup.exe" claim-start [--force]   # QR pairing by hand: prints claimId/code/qr JSON
+& "C:\Program Files\MinControl\MinControl.Setup.exe" claim-wait <claimId> --timeout 300 --restart-service
+& "C:\Program Files\MinControl\MinControl.Setup.exe" status
+```
+`enroll` prints the local users; `mcadmin` must be listed as "(admin - can never be managed)".

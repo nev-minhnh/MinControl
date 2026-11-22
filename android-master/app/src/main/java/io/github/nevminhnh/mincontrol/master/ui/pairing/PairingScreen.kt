@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -55,7 +56,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.nevminhnh.mincontrol.master.data.api.userMessage
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import io.github.nevminhnh.mincontrol.master.data.protocol.ClaimInfo
 import io.github.nevminhnh.mincontrol.master.data.protocol.DeviceInfo
+import io.github.nevminhnh.mincontrol.master.data.protocol.DeviceUser
+import io.github.nevminhnh.mincontrol.master.ui.theme.DangerText
 import io.github.nevminhnh.mincontrol.master.data.protocol.PairingCode
 import io.github.nevminhnh.mincontrol.master.graph
 import io.github.nevminhnh.mincontrol.master.policy.PolicyDefaults
@@ -89,18 +96,94 @@ import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
 
+/** Screen stages of the "Thêm máy tính" flow. */
+sealed interface PairStage {
+    data object Home : PairStage
+    data object Loading : PairStage
+    /** [expectedFp] is the QR `f` (null for manual code entry, where the parent compares by eye). */
+    data class Confirm(val claimId: String, val claim: ClaimInfo, val expectedFp: String?) : PairStage
+    /** QR fingerprint differs from the server's claim: hard error, no approve button. */
+    data class Mismatch(val hostname: String) : PairStage
+    data object Legacy : PairStage
+}
+
 class PairingViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = app.graph
+    val stage = MutableStateFlow<PairStage>(PairStage.Home)
     val code = MutableStateFlow<PairingCode?>(null)
     val newDevice = MutableStateFlow<DeviceInfo?>(null)
+    val deviceFp = MutableStateFlow<String?>(null)
     val message = MutableStateFlow<String?>(null)
     val applying = MutableStateFlow(false)
+    val approving = MutableStateFlow(false)
     val done = MutableStateFlow(false)
     val fingerprint: String = runCatching { SigFormat.fingerprint(graph.keys.publicKey(KeyRole.SIGN).keyId) }.getOrDefault("—")
     private var known: Set<String>? = null
     private var poll: Job? = null
 
-    init { newCode() }
+    init {
+        PairLink.pending.value?.let { PairLink.pending.value = null; openLink(it) }
+    }
+
+    fun openLink(p: PairPayload) {
+        stage.value = PairStage.Loading
+        viewModelScope.launch {
+            try {
+                val c = graph.repo.claim(p.claimId)
+                stage.value = if (Fingerprint.matches(c.fp, p.fp)) PairStage.Confirm(p.claimId, c, p.fp)
+                else PairStage.Mismatch(c.hostname)
+            } catch (e: Exception) {
+                message.value = e.userMessage(); stage.value = PairStage.Home
+            }
+        }
+    }
+
+    fun lookupCode(raw: String) {
+        val code8 = ClaimCode.normalize(raw)
+        if (code8 == null) { message.value = "Mã gồm 8 ký tự (chữ và số)."; return }
+        stage.value = PairStage.Loading
+        viewModelScope.launch {
+            try {
+                val c = graph.repo.claimByCode(code8)
+                val id = c.claimId
+                if (id.isNullOrBlank()) { message.value = "Không tìm thấy mã này."; stage.value = PairStage.Home }
+                else stage.value = PairStage.Confirm(id, c, null)
+            } catch (e: Exception) {
+                message.value = e.userMessage(); stage.value = PairStage.Home
+            }
+        }
+    }
+
+    /** Approves the claim (biometric `sign` key), then moves on to choosing managed users. */
+    fun approve(activity: FragmentActivity, s: PairStage.Confirm) {
+        if (approving.value) return
+        approving.value = true
+        viewModelScope.launch {
+            try {
+                val deviceId = graph.repo.approveClaim(activity, s.claimId, s.claim.hostname)
+                val fromList = runCatching { graph.repo.refreshDevices() }.getOrNull()?.firstOrNull { it.deviceId == deviceId }
+                deviceFp.value = Fingerprint.format(s.claim.fp)
+                newDevice.value = fromList ?: DeviceInfo(
+                    deviceId = deviceId, hostname = s.claim.hostname,
+                    users = s.claim.localUsers.map { DeviceUser(sid = it.sid, name = it.name, isAdmin = it.isAdmin) },
+                )
+            } catch (e: BiometricCancelledException) {
+            } catch (e: Exception) {
+                message.value = e.userMessage()
+            } finally {
+                approving.value = false
+            }
+        }
+    }
+
+    fun reject(s: PairStage.Confirm) {
+        viewModelScope.launch { runCatching { graph.repo.rejectClaim(s.claimId) } }
+        stage.value = PairStage.Home
+    }
+
+    fun backHome() { stage.value = PairStage.Home }
+
+    fun startLegacy() { stage.value = PairStage.Legacy; newCode() }
 
     fun newCode() = viewModelScope.launch {
         try {
@@ -149,9 +232,12 @@ private fun displayCode(code: String) = code.replace("-", "").let { if (it.lengt
 fun PairingScreen(onBack: () -> Unit, vm: PairingViewModel = viewModel()) {
     val ctx = LocalContext.current
     val activity = rememberActivity()
+    val stage by vm.stage.collectAsState()
     val code by vm.code.collectAsState()
     val device by vm.newDevice.collectAsState()
+    val deviceFp by vm.deviceFp.collectAsState()
     val applying by vm.applying.collectAsState()
+    val approving by vm.approving.collectAsState()
     val done by vm.done.collectAsState()
     val message by vm.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
@@ -159,39 +245,146 @@ fun PairingScreen(onBack: () -> Unit, vm: PairingViewModel = viewModel()) {
     LaunchedEffect(Unit) { while (true) { now = Instant.now(); delay(1_000) } }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.message.value = null } }
     LaunchedEffect(done) { if (done) onBack() }
+    // A deep link that arrives while this screen is already open.
+    val pendingLink by PairLink.pending.collectAsState()
+    LaunchedEffect(pendingLink) { pendingLink?.let { PairLink.pending.value = null; vm.openLink(it) } }
+
+    fun scan() {
+        val opts = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+        GmsBarcodeScanning.getClient(ctx, opts).startScan()
+            .addOnSuccessListener { c ->
+                val p = PairLink.parse(c.rawValue)
+                if (p != null) vm.openLink(p) else vm.message.value = "Mã QR không phải mã ghép nối MinControl."
+            }
+            .addOnFailureListener { e ->
+                if (e !is com.google.android.gms.common.api.ApiException || e.statusCode != 16) {
+                    vm.message.value = "Không mở được trình quét QR. Hãy dùng \"Nhập mã\"."
+                }
+            }
+    }
 
     Box(Modifier.fillMaxSize().background(Background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            BackHeader("Thêm máy tính", onBack, Modifier.padding(start = 8.dp, end = 16.dp, top = 16.dp, bottom = 8.dp))
+            BackHeader("Thêm máy tính", { if (stage is PairStage.Home || device != null) onBack() else vm.backHome() },
+                Modifier.padding(start = 8.dp, end = 16.dp, top = 16.dp, bottom = 8.dp))
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 val dev = device
-                if (dev == null) {
-                    CodeCard(code, now, onNew = { vm.newCode() }, onCopy = {
-                        code?.let {
-                            (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                                .setPrimaryClip(ClipData.newPlainText("MinControl", displayCode(it.code)))
-                            vm.message.value = "Đã sao chép mã."
+                val st = stage
+                if (dev != null) {
+                    ChooseUsers(dev, applying, deviceFp?.let { "Mã khóa máy: $it" } ?: "Mã khóa phải là ${vm.fingerprint}") { vm.apply(activity, it) }
+                } else when (st) {
+                    PairStage.Home -> HomeStage(onScan = { scan() }, onCode = { vm.lookupCode(it) }, onLegacy = { vm.startLegacy() })
+                    PairStage.Loading -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Primary) }
+                    is PairStage.Confirm -> ConfirmStage(st, approving, onApprove = { vm.approve(activity, st) }, onReject = { vm.reject(st) })
+                    is PairStage.Mismatch -> MismatchStage(st.hostname, onBack = { vm.backHome() })
+                    PairStage.Legacy -> {
+                        CodeCard(code, now, onNew = { vm.newCode() }, onCopy = {
+                            code?.let {
+                                (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                                    .setPrimaryClip(ClipData.newPlainText("MinControl", displayCode(it.code)))
+                                vm.message.value = "Đã sao chép mã."
+                            }
+                        })
+                        Steps(code?.let { displayCode(it.code) } ?: "XXXX-XXXX")
+                        FingerprintCard(vm.fingerprint)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(16.dp).clip(CircleShape).background(Primary.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(8.dp).clip(CircleShape).background(Primary))
+                            }
+                            Spacer(Modifier.size(8.dp))
+                            Text("Đang chờ máy tính kết nối…", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                         }
-                    })
-                    Steps(code?.let { displayCode(it.code) } ?: "XXXX-XXXX")
-                    FingerprintCard(vm.fingerprint)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(16.dp).clip(CircleShape).background(Primary.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
-                            Box(Modifier.size(8.dp).clip(CircleShape).background(Primary))
-                        }
-                        Spacer(Modifier.size(8.dp))
-                        Text("Đang chờ máy tính kết nối…", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                     }
-                } else {
-                    ChooseUsers(dev, applying, vm.fingerprint) { vm.apply(activity, it) }
                 }
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp))
     }
+}
+
+@Composable
+private fun HomeStage(onScan: () -> Unit, onCode: (String) -> Unit, onLegacy: () -> Unit) {
+    var manual by remember { mutableStateOf(false) }
+    var codeText by remember { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        McCard(elevated = true, spacing = 12.dp) {
+            Text("Trên máy tính của con", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Chạy trình cài MinControl: máy sẽ hiện một mã QR. Quét mã đó bằng điện thoại này, kiểm tra tên máy rồi cho phép. Không cần gõ gì cả.",
+                style = MaterialTheme.typography.bodyMedium, color = TextBody,
+            )
+        }
+        PrimaryButton("Quét mã trên máy tính", onScan, Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp, icon = Icons.Outlined.QrCodeScanner)
+        if (!manual) {
+            SecondaryButton("Nhập mã", { manual = true }, Modifier.fillMaxWidth())
+        } else {
+            McCard(radius = 20.dp, spacing = 12.dp) {
+                Text("Nhập mã 8 ký tự hiện nhỏ dưới mã QR trên máy tính.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                OutlinedTextField(
+                    value = codeText, onValueChange = { codeText = it.take(9).uppercase() }, singleLine = true,
+                    label = { Text("Mã trên máy tính") },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = Mono, fontSize = 20.sp, letterSpacing = 2.sp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                PrimaryButton("Tìm máy", { onCode(codeText) }, Modifier.fillMaxWidth(), enabled = ClaimCode.normalize(codeText) != null)
+            }
+        }
+        androidx.compose.material3.TextButton(onClick = onLegacy, modifier = Modifier.fillMaxWidth()) {
+            Text("Cách cũ (dòng lệnh)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun ConfirmStage(s: PairStage.Confirm, approving: Boolean, onApprove: () -> Unit, onReject: () -> Unit) {
+    val fp = Fingerprint.format(s.claim.fp) ?: s.claim.fp
+    McCard(elevated = true, spacing = 12.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            IconCircle(Icons.Outlined.Shield, PrimaryContainer, Primary)
+            Column {
+                Text(s.claim.hostname.ifBlank { "Máy tính mới" }, style = MaterialTheme.typography.titleMedium)
+                if (s.claim.osVersion.isNotBlank()) Text(s.claim.osVersion, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            }
+        }
+        Text("Tài khoản trên máy", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
+        if (s.claim.localUsers.isEmpty()) Text("Máy chưa báo danh sách tài khoản.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        s.claim.localUsers.forEach { u ->
+            Text(u.name + if (u.isAdmin) " (admin)" else "", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+        }
+    }
+    McCard(radius = 20.dp, padding = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Mã khóa của máy tính", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            Text(fp, fontFamily = Mono, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp)
+            Text(
+                if (s.expectedFp != null) "Đã khớp với mã QR. Hãy chắc chắn mã này cũng hiện trên màn hình máy tính."
+                else "Hãy so sánh với mã đang hiện trên màn hình máy tính. Chỉ cho phép khi hai mã giống hệt nhau.",
+                style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+            )
+        }
+    }
+    if (approving) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Primary) }
+    } else {
+        PrimaryButton("Cho phép máy này", onApprove, Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp, icon = Icons.Outlined.Shield)
+        SecondaryButton("Từ chối", onReject, Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun MismatchStage(hostname: String, onBack: () -> Unit) {
+    McCard(elevated = true, spacing = 12.dp) {
+        Text("Mã khóa không khớp", style = MaterialTheme.typography.titleMedium, color = DangerText)
+        Text(
+            "Mã khóa trên máy chủ cho ${hostname.ifBlank { "máy này" }} khác với mã trong QR. Có thể QR đã bị thay thế. " +
+                "Không cho phép máy này; hãy tạo lại mã QR trên máy tính rồi quét lại.",
+            style = MaterialTheme.typography.bodyMedium, color = TextBody,
+        )
+    }
+    SecondaryButton("Quay lại", onBack, Modifier.fillMaxWidth())
 }
 
 @Composable
@@ -274,7 +467,7 @@ private fun FingerprintCard(fp: String) {
 }
 
 @Composable
-private fun ChooseUsers(dev: DeviceInfo, applying: Boolean, fingerprint: String, onApply: (Map<String, String>) -> Unit) {
+private fun ChooseUsers(dev: DeviceInfo, applying: Boolean, fingerprintNote: String, onApply: (Map<String, String>) -> Unit) {
     val checked = remember(dev.deviceId) { mutableStateMapOf<String, Boolean>().apply { dev.users.forEach { put(it.sid, !it.isAdmin) } } }
     val labels = remember(dev.deviceId) { mutableStateMapOf<String, String>().apply { dev.users.forEach { put(it.sid, it.label ?: it.name) } } }
     McCard(elevated = true, spacing = 8.dp) {
@@ -282,7 +475,7 @@ private fun ChooseUsers(dev: DeviceInfo, applying: Boolean, fingerprint: String,
             IconCircle(Icons.Outlined.Shield, SuccessContainer, Success)
             Column {
                 Text("${dev.hostname} đã kết nối", style = MaterialTheme.typography.titleMedium)
-                Text("Mã khóa phải là $fingerprint", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Text(fingerprintNote, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
             }
         }
     }

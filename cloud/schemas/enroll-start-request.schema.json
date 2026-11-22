@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/cloud/enroll-start-request.schema.json",
+  "title": "POST /v1/enroll/start body (cloud-local; API.md section 10)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "devicePubKey",
+    "hostname",
+    "osVersion",
+    "agentVersion",
+    "localUsers"
+  ],
+  "properties": {
+    "devicePubKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "hostname": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "osVersion": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "agentVersion": {
+      "type": "string",
+      "maxLength": 32
+    },
+    "localUsers": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sid",
+          "name",
+          "isAdmin"
+        ],
+        "properties": {
+          "sid": {
+            "$ref": "https://mincontrol.local/protocol/common.schema.json#/$defs/sid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "isAdmin": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

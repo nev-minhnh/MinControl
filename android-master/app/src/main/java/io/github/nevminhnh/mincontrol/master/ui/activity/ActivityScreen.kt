@@ -261,13 +261,10 @@ private fun TimelineRowView(r: TimelineRow, last: Boolean, onApprove: () -> Unit
                 if (r.device) Text("Máy", style = MaterialTheme.typography.labelSmall, color = TextSecondary,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Background).padding(horizontal = 6.dp, vertical = 2.dp))
             }
+            if (r.sub.isNotBlank()) Text(r.sub, style = MaterialTheme.typography.bodySmall, color = TextBody)
             if (r.approve) {
-                Row {
-                    Text("${r.sub} · ", style = MaterialTheme.typography.bodySmall, color = TextBody)
-                    Text("Duyệt ngay", style = MaterialTheme.typography.bodySmall, color = Primary, modifier = Modifier.clickable(onClick = onApprove))
-                }
-            } else if (r.sub.isNotBlank()) {
-                Text(r.sub, style = MaterialTheme.typography.bodySmall, color = TextBody)
+                Text("Duyệt ngay", style = MaterialTheme.typography.labelLarge, color = Primary,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onApprove).padding(top = 4.dp, bottom = 4.dp, end = 8.dp))
             }
         }
     }

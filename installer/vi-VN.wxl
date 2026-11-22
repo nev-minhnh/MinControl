@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Vietnamese UI strings. Database codepage 1258 (Windows Vietnamese). Write the text normally (precomposed UTF-8);
+  scripts/build-msi.ps1 converts it to the cp1258 form (base letter + combining tone mark) before WiX reads it.
+  Strings not listed here fall back to WixToolset.UI.wixext en-US (culture chain vi-VN,en-US).
+-->
+<WixLocalization Culture="vi-VN" Codepage="1258" Language="1066" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <!-- buttons -->
+  <String Id="WixUIBack" Value="&amp;Quay lại" />
+  <String Id="WixUINext" Value="&amp;Tiếp" />
+  <String Id="WixUICancel" Value="Huỷ" />
+  <String Id="WixUIFinish" Value="&amp;Hoàn tất" />
+  <String Id="WixUIRetry" Value="&amp;Thử lại" />
+  <String Id="WixUIIgnore" Value="&amp;Bỏ qua" />
+  <String Id="WixUIYes" Value="&amp;Có" />
+  <String Id="WixUINo" Value="&amp;Không" />
+  <String Id="WixUIOK" Value="OK" />
+
+  <!-- package / launch conditions -->
+  <String Id="DowngradeError" Value="Máy đã có phiên bản MinControl mới hơn." />
+  <String Id="NeedAdmin" Value="Cần tài khoản quản trị (Administrator) để cài MinControl." />
+  <String Id="Need64" Value="MinControl cần Windows 64-bit." />
+  <String Id="NeedWin10" Value="MinControl cần Windows 10 trở lên." />
+  <String Id="ShortcutName" Value="Kết nối MinControl với điện thoại" />
+  <String Id="ShortcutDescription" Value="Nhập mã ghép nối để kết nối máy này với điện thoại của cha mẹ" />
+
+  <!-- welcome -->
+  <String Id="WelcomeDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="WelcomeDlgTitle" Value="{\WixUI_Font_Bigger}Cài đặt [ProductName]" />
+  <String Id="WelcomeDlgDescription" Value="MinControl giúp cha mẹ quản lý thời gian dùng máy tính của con.&#10;&#10;Chuẩn bị sẵn điện thoại có app MinControl. Sau khi cài, màn hình kết nối hiện mã QR: quét bằng app trên điện thoại và xác nhận là xong." />
+  <String Id="WelcomeUpdateDlgDescriptionUpdate" Value="Trình cài đặt sẽ cập nhật [ProductName] trên máy này. Bấm Tiếp để tiếp tục." />
+
+  <!-- progress texts of the custom actions -->
+  <String Id="ProgressSetupInstall" Value="Đang cấu hình MinControl" />
+  <String Id="ProgressSetupEnroll" Value="Đang kết nối với điện thoại" />
+
+  <!-- progress / finish -->
+  <String Id="ProgressDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="ProgressDlgTitleInstalling" Value="{\WixUI_Font_Title}Đang cài [ProductName]" />
+  <String Id="ProgressDlgTextInstalling" Value="Vui lòng chờ trong giây lát." />
+  <String Id="ProgressDlgTitleChanging" Value="{\WixUI_Font_Title}Đang thay đổi [ProductName]" />
+  <String Id="ProgressDlgTextChanging" Value="Vui lòng chờ trong giây lát." />
+  <String Id="ProgressDlgTitleRepairing" Value="{\WixUI_Font_Title}Đang sửa chữa [ProductName]" />
+  <String Id="ProgressDlgTextRepairing" Value="Vui lòng chờ trong giây lát." />
+  <String Id="ProgressDlgTitleRemoving" Value="{\WixUI_Font_Title}Đang gỡ [ProductName]" />
+  <String Id="ProgressDlgTextRemoving" Value="Vui lòng chờ trong giây lát." />
+  <String Id="ProgressDlgTitleUpdating" Value="{\WixUI_Font_Title}Đang cập nhật [ProductName]" />
+  <String Id="ProgressDlgTextUpdating" Value="Vui lòng chờ trong giây lát." />
+  <String Id="ProgressDlgStatusLabel" Value="Trạng thái:" />
+  <String Id="ExitDialog_Title" Value="Cài đặt [ProductName]" />
+  <String Id="ExitDialogTitle" Value="{\WixUI_Font_Bigger}Đã cài xong [ProductName]" />
+  <String Id="ExitDialogDescription" Value="Bấm Hoàn tất để đóng trình cài đặt." />
+  <String Id="FatalError_Title" Value="Cài đặt [ProductName]" />
+  <String Id="FatalErrorTitle" Value="{\WixUI_Font_Bigger}Cài đặt [ProductName] bị dừng do lỗi" />
+  <String Id="FatalErrorDescription1" Value="Có lỗi khi cài [ProductName]. Máy chưa bị thay đổi. Hãy chạy lại trình cài đặt." />
+  <String Id="FatalErrorDescription2" Value="Bấm Hoàn tất để đóng trình cài đặt." />
+  <String Id="UserExit_Title" Value="Cài đặt [ProductName]" />
+  <String Id="UserExitTitle" Value="{\WixUI_Font_Bigger}Đã huỷ cài đặt [ProductName]" />
+  <String Id="UserExitDescription1" Value="Cài đặt đã bị huỷ. Máy chưa bị thay đổi. Có thể chạy lại trình cài đặt bất cứ lúc nào." />
+  <String Id="UserExitDescription2" Value="Bấm Hoàn tất để đóng trình cài đặt." />
+  <String Id="CancelDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="CancelDlgText" Value="Bạn có chắc muốn huỷ cài đặt [ProductName]?" />
+  <String Id="ErrorDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="PrepareDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="PrepareDlgTitle" Value="{\WixUI_Font_Bigger}Cài đặt [ProductName]" />
+  <String Id="PrepareDlgDescription" Value="Vui lòng chờ trong khi trình cài đặt chuẩn bị." />
+  <String Id="ResumeDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="ResumeDlgTitle" Value="{\WixUI_Font_Bigger}Tiếp tục cài đặt [ProductName]" />
+  <String Id="ResumeDlgDescription" Value="Trình cài đặt sẽ hoàn tất việc cài [ProductName]. Bấm Cài đặt để tiếp tục." />
+  <String Id="ResumeDlgInstall" Value="&amp;Cài đặt" />
+  <String Id="WaitForCostingDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="WaitForCostingDlgText" Value="Vui lòng chờ trong khi trình cài đặt tính dung lượng cần thiết." />
+  <String Id="WaitForCostingDlgReturn" Value="&amp;Quay lại" />
+
+  <!-- maintenance (repair / remove) -->
+  <String Id="MaintenanceWelcomeDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="MaintenanceWelcomeDlgTitle" Value="{\WixUI_Font_Bigger}[ProductName] đã được cài" />
+  <String Id="MaintenanceWelcomeDlgDescription" Value="Trình cài đặt có thể sửa chữa hoặc gỡ bỏ [ProductName]. Bấm Tiếp để tiếp tục." />
+  <String Id="MaintenanceTypeDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="MaintenanceTypeDlgTitle" Value="{\WixUI_Font_Title}Sửa chữa hoặc gỡ bỏ" />
+  <String Id="MaintenanceTypeDlgDescription" Value="Chọn thao tác bạn muốn thực hiện." />
+  <String Id="MaintenanceTypeDlgChangeButton" Value="&amp;Thay đổi" />
+  <String Id="MaintenanceTypeDlgChangeButtonTooltip" Value="Thay đổi" />
+  <String Id="MaintenanceTypeDlgChangeText" Value="Thay đổi các thành phần được cài." />
+  <String Id="MaintenanceTypeDlgChangeDisabledText" Value="[ProductName] không có thành phần tuỳ chọn." />
+  <String Id="MaintenanceTypeDlgRepairButton" Value="&amp;Sửa chữa" />
+  <String Id="MaintenanceTypeDlgRepairButtonTooltip" Value="Sửa chữa" />
+  <String Id="MaintenanceTypeDlgRepairText" Value="Sửa lỗi của lần cài gần nhất (tệp, lối tắt, registry bị thiếu hoặc hỏng). Kết nối với điện thoại được giữ nguyên." />
+  <String Id="MaintenanceTypeDlgRepairDisabledText" Value="[ProductName] không thể sửa chữa." />
+  <String Id="MaintenanceTypeDlgRemoveButton" Value="&amp;Gỡ bỏ" />
+  <String Id="MaintenanceTypeDlgRemoveButtonTooltip" Value="Gỡ bỏ" />
+  <String Id="MaintenanceTypeDlgRemoveText" Value="Gỡ [ProductName] khỏi máy này. Máy sẽ không còn được quản lý." />
+  <String Id="MaintenanceTypeDlgRemoveDisabledText" Value="[ProductName] không thể gỡ bỏ." />
+  <String Id="VerifyReadyDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="VerifyReadyDlgInstall" Value="&amp;Cài đặt" />
+  <String Id="VerifyReadyDlgInstallTitle" Value="{\WixUI_Font_Title}Sẵn sàng cài [ProductName]" />
+  <String Id="VerifyReadyDlgInstallText" Value="Bấm Cài đặt rồi chọn Có khi Windows hỏi quyền quản trị." />
+  <String Id="VerifyReadyDlgRepair" Value="&amp;Sửa chữa" />
+  <String Id="VerifyReadyDlgRepairTitle" Value="{\WixUI_Font_Title}Sẵn sàng sửa chữa [ProductName]" />
+  <String Id="VerifyReadyDlgRepairText" Value="Bấm Sửa chữa để sửa [ProductName]. Bấm Quay lại để chọn thao tác khác." />
+  <String Id="VerifyReadyDlgRemove" Value="&amp;Gỡ bỏ" />
+  <String Id="VerifyReadyDlgRemoveTitle" Value="{\WixUI_Font_Title}Sẵn sàng gỡ [ProductName]" />
+  <String Id="VerifyReadyDlgRemoveText" Value="Bấm Gỡ bỏ để gỡ [ProductName] khỏi máy này. Bấm Quay lại để chọn thao tác khác." />
+  <String Id="VerifyReadyDlgUpdate" Value="&amp;Cập nhật" />
+  <String Id="VerifyReadyDlgUpdateTitle" Value="{\WixUI_Font_Title}Sẵn sàng cập nhật [ProductName]" />
+  <String Id="VerifyReadyDlgUpdateText" Value="Bấm Cập nhật để cập nhật [ProductName]." />
+  <String Id="OutOfDiskDlg_Title" Value="Cài đặt [ProductName]" />
+  <String Id="OutOfDiskDlgTitle" Value="{\WixUI_Font_Title}Không đủ dung lượng ổ đĩa" />
+  <String Id="OutOfDiskDlgDescription" Value="Ổ đĩa không đủ chỗ trống để cài." />
+  <String Id="OutOfDiskDlgText" Value="Các ổ được đánh dấu không đủ chỗ trống. Hãy giải phóng dung lượng rồi thử lại." />
+</WixLocalization>

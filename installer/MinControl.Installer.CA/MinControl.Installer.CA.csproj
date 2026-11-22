@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    MSI UI custom actions (DTF, immediate, run in the msiexec client as the interactive user):
+      ValidatePairCode   PairCodeDlg "Next": normalises PAIRCODE (XXXX-XXXX / 8 chars, any case) or explains the error
+      ReadEnrollResult   after ExecuteAction: reads the enrolment result Setup mirrored to HKLM\SOFTWARE\MinControl
+                         and fills the ExitDialog text / "open connect tool" checkbox
+    .NET Framework 4.7.2 is what DTF hosts (in-box on Windows 10/11). Packed into *.CA.dll by WixToolset.Dtf.CustomAction.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <Platform>x64</Platform>
+    <PlatformTarget>x64</PlatformTarget>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Dtf.CustomAction" Version="6.0.2" />
+  </ItemGroup>
+</Project>
