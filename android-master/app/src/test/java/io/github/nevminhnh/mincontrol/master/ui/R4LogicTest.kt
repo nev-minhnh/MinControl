@@ -100,7 +100,7 @@ class R4LogicTest {
         fun ttl(until: String?) = EnvelopeBuilder.commandTtl(Command.LockNow("c", sid, until), now)
         assertEquals(Duration.ofHours(24), ttl(null))
         assertEquals(Duration.ofHours(24), ttl("2026-11-22T10:54:47Z")) // until + 1h < issuedAt + 24h
-        assertEquals(Duration.ofHours(49), ttl("2026-11-23T23:54:47Z")) // until + 1h is later
+        assertEquals(Duration.ofHours(39), ttl("2026-11-23T23:54:47Z")) // until (38 h ahead) + 1 h is later
         assertEquals(Duration.ofHours(24), EnvelopeBuilder.commandTtl(Command.Unlock("c", sid), now))
     }
 }
