@@ -59,8 +59,11 @@ internal sealed class SetupForm : Form
         var olds = _host.Controls.Cast<Control>().ToArray();
         _host.Controls.Clear();
         _host.Controls.Add(c);
-        // dispose later: the old page may be the one raising the current Click event
-        BeginInvoke(() => { foreach (var o in olds) o.Dispose(); });
+        // Dispose later: the old page may be the one raising the current Click event.
+        // Before the window handle exists (first page, called from the constructor) BeginInvoke throws,
+        // which crashed MinControl-Setup.exe on start-up in 0.1.3 — dispose directly in that case.
+        if (IsHandleCreated) BeginInvoke(() => { foreach (var o in olds) o.Dispose(); });
+        else foreach (var o in olds) o.Dispose();
     }
 
     private void ShowWelcome()
@@ -77,7 +80,8 @@ internal sealed class SetupForm : Form
         var install = Theme.PrimaryButton("Cài đặt");
         install.Click += async (_, _) => await InstallAsync();
         page.Controls.AddRange([title, body, install]);
-        AcceptButton = install;
+        // No AcceptButton here: a stray Enter (e.g. typed into another window that lost focus to this one)
+        // must never start an installation. Installing needs an explicit click.
         Swap(page);
     }
 
