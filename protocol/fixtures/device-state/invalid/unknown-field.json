@@ -1,0 +1,26 @@
+{
+  "ts": "2026-11-22T08:50:00Z",
+  "agentVersion": "0.2.0",
+  "policyVersion": 7,
+  "users": [
+    {
+      "sid": "S-1-5-21-1111111111-2222222222-3333333333-1001",
+      "loggedOn": true,
+      "active": true,
+      "locked": false,
+      "lockedUntil": null,
+      "remainingMin": 72,
+      "usedMin": 48,
+      "groups": {
+        "games": {
+          "usedMin": 23,
+          "remainingMin": 37
+        }
+      },
+      "foregroundExe": "Minecraft.exe",
+      "foregroundTitle": "Minecraft 1.21",
+      "foregroundStartedAt": "2026-11-22T08:31:00Z"
+    }
+  ],
+  "debug": true
+}

@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mincontrol.local/cloud/device-state.schema.json",
-  "title": "DeviceState (API.md section 2; cloud-local until protocol ships a schema)",
+  "$id": "https://mincontrol.local/protocol/device-state.schema.json",
+  "title": "DeviceState (device -> cloud, WS frame {\"t\":\"state\"}; API.md section 2)",
   "type": "object",
   "additionalProperties": false,
   "required": ["ts", "agentVersion", "users"],
   "properties": {
-    "ts": { "$ref": "https://mincontrol.local/protocol/common.schema.json#/$defs/timestamp" },
+    "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
     "agentVersion": { "type": "string", "maxLength": 32 },
-    "policyVersion": { "type": ["integer", "null"], "minimum": 0 },
+    "policyVersion": { "type": ["integer", "null"], "minimum": 0, "description": "version of the applied policy; null before the first policy" },
     "users": {
       "type": "array",
       "maxItems": 64,
@@ -17,14 +17,12 @@
         "additionalProperties": false,
         "required": ["sid"],
         "properties": {
-          "sid": { "$ref": "https://mincontrol.local/protocol/common.schema.json#/$defs/sid" },
+          "sid": { "$ref": "common.schema.json#/$defs/sid" },
           "loggedOn": { "type": "boolean" },
-          "active": { "type": "boolean" },
+          "active": { "type": "boolean", "description": "the user's session is the active console session" },
           "locked": { "type": "boolean" },
-          "lockedUntil": {
-            "anyOf": [{ "$ref": "https://mincontrol.local/protocol/common.schema.json#/$defs/timestamp" }, { "type": "null" }]
-          },
-          "remainingMin": { "type": ["integer", "null"] },
+          "lockedUntil": { "anyOf": [{ "$ref": "common.schema.json#/$defs/timestamp" }, { "type": "null" }] },
+          "remainingMin": { "type": ["integer", "null"], "description": "min(total remaining, window remaining); null = unlimited" },
           "usedMin": { "type": ["integer", "null"], "minimum": 0 },
           "groups": {
             "type": "object",
@@ -37,7 +35,11 @@
             }
           },
           "foregroundExe": { "type": ["string", "null"], "maxLength": 260 },
-          "foregroundTitle": { "type": ["string", "null"], "maxLength": 512 }
+          "foregroundTitle": { "type": ["string", "null"], "maxLength": 512 },
+          "foregroundStartedAt": {
+            "anyOf": [{ "$ref": "common.schema.json#/$defs/timestamp" }, { "type": "null" }],
+            "description": "when the current foreground app got focus (RFC 3339 UTC)"
+          }
         }
       }
     }

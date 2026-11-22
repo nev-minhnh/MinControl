@@ -1,7 +1,7 @@
 // Event batch ingestion: generic `events` plus denormalised tables, idempotent on event id.
 // D1 allows at most 100 bound parameters per statement, so rows are written as chunked multi-row inserts
 // inside one atomic batch (keeps the query count low on the Workers free plan).
-import { type AlertDraft, BURST_TYPES, BURST_WINDOW_MS, type RuleContext, alertForEvent, burstAlert, detectBurst } from "./alerts";
+import { type AlertDraft, BURST_TYPES, BURST_WINDOW_MS, type RuleContext, alertForEvent, burstAlert, burstDetails, detectBurst } from "./alerts";
 import type { Env } from "./env";
 import { localDay, nowIso } from "./lib/time";
 
@@ -185,6 +185,15 @@ export async function ingestEvents(env: Env, device: DeviceInfo, events: IngestE
   return evaluateAlerts(env, device, fresh);
 }
 
+function safeJson(s: string): Record<string, unknown> {
+  try {
+    const v: unknown = JSON.parse(s);
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 async function ruleContext(env: Env, device: DeviceInfo): Promise<RuleContext> {
   const users = (
     await env.DB.prepare("SELECT user_sid, name, label FROM managed_users WHERE device_id = ?")
@@ -218,19 +227,20 @@ async function evaluateAlerts(env: Env, device: DeviceInfo, fresh: IngestEvent[]
     const lowerMs = Math.max(earliest - BURST_WINDOW_MS, last?.ts ? Date.parse(last.ts) : -Infinity);
     const recent = (
       await env.DB.prepare(
-        `SELECT id, ts FROM events WHERE device_id = ? AND user_sid = ? AND type IN ('web.blocked', 'process.blocked') AND ts > ?
+        `SELECT id, ts, type, data_json FROM events WHERE device_id = ? AND user_sid = ? AND type IN ('web.blocked', 'process.blocked') AND ts > ?
          ORDER BY ts, id LIMIT 1000`,
-      ).bind(device.id, sid, new Date(Math.max(lowerMs, 0)).toISOString()).all<{ id: string; ts: string }>()
+      ).bind(device.id, sid, new Date(Math.max(lowerMs, 0)).toISOString()).all<{ id: string; ts: string; type: string; data_json: string }>()
     ).results;
     const idx = detectBurst(recent.map((r) => Date.parse(r.ts)));
     if (idx >= 0) {
       const trigger = recent[idx]!;
       const tMs = Date.parse(trigger.ts);
-      const count = recent.filter((r) => {
+      const inBurst = recent.filter((r) => {
         const t = Date.parse(r.ts);
         return t <= tMs && tMs - t <= BURST_WINDOW_MS;
-      }).length;
-      drafts.push(burstAlert(device.id, sid, trigger.id, trigger.ts, count, ctx));
+      });
+      const details = burstDetails(inBurst.map((r) => ({ type: r.type, data: safeJson(r.data_json) })));
+      drafts.push(burstAlert(device.id, sid, trigger.id, trigger.ts, inBurst.length, ctx, details));
     }
   }
   return drafts;

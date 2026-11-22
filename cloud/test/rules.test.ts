@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { alertForEvent, burstAlert, detectBurst, isOfflineAlertDue, type RuleContext } from "../src/alerts";
+import { alertForEvent, burstAlert, burstDetails, detectBurst, isOfflineAlertDue, type RuleContext } from "../src/alerts";
+import { parseTypeFilter, typeFilterSql, webItem } from "../src/routes/master";
 import { parseRetention, DEFAULT_RETENTION } from "../src/cron";
 import { cursorClause, decodeCursor, encodeCursor, paginate, parseLimit } from "../src/lib/cursor";
 import { buildRows, hostOf } from "../src/ingest";
@@ -59,6 +60,38 @@ describe("alert rules", () => {
     expect(alertForEvent(ev("quota.warning", { scope: "total", remainingMin: 5 }), ctx)).toBeNull();
   });
 
+  it("alert data = event data (exe approval carries the file identity)", () => {
+    const data = {
+      exe: "game.exe", path: "C:\\Users\\bin\\Downloads\\game.exe", pid: 7, sha256: "b".repeat(64),
+      publisher: "Game Studio", signed: true, sizeBytes: 1234,
+    };
+    const a = alertForEvent(ev("request.exe_approval", data), ctx)!;
+    expect(a).toMatchObject({ type: "request.exe_approval", severity: "warn", userSid: SID, eventId: "01JDQ50000000000000000BK0C" });
+    expect(a.extra).toEqual(data);
+    const q = alertForEvent(ev("quota.exhausted", { scope: "group:games", remainingMin: 0 }), ctx)!;
+    expect(q.extra).toEqual({ scope: "group:games", remainingMin: 0 });
+    expect(q.body).toContain("games");
+  });
+
+  it("tamper.state_tampered is critical and keeps detail", () => {
+    const a = alertForEvent(ev("tamper.state_tampered", { detail: "policy.json signature check failed" }, { userSid: undefined }), ctx)!;
+    expect(a).toMatchObject({ type: "tamper.state_tampered", severity: "critical", userSid: null });
+    expect(a.extra).toEqual({ detail: "policy.json signature check failed" });
+    expect(a.body).toContain("chính sách");
+  });
+
+  it("summarises a burst (hosts, exes, shared category)", () => {
+    const web = (host: string, category?: string) => ({ type: "web.blocked", data: { host, source: "proxy", reason: "category", ...(category ? { category } : {}) } });
+    const proc = (exe: string) => ({ type: "process.blocked", data: { exe, path: `C:\\${exe}`, pid: 1 } });
+    expect(burstDetails([web("a.test", "adult"), web("b.test", "adult"), web("a.test", "adult")])).toEqual({ hosts: ["a.test", "b.test"], category: "adult" });
+    expect(burstDetails([web("a.test", "adult"), web("b.test", "games"), proc("x.exe")])).toEqual({ hosts: ["a.test", "b.test"], exes: ["x.exe"] });
+    expect(burstDetails([web("a.test", "adult"), web("b.test")])).toEqual({ hosts: ["a.test", "b.test"] });
+    expect(burstDetails([proc("x.exe"), proc("y.exe"), proc("x.exe")])).toEqual({ exes: ["x.exe", "y.exe"] });
+    expect(burstDetails(Array.from({ length: 15 }, (_, i) => web(`h${i}.test`))).hosts).toHaveLength(10);
+    const a = burstAlert(DEV, SID, "x", "2026-11-22T08:41:00.000Z", 3, ctx, { hosts: ["a.test"], category: "adult" });
+    expect(a.extra).toEqual({ count: 3, hosts: ["a.test"], category: "adult" });
+  });
+
   it("detects ≥3 blocked within 10 minutes", () => {
     const m = 60_000;
     expect(detectBurst([0, 5 * m])).toBe(-1);
@@ -76,6 +109,35 @@ describe("alert rules", () => {
     expect(isOfflineAlertDue(0, null, 2 * h)).toBe(false);
     expect(isOfflineAlertDue(0, 3 * h, 4 * h)).toBe(false); // already alerted for this period
     expect(isOfflineAlertDue(5 * h, 3 * h, 8 * h)).toBe(true); // came back, went offline again
+  });
+});
+
+describe("master query helpers", () => {
+  it("parses multi-type / prefix filters", () => {
+    expect(parseTypeFilter(null, "type")).toBeNull();
+    expect(parseTypeFilter(" , ", "type")).toBeNull();
+    expect(parseTypeFilter("web.*,process.blocked,web.*", "type")).toEqual({ exact: ["process.blocked"], prefixes: ["web."] });
+    expect(() => parseTypeFilter("web.visit;drop", "type")).toThrow();
+    expect(() => parseTypeFilter("WEB.visit", "type")).toThrow();
+    expect(() => parseTypeFilter(Array(21).fill("web.visit").join(","), "type")).toThrow();
+  });
+
+  it("builds include / exclude SQL", () => {
+    const f = parseTypeFilter("usage.tick,web.*,tamper.*", "type")!;
+    expect(typeFilterSql(f, false)).toEqual([
+      "(type IN (?) OR type LIKE ? ESCAPE '\\' OR type LIKE ? ESCAPE '\\')",
+      ["usage.tick", "web.%", "tamper.%"],
+    ]);
+    const x = typeFilterSql(parseTypeFilter("request.*", "exclude")!, true);
+    expect(x[0]).toBe("NOT (type LIKE ? ESCAPE '\\')");
+    expect(x[1]).toEqual(["request.%"]);
+    expect(typeFilterSql(parseTypeFilter("usage_x.*", "type")!, false)[1]).toEqual(["usage\\_x.%"]);
+  });
+
+  it("maps web rows with query/engine for searches", () => {
+    const base = { ts: "t", url: null, host: "google", title: "mèo", duration_sec: null, category: "google" };
+    expect(webItem({ ...base, kind: "search" })).toMatchObject({ kind: "search", query: "mèo", engine: "google" });
+    expect(webItem({ ...base, kind: "visit", title: "Page", category: null })).toMatchObject({ query: null, engine: null, title: "Page" });
   });
 });
 

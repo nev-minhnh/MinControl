@@ -13,7 +13,7 @@
       "properties": {
         "t": { "const": "auth" },
         "deviceId": { "$ref": "https://mincontrol.local/protocol/common.schema.json#/$defs/ulid" },
-        "ts": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "ts": { "type": "integer", "minimum": 0, "description": "unix seconds (API.md section 2); signed as its decimal string" },
         "sig": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
       }
     },
@@ -40,14 +40,14 @@
       "properties": {
         "t": { "const": "policy_rejected" },
         "seq": { "type": "integer", "minimum": 1 },
-        "error": { "type": "string", "maxLength": 64 }
+        "error": { "$ref": "https://mincontrol.local/protocol/command-ack.schema.json#/properties/error" }
       }
     },
     {
       "type": "object",
       "additionalProperties": false,
       "required": ["t", "state"],
-      "properties": { "t": { "const": "state" }, "state": { "$ref": "device-state.schema.json" } }
+      "properties": { "t": { "const": "state" }, "state": { "$ref": "https://mincontrol.local/protocol/device-state.schema.json" } }
     },
     {
       "type": "object",

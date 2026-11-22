@@ -45,7 +45,7 @@ const exportsMap = {
   validateEnrollRequest: C + "enroll-request.schema.json",
   validateMasterRegister: C + "master-register.schema.json",
   validatePushSubscribe: C + "push-subscribe.schema.json",
-  validateDeviceState: C + "device-state.schema.json",
+  validateDeviceState: P + "device-state.schema.json",
   validateWsDeviceMessage: C + "ws-device-message.schema.json",
 };
 // ajv's ESM output still require()s two tiny runtime helpers; inline them so the module is pure ESM.

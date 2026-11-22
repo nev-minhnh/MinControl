@@ -53,7 +53,7 @@
     "domainPattern": {
       "type": "string",
       "pattern": "^(\\*\\.)?([a-z0-9-]+\\.)+[a-z0-9-]+$",
-      "description": "lower-case host or *.suffix"
+      "description": "lower-case host; `example.com` = that exact host only; `*.example.com` = the apex example.com and all its subdomains"
     }
   }
 }

@@ -24,7 +24,8 @@
         "quota.warning", "quota.exhausted",
         "request.exe_approval",
         "tamper.agent_killed", "tamper.service_stopped", "tamper.wfp_filter_missing", "tamper.proxy_bypass_attempt",
-        "tamper.timezone_changed", "tamper.clock_jump", "tamper.managed_user_is_admin", "tamper.extension_missing", "tamper.offline_gap"
+        "tamper.timezone_changed", "tamper.clock_jump", "tamper.managed_user_is_admin", "tamper.extension_missing", "tamper.offline_gap",
+        "tamper.state_tampered"
       ]
     },
     "data": { "type": "object" }
@@ -94,7 +95,7 @@
       "properties": {
         "host": { "type": "string", "maxLength": 253 }, "url": { "$ref": "#/$defs/str" },
         "source": { "enum": ["proxy", "extension"] },
-        "reason": { "enum": ["category", "blocklist", "allowlist_miss", "schedule"] },
+        "reason": { "enum": ["category", "blocklist", "allowlist_miss", "schedule", "doh", "port"] },
         "category": { "type": "string", "maxLength": 32 }, "exe": { "type": "string", "maxLength": 260 }
       }
     },
