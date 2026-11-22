@@ -1,0 +1,14 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+# Node / Cloudflare
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+# secrets
+*.key
+*.pfx
+.env*
