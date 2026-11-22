@@ -175,3 +175,20 @@ The master app builds app groups / app rules by picking from the apps that reall
   game exes and survives updates); otherwise `{"exe": "<exe>"}` plus `"publisher"` when known; appx →
   `{"path": "<installDir>\*"}`. The picker shows name, publisher, "đã dùng N phút/7 ngày", category chip, search,
   sorted by minutes7d then name; "Gợi ý: nhóm Game" pre-selects category=game.
+
+## 12. One QR for everything (decided by Minh 2026-11-23; supersedes the separate setup QR for normal use)
+The parent only ever scans the QR shown by `MinControl-Setup.exe` / `MinControl.Connect` on the child's PC.
+- **QR v2**: `mincontrol://pair?v=2&u=<urlencoded server URL>&c=<claimId>&f=<fp>`. Phones accept v1 (no `u`) too.
+- **Phone not set up yet** (no master keys on the phone): it creates its keys (sign + read, seal key) as in §4, then
+  `POST /v1/master/register-with-claim` (no X-MC-Auth) body
+  `{"claimId","keys":[{keyId,alg,publicKey,role}],"sealPubKey","sig":"<b64url signature by the new sign key over UTF-8 \"register|\"+claimId>"}`.
+  Allowed **only when no master is registered yet on this server** (trust on first use) and the claim is pending and not
+  expired; otherwise `409 {"error":"master_exists"}` / `410 expired`. On success it atomically registers the master
+  and approves the claim exactly like §10 approve → `201 {"deviceId","keys":[{keyId,role}]}`. The phone then continues
+  with the normal "choose managed users → sign policy v1" step.
+- **Phone already set up**: unchanged §10 flow (approve with the sign key).
+- **`master_exists` on a new phone** → the app explains "Máy chủ đã có điện thoại quản lý. Dùng điện thoại cũ để
+  quét, hoặc chọn Đổi điện thoại." The "Đổi điện thoại" path is the existing `/v1/master/register` with the bootstrap
+  secret (setup-qr / manual), now hidden under "Đổi điện thoại / khôi phục".
+- Re-pairing a PC whose pinned master keys are stale: Setup/Connect "Ghép nối lại" creates a new claim; the approval
+  response (§10) carries the current master keys and the device re-pins them.
