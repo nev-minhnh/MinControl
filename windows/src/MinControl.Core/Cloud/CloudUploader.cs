@@ -46,6 +46,29 @@ public sealed class CloudUploader
         _log = log ?? (ILogger)NullLogger.Instance;
     }
 
+    /// <summary>web.* events are flushed this long after the first one is queued instead of waiting for the
+    /// 60 s batch window (history polls every 10 s; this coalesces one poll's events into one POST).</summary>
+    public static readonly TimeSpan WebFlushDelay = TimeSpan.FromSeconds(5);
+
+    internal TimeSpan NudgeDelay { get; set; } = WebFlushDelay;
+    private int _nudgePending;
+
+    /// <summary>Raised when queued events should be flushed now (CloudLink signals its upload loop).</summary>
+    public event Action? FlushDue;
+
+    /// <summary>Called for every queued event: a web.* event schedules one <see cref="FlushDue"/> after
+    /// <see cref="NudgeDelay"/> (further events inside that window join the same flush). Batches stay ≤ 500.</summary>
+    public void Nudge(string eventType)
+    {
+        if (!eventType.StartsWith("web.", StringComparison.Ordinal)) return;
+        if (Interlocked.Exchange(ref _nudgePending, 1) == 1) return;
+        _ = Task.Delay(NudgeDelay).ContinueWith(_ =>
+        {
+            Volatile.Write(ref _nudgePending, 0);
+            FlushDue?.Invoke();
+        }, TaskScheduler.Default);
+    }
+
     /// <summary>Uploads the whole outbox in batches. Stops at the first non-success.</summary>
     public async Task<UploadResult> FlushEventsAsync(CancellationToken ct)
     {
