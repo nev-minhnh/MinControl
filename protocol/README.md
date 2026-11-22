@@ -14,6 +14,7 @@ and `fixtures/invalid/*` (must fail) against these schemas.
 | `command.schema.json` | immediate commands (master → device) |
 | `command-ack.schema.json` | device → cloud acknowledgement |
 | `event.schema.json` / `event-batch.schema.json` | telemetry device → cloud |
+| `device-state.schema.json` | live device status (WS `state` frame, API.md §2) |
 
 ## Signing rules (security-critical)
 
@@ -34,7 +35,8 @@ and `fixtures/invalid/*` (must fail) against these schemas.
 (e.g. `fixtures/policy/valid/basic.json` → `policy.schema.json`). Fixtures stay pure JSON; the
 reason an invalid fixture must fail is its file name (`missing-userSid.json`).
 `fixtures/policy/semantic-invalid/*` pass the schema but must be **rejected by each agent's policy
-validator** (overlapping or midnight-crossing windows, contradictory web rules). Regenerate all
+validator** (overlapping or midnight-crossing windows, warnAtMin ≥ that day's quota, a domain in both block and allow
+lists, allowlist mode with no allowDomains, unknown IANA timezone, contradictory web rules). Regenerate all
 fixtures with `python tools/gen_fixtures.py` — never hand-edit them.
 Run `npm test` in this folder for the reference (ajv) check.
 
