@@ -18,20 +18,18 @@ public sealed record OutboxItem(long Id, string Type, string Json);
 
 /// <summary>
 /// The agent's durable state in SQLite (<c>state.db</c>): enrolment meta, pinned master keys, per-kind seq,
-/// policy + its envelope, overrides, usage ledger, approvals, outbox and pending blobs.
+/// policy + its envelope, overrides, usage ledger, approvals, outbox (screenshots live on disk, API.md §9).
 /// One connection guarded by a lock: the agent's write rate is tiny (ledger flush every 30 s, events).
 /// </summary>
 public sealed class StateStore : IDisposable
 {
     public const long DefaultOutboxCapBytes = 500L * 1024 * 1024;
-    public const long DefaultBlobCapBytes = 200L * 1024 * 1024;
 
     private readonly SqliteConnection _db;
     private readonly object _gate = new();
     private long _outboxBytes;
 
     public long OutboxCapBytes { get; set; } = DefaultOutboxCapBytes;
-    public long BlobCapBytes { get; set; } = DefaultBlobCapBytes;
 
     /// <param name="dbPath">file path, or <c>:memory:</c> for tests.</param>
     public StateStore(string dbPath)
@@ -58,7 +56,7 @@ public sealed class StateStore : IDisposable
             CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, json TEXT NOT NULL, size INTEGER NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_outbox_type ON outbox(type, id);
             CREATE TABLE IF NOT EXISTS applied_commands (command_id TEXT PRIMARY KEY, at TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS pending_blobs (key TEXT PRIMARY KEY, bytes BLOB NOT NULL, created_at TEXT NOT NULL);
+            DROP TABLE IF EXISTS pending_blobs;
             """);
         _outboxBytes = Scalar<long>("SELECT COALESCE(SUM(size),0) FROM outbox");
     }
@@ -327,45 +325,13 @@ public sealed class StateStore : IDisposable
         }
     }
 
-    // ---------------------------------------------------------------- pending blobs (sealed screenshots awaiting upload)
-    public void EnqueueBlob(string key, byte[] sealedBytes, string createdAtUtc)
-    {
-        lock (_gate)
-        {
-            Exec("INSERT OR REPLACE INTO pending_blobs(key,bytes,created_at) VALUES($k,$b,$c)", ("$k", key), ("$b", sealedBytes), ("$c", createdAtUtc));
-            var total = Scalar<long>("SELECT COALESCE(SUM(length(bytes)),0) FROM pending_blobs");
-            while (total > BlobCapBytes)
-            {
-                var oldest = Scalar<string?>("SELECT key FROM pending_blobs ORDER BY created_at, key LIMIT 1");
-                if (oldest is null) break;
-                Exec("DELETE FROM pending_blobs WHERE key=$k", ("$k", oldest));
-                total = Scalar<long>("SELECT COALESCE(SUM(length(bytes)),0) FROM pending_blobs");
-            }
-        }
-    }
-
-    public (string Key, byte[] Bytes)? PeekBlob()
-    {
-        lock (_gate)
-        {
-            using var cmd = Cmd("SELECT key, bytes FROM pending_blobs ORDER BY created_at, key LIMIT 1");
-            using var r = cmd.ExecuteReader();
-            return r.Read() ? (r.GetString(0), (byte[])r[1]) : null;
-        }
-    }
-
-    public void DeleteBlob(string key)
-    {
-        lock (_gate) Exec("DELETE FROM pending_blobs WHERE key=$k", ("$k", key));
-    }
-
     // ---------------------------------------------------------------- wipe (unenroll)
     public void WipeAll()
     {
         lock (_gate)
         {
             Exec("DELETE FROM meta; DELETE FROM master_keys; DELETE FROM seq; DELETE FROM policy; DELETE FROM overrides; " +
-                 "DELETE FROM ledger; DELETE FROM approvals; DELETE FROM approval_requests; DELETE FROM applied_commands; DELETE FROM outbox; DELETE FROM pending_blobs;");
+                 "DELETE FROM ledger; DELETE FROM approvals; DELETE FROM approval_requests; DELETE FROM applied_commands; DELETE FROM outbox;");
             _outboxBytes = 0;
         }
     }
