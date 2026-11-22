@@ -63,9 +63,11 @@ public sealed class CloudLink : ICloudLink
         policy.PolicyChanged += (_, _) => SignalState();
         commands.StateChanged += SignalState;
         commands.RefreshRequested += () => { SignalState(); SignalUpload(); };
+        uploader.FlushDue += SignalUpload;
         if (concreteSink is not null)
             concreteSink.Emitted += type =>
             {
+                uploader.Nudge(type);
                 if (type.StartsWith("tamper.", StringComparison.Ordinal) || type.StartsWith("request.", StringComparison.Ordinal)
                     || type == EventTypes.QuotaExhausted || _store.OutboxCount >= CloudUploader.MaxBatch)
                     SignalUpload();

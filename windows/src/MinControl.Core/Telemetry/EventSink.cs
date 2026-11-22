@@ -33,12 +33,18 @@ public sealed class EventSink : IEventSink
     public void Emit(string type, string? userSid, JsonObject data) => Emit(type, userSid, data, null);
 
     /// <summary>Emit with a caller-chosen id (screenshot.taken uses the id inside its blob key). Returns the event, or null if not enrolled.</summary>
-    public TelemetryEvent? Emit(string type, string? userSid, JsonObject data, string? id)
+    public TelemetryEvent? Emit(string type, string? userSid, JsonObject data, string? id) => EmitCore(type, userSid, data, id, null);
+
+    /// <summary>Emit an event that happened at <paramref name="at"/> (e.g. a browser-history visit read later):
+    /// <c>ts</c> is that time, id/monoMs are taken now.</summary>
+    public TelemetryEvent? EmitAt(string type, string? userSid, JsonObject data, DateTimeOffset at) => EmitCore(type, userSid, data, null, at);
+
+    private TelemetryEvent? EmitCore(string type, string? userSid, JsonObject data, string? id, DateTimeOffset? at)
     {
         var deviceId = _store.GetMeta(StateStore.MetaKeys.DeviceId);
         if (deviceId is null) { _log.LogDebug("not enrolled; dropping {Type}", type); return null; }
         var now = _clock.UtcNow;
-        var ev = new TelemetryEvent(id ?? _ids.New(now), deviceId, userSid, Time.Utc(now), Math.Max(0, _clock.MonotonicMs), type,
+        var ev = new TelemetryEvent(id ?? _ids.New(now), deviceId, userSid, Time.Utc(at ?? now), Math.Max(0, _clock.MonotonicMs), type,
             (JsonObject)data.DeepClone());
         try
         {

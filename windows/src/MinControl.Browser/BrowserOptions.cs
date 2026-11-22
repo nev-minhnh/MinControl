@@ -38,6 +38,28 @@ public sealed class BrowserOptions
     /// <summary>Max messages a single pipe client may send per 10 s before it is disconnected.</summary>
     public int MaxMessagesPer10s { get; set; } = 200;
 
+    /// <summary>How often the browsers' History databases are checked for changes.</summary>
+    public TimeSpan HistoryPollInterval { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>The first time a browser profile is seen, only visits this recent are imported.</summary>
+    public TimeSpan HistoryFirstImportWindow { get; set; } = TimeSpan.FromHours(24);
+
+    /// <summary>Max visits read from one profile per poll (the rest follows on the next poll).</summary>
+    public int HistoryMaxVisitsPerPoll { get; set; } = 500;
+
+    /// <summary>Restricted data root (cursor file + tmp\ copies). Null = the Core DataPaths root
+    /// (%ProgramData%\MinControl).</summary>
+    public string? HistoryDataDirectory { get; set; }
+
+    /// <summary>True when an extension id is configured for <paramref name="browser"/> (msedge | chrome): only then is
+    /// the extension expected and its heartbeat monitored.</summary>
+    public bool ExtensionConfigured(string browser) => browser switch
+    {
+        "msedge" => Policy.BrowserPolicyMapper.IsExtensionId(EdgeExtensionId),
+        "chrome" => Policy.BrowserPolicyMapper.IsExtensionId(ChromeExtensionId),
+        _ => false,
+    };
+
     internal string ResolvedManifestPath =>
         NativeHostManifestPath ?? Path.Combine(Path.GetDirectoryName(NativeHostExePath) ?? AppContext.BaseDirectory,
             NativeHostName + ".json");
