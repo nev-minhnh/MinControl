@@ -120,10 +120,10 @@ class MasterApi(
 
     suspend fun events(
         id: String, type: String? = null, user: String? = null, from: Instant? = null, to: Instant? = null,
-        cursor: String? = null, limit: Int = 200,
+        cursor: String? = null, limit: Int = 200, exclude: String? = null,
     ): Page<EventItem> = call(
         "GET", "v1/master/devices/$id/events",
-        query = listOf("type" to type, "user" to user, "from" to from?.toRfc3339(), "to" to to?.toRfc3339(),
+        query = listOf("type" to type, "exclude" to exclude, "user" to user, "from" to from?.toRfc3339(), "to" to to?.toRfc3339(),
             "cursor" to cursor, "limit" to limit.coerceAtMost(200).toString()),
         out = Page.serializer(EventItem.serializer()),
     )
@@ -150,8 +150,9 @@ class MasterApi(
         exec(build(url("v1/master/blobs/$key"), "GET", null, auth = true))
     }
 
-    suspend fun alerts(cursor: String? = null, limit: Int = 100): Page<AlertItem> =
-        call("GET", "v1/master/alerts", query = listOf("cursor" to cursor, "limit" to limit.toString()),
+    suspend fun alerts(cursor: String? = null, limit: Int = 100, unacked: Boolean = false, deviceId: String? = null): Page<AlertItem> =
+        call("GET", "v1/master/alerts",
+            query = listOf("cursor" to cursor, "limit" to limit.toString(), "unacked" to if (unacked) "1" else null, "deviceId" to deviceId),
             out = Page.serializer(AlertItem.serializer()))
 
     suspend fun ackAlert(id: String) { callUnit("POST", "v1/master/alerts/$id/ack", body = ByteArray(0)) }

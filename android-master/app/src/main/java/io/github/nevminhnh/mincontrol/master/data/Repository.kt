@@ -156,16 +156,16 @@ class Repository(
     // ---------- alerts ----------
     val alerts: Flow<List<AlertView>> = dao.alertsFlow().map { rows ->
         rows.mapNotNull { row ->
-            runCatching { ApiJson.decodeFromString(AlertItem.serializer(), row.json) }.getOrNull()?.let { AlertView(it, row.acked) }
+            runCatching { ApiJson.decodeFromString(AlertItem.serializer(), row.json) }.getOrNull()?.let { AlertView(it, row.acked || it.isAcked) }
         }
     }
 
     suspend fun refreshAlerts() {
-        val acked = dao.ackedIds().toSet()
+        // The server is the source of truth for ack state (`ackedAt`); the Room flag mirrors it.
         val page = api.alerts(limit = 200)
         dao.putAlerts(page.items.map {
             AlertRow(it.id, it.deviceId, it.userSid, it.ts, it.type, it.severity,
-                ApiJson.encodeToString(AlertItem.serializer(), it), acked = it.id in acked)
+                ApiJson.encodeToString(AlertItem.serializer(), it), acked = it.isAcked)
         })
     }
 
@@ -175,21 +175,21 @@ class Repository(
     }
 
     // ---------- activity ----------
-    suspend fun events(deviceId: String, sid: String, from: Instant, to: Instant, cursor: String? = null) =
-        api.events(deviceId, user = sid, from = from, to = to, cursor = cursor)
+    suspend fun events(deviceId: String, sid: String, from: Instant, to: Instant, cursor: String? = null, exclude: String? = null) =
+        api.events(deviceId, user = sid, from = from, to = to, cursor = cursor, exclude = exclude)
 
     suspend fun usage(deviceId: String, sid: String, day: String) = api.usage(deviceId, sid, day)
 
     suspend fun web(deviceId: String, sid: String, from: Instant, to: Instant, q: String?, kind: String?, cursor: String?): Page<WebItem> {
         return try {
             val page = api.web(deviceId, user = sid, from = from, to = to, q = q?.ifBlank { null }, kind = kind, cursor = cursor)
-            dao.putWeb(page.items.map { WebRow(deviceId, sid, it.ts, it.url ?: it.host ?: "", it.kind, it.host, it.title, it.durationSec, it.category) })
+            dao.putWeb(page.items.map { WebRow(deviceId, sid, it.ts, it.url ?: it.host ?: "", it.kind, it.host, it.title, it.durationSec, it.category, it.query, it.engine) })
             page
         } catch (e: Exception) {
             if (cursor != null) throw e
             val rows = dao.web(deviceId, sid, from.toString(), to.toString(), kind, q?.ifBlank { null }, 200)
             if (rows.isEmpty()) throw e
-            Page(rows.map { WebItem(it.ts, it.kind, it.url, it.host, it.title, it.durationSec, it.category) }, null)
+            Page(rows.map { WebItem(it.ts, it.kind, it.url, it.host, it.title, it.durationSec, it.category, it.query, it.engine) }, null)
         }
     }
 

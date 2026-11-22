@@ -3,6 +3,8 @@ package io.github.nevminhnh.mincontrol.master.data.protocol
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -44,6 +46,8 @@ data class UserState(
     val groups: Map<String, GroupState> = emptyMap(),
     val foregroundExe: String? = null,
     val foregroundTitle: String? = null,
+    /** RFC3339 Z: when the current foreground app got focus (optional, API round 2). */
+    val foregroundStartedAt: String? = null,
 )
 
 @Serializable
@@ -115,6 +119,9 @@ data class WebItem(
     val title: String? = null,
     val durationSec: Int? = null,
     val category: String? = null,
+    /** `kind=search` only. */
+    val query: String? = null,
+    val engine: String? = null,
 )
 
 @Serializable
@@ -142,7 +149,11 @@ data class AlertItem(
     val type: String,
     val severity: String = "info",
     val data: JsonObject = JsonObject(emptyMap()),
-)
+    /** Server-side ack time (unix seconds or RFC3339, whatever the server sends); null = not acknowledged. */
+    val ackedAt: JsonElement? = null,
+) {
+    val isAcked: Boolean get() = ackedAt != null && ackedAt !is JsonNull
+}
 
 @Serializable
 data class PushSubscribe(val fcmToken: String)
