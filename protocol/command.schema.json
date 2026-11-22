@@ -3,78 +3,331 @@
   "$id": "https://mincontrol.local/protocol/command.schema.json",
   "title": "Command (master → device, inside a signed envelope)",
   "type": "object",
-  "required": ["commandId", "type"],
+  "required": [
+    "commandId",
+    "type"
+  ],
   "properties": {
-    "commandId": { "$ref": "common.schema.json#/$defs/ulid" },
-    "type": { "enum": ["lock_now", "unlock", "add_time", "pause_limits", "screenshot", "message", "approve_exe", "kill_process", "logoff", "refresh"] }
+    "commandId": {
+      "$ref": "common.schema.json#/$defs/ulid"
+    },
+    "type": {
+      "enum": [
+        "lock_now",
+        "unlock",
+        "add_time",
+        "pause_limits",
+        "screenshot",
+        "message",
+        "approve_exe",
+        "kill_process",
+        "logoff",
+        "refresh",
+        "diagnose"
+      ]
+    }
   },
   "oneOf": [
-    { "$ref": "#/$defs/lock_now" }, { "$ref": "#/$defs/unlock" }, { "$ref": "#/$defs/add_time" },
-    { "$ref": "#/$defs/pause_limits" }, { "$ref": "#/$defs/screenshot" }, { "$ref": "#/$defs/message" },
-    { "$ref": "#/$defs/approve_exe" }, { "$ref": "#/$defs/kill_process" }, { "$ref": "#/$defs/logoff" },
-    { "$ref": "#/$defs/refresh" }
+    {
+      "$ref": "#/$defs/lock_now"
+    },
+    {
+      "$ref": "#/$defs/unlock"
+    },
+    {
+      "$ref": "#/$defs/add_time"
+    },
+    {
+      "$ref": "#/$defs/pause_limits"
+    },
+    {
+      "$ref": "#/$defs/screenshot"
+    },
+    {
+      "$ref": "#/$defs/message"
+    },
+    {
+      "$ref": "#/$defs/approve_exe"
+    },
+    {
+      "$ref": "#/$defs/kill_process"
+    },
+    {
+      "$ref": "#/$defs/logoff"
+    },
+    {
+      "$ref": "#/$defs/refresh"
+    },
+    {
+      "$ref": "#/$defs/diagnose"
+    }
   ],
   "$defs": {
-    "id": { "$ref": "common.schema.json#/$defs/ulid" },
-    "sid": { "$ref": "common.schema.json#/$defs/sid" },
+    "id": {
+      "$ref": "common.schema.json#/$defs/ulid"
+    },
+    "sid": {
+      "$ref": "common.schema.json#/$defs/sid"
+    },
     "lock_now": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type", "userSid"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type",
+        "userSid"
+      ],
       "properties": {
-        "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "lock_now" }, "userSid": { "$ref": "#/$defs/sid" },
-        "until": { "$ref": "common.schema.json#/$defs/timestamp", "description": "absent = until unlock" }
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "lock_now"
+        },
+        "userSid": {
+          "$ref": "#/$defs/sid"
+        },
+        "until": {
+          "$ref": "common.schema.json#/$defs/timestamp",
+          "description": "absent = until unlock"
+        }
       }
     },
     "unlock": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type", "userSid"],
-      "properties": { "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "unlock" }, "userSid": { "$ref": "#/$defs/sid" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type",
+        "userSid"
+      ],
+      "properties": {
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "unlock"
+        },
+        "userSid": {
+          "$ref": "#/$defs/sid"
+        }
+      }
     },
     "add_time": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type", "userSid", "minutes"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type",
+        "userSid",
+        "minutes"
+      ],
       "properties": {
-        "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "add_time" }, "userSid": { "$ref": "#/$defs/sid" },
-        "minutes": { "type": "integer", "minimum": -240, "maximum": 480, "not": { "const": 0 } },
-        "group": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,31}$", "description": "absent = total screen time" }
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "add_time"
+        },
+        "userSid": {
+          "$ref": "#/$defs/sid"
+        },
+        "minutes": {
+          "type": "integer",
+          "minimum": -240,
+          "maximum": 480,
+          "not": {
+            "const": 0
+          }
+        },
+        "group": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+          "description": "absent = total screen time"
+        }
       }
     },
     "pause_limits": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type", "userSid", "until"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type",
+        "userSid",
+        "until"
+      ],
       "properties": {
-        "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "pause_limits" }, "userSid": { "$ref": "#/$defs/sid" },
-        "until": { "$ref": "common.schema.json#/$defs/timestamp" }
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "pause_limits"
+        },
+        "userSid": {
+          "$ref": "#/$defs/sid"
+        },
+        "until": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
       }
     },
     "screenshot": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type"],
-      "properties": { "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "screenshot" }, "userSid": { "$ref": "#/$defs/sid" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type"
+      ],
+      "properties": {
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "screenshot"
+        },
+        "userSid": {
+          "$ref": "#/$defs/sid"
+        }
+      }
     },
     "message": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type", "userSid", "text"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type",
+        "userSid",
+        "text"
+      ],
       "properties": {
-        "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "message" }, "userSid": { "$ref": "#/$defs/sid" },
-        "text": { "type": "string", "minLength": 1, "maxLength": 500 }
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "message"
+        },
+        "userSid": {
+          "$ref": "#/$defs/sid"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
       }
     },
     "approve_exe": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type", "userSid", "sha256", "decision"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type",
+        "userSid",
+        "sha256",
+        "decision"
+      ],
       "properties": {
-        "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "approve_exe" }, "userSid": { "$ref": "#/$defs/sid" },
-        "sha256": { "$ref": "common.schema.json#/$defs/sha256" }, "decision": { "enum": ["allow", "block"] }
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "approve_exe"
+        },
+        "userSid": {
+          "$ref": "#/$defs/sid"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "decision": {
+          "enum": [
+            "allow",
+            "block"
+          ]
+        }
       }
     },
     "kill_process": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type", "userSid", "pid"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type",
+        "userSid",
+        "pid"
+      ],
       "properties": {
-        "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "kill_process" }, "userSid": { "$ref": "#/$defs/sid" },
-        "pid": { "type": "integer", "minimum": 1 }, "exe": { "type": "string", "maxLength": 260, "description": "must match the pid's image name, guards against pid reuse" }
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "kill_process"
+        },
+        "userSid": {
+          "$ref": "#/$defs/sid"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "exe": {
+          "type": "string",
+          "maxLength": 260,
+          "description": "must match the pid's image name, guards against pid reuse"
+        }
       }
     },
     "logoff": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type", "userSid"],
-      "properties": { "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "logoff" }, "userSid": { "$ref": "#/$defs/sid" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type",
+        "userSid"
+      ],
+      "properties": {
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "logoff"
+        },
+        "userSid": {
+          "$ref": "#/$defs/sid"
+        }
+      }
     },
     "refresh": {
-      "type": "object", "additionalProperties": false, "required": ["commandId", "type"],
-      "properties": { "commandId": { "$ref": "#/$defs/id" }, "type": { "const": "refresh" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type"
+      ],
+      "properties": {
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "refresh"
+        }
+      }
+    },
+    "diagnose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandId",
+        "type"
+      ],
+      "properties": {
+        "commandId": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "diagnose"
+        }
+      }
     }
   }
 }
