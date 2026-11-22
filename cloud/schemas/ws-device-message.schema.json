@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/cloud/ws-device-message.schema.json",
+  "title": "Device -> server WebSocket frame (API.md section 2)",
+  "type": "object",
+  "required": ["t"],
+  "properties": { "t": { "enum": ["auth", "ack", "policy_applied", "policy_rejected", "state", "ping", "pong"] } },
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "deviceId", "ts", "sig"],
+      "properties": {
+        "t": { "const": "auth" },
+        "deviceId": { "$ref": "https://mincontrol.local/protocol/common.schema.json#/$defs/ulid" },
+        "ts": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "sig": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "ack"],
+      "properties": { "t": { "const": "ack" }, "ack": { "$ref": "https://mincontrol.local/protocol/command-ack.schema.json" } }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "version", "seq"],
+      "properties": {
+        "t": { "const": "policy_applied" },
+        "version": { "type": "integer", "minimum": 1 },
+        "seq": { "type": "integer", "minimum": 1 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "seq", "error"],
+      "properties": {
+        "t": { "const": "policy_rejected" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "error": { "type": "string", "maxLength": 64 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "state"],
+      "properties": { "t": { "const": "state" }, "state": { "$ref": "device-state.schema.json" } }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t"],
+      "properties": { "t": { "enum": ["ping", "pong"] } }
+    }
+  ]
+}
