@@ -5,8 +5,9 @@ import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import QRCode from 'qrcode';
 
-const secretsPath = process.argv[2] ?? 'D:\Coding_Project\MinControl\tools\secrets\cloud-dev.txt';
-const outPath = process.argv[3] ?? 'D:\Coding_Project\MinControl\release\dev\setup-qr.png';
+// Forward slashes on purpose: in a JS string literal "\t", "\r", "\M" would be escape sequences.
+const secretsPath = process.argv[2] ?? 'D:/Coding_Project/MinControl/tools/secrets/cloud-dev.txt';
+const outPath = process.argv[3] ?? 'D:/Coding_Project/MinControl/release/dev/setup-qr.png';
 
 const env = {};
 for (const line of readFileSync(secretsPath, 'utf8').split(/\r?\n/)) {
