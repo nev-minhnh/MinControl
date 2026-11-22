@@ -25,6 +25,12 @@ class BiometricSigner(private val keys: MasterKeyStore) {
 
     suspend fun sign(activity: FragmentActivity, title: String, subtitle: String?, data: ByteArray): SignedBytes =
         withContext(Dispatchers.Main) {
+            // B7: BiometricPrompt silently drops authenticate() when the host is not started or its fragment state is
+            // saved (e.g. right after a bottom-sheet / IME window change) - the first tap then shows nothing. Wait for it.
+            var waited = 0
+            while ((!activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) || activity.supportFragmentManager.isStateSaved) && waited < 3_000) {
+                kotlinx.coroutines.delay(50); waited += 50
+            }
             val session = keys.startSign()
             suspendCancellableCoroutine { cont ->
                 val callback = object : BiometricPrompt.AuthenticationCallback() {

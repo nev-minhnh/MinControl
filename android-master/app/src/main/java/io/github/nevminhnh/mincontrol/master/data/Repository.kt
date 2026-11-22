@@ -169,14 +169,22 @@ class Repository(
         })
     }
 
+    /** B3: sha256 -> decision made through this app (set once the cloud accepted the `approve_exe` command). */
+    val localDecisions = kotlinx.coroutines.flow.MutableStateFlow<Map<String, io.github.nevminhnh.mincontrol.master.ui.activity.ApprovalState>>(emptyMap())
+
+    fun recordDecision(sha256: String, allow: Boolean) {
+        val s = if (allow) io.github.nevminhnh.mincontrol.master.ui.activity.ApprovalState.ALLOWED else io.github.nevminhnh.mincontrol.master.ui.activity.ApprovalState.BLOCKED
+        localDecisions.value = localDecisions.value + (sha256 to s)
+    }
+
     suspend fun ackAlert(id: String) {
         api.ackAlert(id)
         dao.markAcked(id)
     }
 
     // ---------- activity ----------
-    suspend fun events(deviceId: String, sid: String, from: Instant, to: Instant, cursor: String? = null, exclude: String? = null) =
-        api.events(deviceId, user = sid, from = from, to = to, cursor = cursor, exclude = exclude)
+    suspend fun events(deviceId: String, sid: String?, from: Instant, to: Instant, cursor: String? = null, exclude: String? = null, type: String? = null) =
+        api.events(deviceId, type = type, user = sid, from = from, to = to, cursor = cursor, exclude = exclude)
 
     suspend fun usage(deviceId: String, sid: String, day: String) = api.usage(deviceId, sid, day)
 

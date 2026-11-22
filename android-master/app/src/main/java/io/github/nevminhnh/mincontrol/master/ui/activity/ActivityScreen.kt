@@ -191,7 +191,8 @@ private fun TimelineTab(vm: ActivityViewModel, child: Child) {
     val loading by vm.loading.collectAsState()
     val date by vm.date.collectAsState()
     val groupLabels = policy?.users?.get(child.sid)?.appGroups?.mapValues { it.value.label }.orEmpty()
-    val rows = remember(events, groupLabels) { TimelineBuilder.build(events, child.hostname, groupLabels) }
+    val decided by vm.decided.collectAsState()
+    val rows = remember(events, groupLabels, decided) { TimelineBuilder.build(events, child.hostname, groupLabels, decided) }
     val st = child.state
     val isToday = date == LocalDate.now()
     val usedMin = if (isToday && st != null) st.usedMin else (usage?.totalSec ?: 0) / 60
@@ -255,7 +256,11 @@ private fun TimelineRowView(r: TimelineRow, last: Boolean, onApprove: () -> Unit
         }
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(r.title, style = MaterialTheme.typography.titleMedium, color = if (r.red) DangerText else TextPrimary)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(r.title, style = MaterialTheme.typography.titleMedium, color = if (r.red) DangerText else TextPrimary, modifier = Modifier.weight(1f, fill = false))
+                if (r.device) Text("Máy", style = MaterialTheme.typography.labelSmall, color = TextSecondary,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Background).padding(horizontal = 6.dp, vertical = 2.dp))
+            }
             if (r.approve) {
                 Row {
                     Text("${r.sub} · ", style = MaterialTheme.typography.bodySmall, color = TextBody)

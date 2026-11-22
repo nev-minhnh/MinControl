@@ -8,12 +8,27 @@ import kotlinx.serialization.json.intOrNull
 
 enum class DotKind { LIVE, INFO, BLOCK, APP, NEUTRAL }
 
-data class TimelineRow(val ts: String, val dot: DotKind, val title: String, val sub: String, val red: Boolean = false, val approve: Boolean = false)
+data class TimelineRow(val ts: String, val dot: DotKind, val title: String, val sub: String, val red: Boolean = false, val approve: Boolean = false, val device: Boolean = false)
 
 /** Turns raw events (newest first, as returned by the API) into timeline rows (newest first). */
 object TimelineBuilder {
 
-    fun build(events: List<EventItem>, hostname: String, groupLabels: Map<String, String>): List<TimelineRow> {
+    /** Adds device-level tamper events (no userSid) to the child's own events; dedupes by id. */
+    fun mergeDeviceEvents(events: List<EventItem>, deviceLevel: List<EventItem>): List<EventItem> {
+        val ids = events.mapTo(HashSet()) { it.id }
+        return events + deviceLevel.filter { it.userSid == null && it.type.startsWith("tamper.") && ids.add(it.id) }
+    }
+
+    /** "Ứng dụng mới · <publisher | không có chữ ký> · <size>"; missing fields are left out. */
+    fun newAppSub(d: kotlinx.serialization.json.JsonObject): String {
+        val signed = (d["signed"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
+        val pub = d.str("publisher")?.takeIf { it.isNotBlank() }
+        val sig = when { pub != null && signed != false -> pub; signed == false -> "không có chữ ký"; else -> null }
+        val size = (d["sizeBytes"] as? JsonPrimitive)?.content?.toLongOrNull()?.let { Fmt.bytes(it) }
+        return listOfNotNull("Ứng dụng mới", sig, size).joinToString(" · ")
+    }
+
+    fun build(events: List<EventItem>, hostname: String, groupLabels: Map<String, String>, decided: Map<String, ApprovalState> = emptyMap()): List<TimelineRow> {
         val asc = events.sortedBy { it.ts }
         val rows = mutableListOf<TimelineRow>()
         // Collapse consecutive usage.tick events of the same exe into one "app session".
@@ -44,13 +59,13 @@ object TimelineBuilder {
                 e.data.str("title")?.let { sessionTitle = it }
                 continue
             }
-            row(e, hostname)?.let { flush(); rows += it }
+            row(e, hostname, decided)?.let { flush(); rows += it }
         }
         flush()
         return rows.sortedByDescending { it.ts }
     }
 
-    private fun row(e: EventItem, hostname: String): TimelineRow? {
+    private fun row(e: EventItem, hostname: String, decided: Map<String, ApprovalState>): TimelineRow? {
         val d = e.data
         return when (e.type) {
             "session.logon" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Đăng nhập $hostname", "Phiên ${d["sessionId"] ?: ""}".trim())
@@ -59,7 +74,12 @@ object TimelineBuilder {
             "session.unlock" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Mở khóa màn hình", "")
             "process.blocked" -> TimelineRow(e.ts, DotKind.BLOCK, "Chặn: ${d.str("exe") ?: "ứng dụng"}",
                 listOfNotNull(d.str("path"), d.str("rule")).joinToString(" · "), red = true)
-            "request.exe_approval" -> TimelineRow(e.ts, DotKind.INFO, "Chờ duyệt: ${d.str("exe") ?: "ứng dụng"}", "Ứng dụng mới", approve = true)
+            "request.exe_approval" -> {
+                val exe = d.str("exe") ?: "ứng dụng"
+                val state = d.str("sha256")?.let { decided[it] }
+                if (state != null) TimelineRow(e.ts, if (state == ApprovalState.BLOCKED) DotKind.BLOCK else DotKind.INFO, "${state.label}: $exe", newAppSub(d))
+                else TimelineRow(e.ts, DotKind.INFO, "Chờ duyệt: $exe", newAppSub(d), approve = true)
+            }
             "web.blocked" -> TimelineRow(e.ts, DotKind.BLOCK, "Chặn web: ${d.str("host") ?: ""}",
                 listOfNotNull(d.str("category")?.let { "Danh mục $it" }, reasonLabel(d.str("reason"))).joinToString(" · "), red = true)
             "web.search" -> TimelineRow(e.ts, DotKind.INFO, "Tìm kiếm ${engineLabel(d.str("engine"))}", "“${d.str("query") ?: ""}”")
@@ -70,7 +90,7 @@ object TimelineBuilder {
             "usb.attached" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Cắm USB: ${d.str("deviceName") ?: ""}", d.str("volumeLabel") ?: "")
             "usb.detached" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Rút USB: ${d.str("deviceName") ?: ""}", "")
             "screenshot.taken" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Ảnh màn hình", Fmt.appName(d.str("foregroundExe")))
-            else -> if (e.type.startsWith("tamper.")) TimelineRow(e.ts, DotKind.BLOCK, "Phát hiện can thiệp", d.str("detail") ?: e.type, red = true) else null
+            else -> if (e.type.startsWith("tamper.")) TimelineRow(e.ts, DotKind.BLOCK, "Phát hiện can thiệp", d.str("detail") ?: e.type, red = true, device = e.userSid == null) else null
         }
     }
 

@@ -90,6 +90,7 @@ class PolicyViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Signs the draft as version original+1 and PUTs it. */
     fun apply(activity: FragmentActivity, onDone: () -> Unit) = viewModelScope.launch {
+        if (applying.value) return@launch // debounce double taps
         val c = child.value ?: return@launch
         val d = drafts.value[c.deviceId] ?: return@launch
         val errs = PolicyValidation.errors(d.draft)

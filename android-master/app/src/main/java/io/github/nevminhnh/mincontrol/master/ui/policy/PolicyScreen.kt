@@ -117,6 +117,7 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
     val snackbar = remember { SnackbarHostState() }
     var dialog by remember { mutableStateOf<PolicyDialog?>(null) }
     var review by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var perDay by remember { mutableStateOf(false) }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.message.value = null } }
 
@@ -207,7 +208,7 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
                 if (applying) {
                     Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Primary) }
                 } else {
-                    PrimaryButton("Ký & áp dụng bằng vân tay", { vm.apply(activity) { review = false } }, Modifier.fillMaxWidth(),
+                    PrimaryButton("Ký & áp dụng bằng vân tay", { focusManager.clearFocus(); vm.apply(activity) { review = false } }, Modifier.fillMaxWidth(),
                         height = 56.dp, radius = 16.dp, enabled = errs.isEmpty(), icon = Icons.Outlined.Fingerprint)
                     TextButton(onClick = { vm.discard(); review = false }, modifier = Modifier.fillMaxWidth()) {
                         Text("Bỏ các thay đổi", color = TextBody, style = MaterialTheme.typography.labelLarge)

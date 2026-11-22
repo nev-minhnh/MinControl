@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowForwardIos
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
@@ -137,6 +138,7 @@ fun OverviewScreen(
                         bedtime = vm.bedtime(child),
                         busy = child.sid in pending,
                         onLock = { lockTarget = child },
+                        onUnlock = { vm.unlockNow(activity, child) },
                         onAdd = { vm.addTime(activity, child, it) },
                         onActivity = { vm.select(child); onActivity() },
                     )
@@ -207,6 +209,7 @@ private fun ChildCard(
     bedtime: String?,
     busy: Boolean,
     onLock: () -> Unit,
+    onUnlock: () -> Unit,
     onAdd: (Int) -> Unit,
     onActivity: () -> Unit,
 ) {
@@ -214,6 +217,7 @@ private fun ChildCard(
     val used = st?.usedMin ?: 0
     val remaining = st?.remainingMin ?: quotaToday?.let { (it - used).coerceAtLeast(0) }
     val total = quotaToday ?: remaining?.let { it + used }
+    val lockUi = LockUi.of(st)
     val active = child.online && st?.loggedOn == true && st.active && !st.locked
 
     if (!child.online) {
@@ -234,7 +238,7 @@ private fun ChildCard(
                 style = MaterialTheme.typography.bodySmall, color = TextSecondary,
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Background).padding(horizontal = 12.dp, vertical = 8.dp),
             )
-            QuickActions(busy, onLock, onAdd)
+            QuickActions(busy, false, onLock, onUnlock, onAdd)
         }
         return
     }
@@ -277,11 +281,11 @@ private fun ChildCard(
             val parts = buildList {
                 add("Đã dùng ${Fmt.duration(used)}" + (total?.let { " / ${Fmt.duration(it)}" } ?: ""))
                 bedtime?.let { add("Giờ ngủ lúc $it") }
-                st?.lockedUntil?.let { add("Khóa đến ${Fmt.relativeDayTime(it)}") }
+                lockUi.untilText?.let { add(it) }
             }
             Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = TextSecondary)
         }
-        QuickActions(busy, onLock, onAdd)
+        QuickActions(busy, lockUi.unlock, onLock, onUnlock, onAdd)
         Row(
             Modifier.clickable(onClick = onActivity).padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -301,12 +305,13 @@ private fun StatusLine(dot: Color, text: String) {
 }
 
 @Composable
-private fun QuickActions(busy: Boolean, onLock: () -> Unit, onAdd: (Int) -> Unit) {
+private fun QuickActions(busy: Boolean, locked: Boolean, onLock: () -> Unit, onUnlock: () -> Unit, onAdd: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        QuickAction(Modifier.weight(1f), DangerContainer, DangerBorder, DangerText, onLock, enabled = !busy) {
-            Icon(Icons.Outlined.Lock, null, tint = DangerText, modifier = Modifier.size(20.dp))
+        QuickAction(Modifier.weight(1f), if (locked) QuickActionBg else DangerContainer, if (locked) QuickActionBorder else DangerBorder, if (locked) Primary else DangerText, if (locked) onUnlock else onLock, enabled = !busy) {
+            val fg = if (locked) Primary else DangerText
+            Icon(if (locked) Icons.Outlined.LockOpen else Icons.Outlined.Lock, null, tint = fg, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(4.dp))
-            Text("Khóa", style = MaterialTheme.typography.labelLarge, color = DangerText)
+            Text(if (locked) "Mở khóa" else "Khóa", style = MaterialTheme.typography.labelLarge, color = fg)
         }
         listOf(15, 30, 60).forEach { m ->
             QuickAction(Modifier.weight(1f), QuickActionBg, QuickActionBorder, Primary, { onAdd(m) }, enabled = !busy) {

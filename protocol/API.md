@@ -107,7 +107,7 @@ Only the phone holds the private key.
 - **Error codes** for `PUT policy` / `POST commands`: 400 `invalid_body|wrong_device|expired`,
   403 `unknown_key|bad_signature`, 409 `replayed` (with `details.lastSeq`) | `duplicate`, 404 unknown/revoked device.
 - **Expiry**: policy envelopes `expiresAt` = issuedAt + 365 days; command envelopes ≤ 24 h
-  (lock_now: until + 1 h). Expired queued envelopes are never delivered.
+  (lock_now: max(issuedAt + 24 h, until + 1 h)). Expired queued envelopes are never delivered.
 - **WS**: auth timeout 30 s; close codes 4401 auth failed, 4403 revoked, 4000 replaced by a newer connection,
   4400 bad frame. Unacked commands are re-sent on reconnect (devices must treat a replay of an already
   applied commandId as `applied`, idempotently).
