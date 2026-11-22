@@ -53,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -70,7 +72,12 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.Weekday
 import io.github.nevminhnh.mincontrol.master.data.protocol.WeekdayMinutes
 import io.github.nevminhnh.mincontrol.master.data.protocol.WeekdayWindows
 import io.github.nevminhnh.mincontrol.master.data.protocol.YouTubeMode
+import io.github.nevminhnh.mincontrol.master.data.protocol.RuleAction
+import io.github.nevminhnh.mincontrol.master.policy.AppRules
 import io.github.nevminhnh.mincontrol.master.policy.PolicyDiff
+import io.github.nevminhnh.mincontrol.master.refresh.AutoRefreshEffect
+import io.github.nevminhnh.mincontrol.master.refresh.RefreshBox
+import io.github.nevminhnh.mincontrol.master.refresh.UpdatedLine
 import io.github.nevminhnh.mincontrol.master.policy.PolicyValidation
 import io.github.nevminhnh.mincontrol.master.policy.formatMinutes
 import io.github.nevminhnh.mincontrol.master.policy.formatWindows
@@ -102,6 +109,7 @@ private sealed interface PolicyDialog {
     data object Categories : PolicyDialog
     data class Domains(val block: Boolean) : PolicyDialog
     data object NetExempt : PolicyDialog
+    data object AppRuleAdd : PolicyDialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -121,6 +129,7 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var perDay by remember { mutableStateOf(false) }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.message.value = null } }
+    AutoRefreshEffect(vm.refresher)
 
     val c = child
     val up = c?.let { current?.draft?.users?.get(it.sid) }
@@ -139,11 +148,14 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
                 if (loading) Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Primary) }
                 else EmptyState(if (c == null) "Chưa có máy tính nào được quản lý" else "Không tải được quy tắc")
             } else {
-                Column(
-                    Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Editor(up, orig, perDay, { perDay = !perDay }, vm::edit) { dialog = it }
+                RefreshBox(vm.refresher, Modifier.weight(1f)) {
+                    Column(
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        UpdatedLine(vm.refresher)
+                        Editor(up, orig, perDay, { perDay = !perDay }, vm::edit) { dialog = it }
+                    }
                 }
             }
             if (changes.isNotEmpty()) {
@@ -181,6 +193,10 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
         }
         is PolicyDialog.Domains -> DomainsDialog(d.block, if (d.block) up.web.blockDomains else up.web.allowDomains, { dialog = null }) { list ->
             vm.edit { u -> u.copy(web = if (d.block) u.web.copy(blockDomains = list) else u.web.copy(allowDomains = list)) }
+            dialog = null
+        }
+        PolicyDialog.AppRuleAdd -> AppRuleDialog(vm, activity, { dialog = null }) { action, matches ->
+            vm.edit { u -> u.copy(appRules = AppRules.add(u.appRules, action, matches)) }
             dialog = null
         }
         PolicyDialog.NetExempt -> NetExemptDialog(up.web.netExemptApps, { dialog = null }) { list ->
@@ -292,6 +308,26 @@ private fun Editor(
             options = NewExecutable.entries.map { PolicyDiff.newExeLabel(it) to it },
             changed = orig != null && orig.newExecutable != up.newExecutable, last = true,
         ) { v -> edit { it.copy(newExecutable = v) } }
+    }
+
+    SectionLabel("Chặn ứng dụng", Modifier.padding(top = 8.dp))
+    PolicyCard {
+        Text(AppRules.ORDER_HELP, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(vertical = 10.dp))
+        if (up.appRules.isEmpty()) SettingRow("Chưa có quy tắc nào", subtitle = "Ứng dụng không nằm trong nhóm hay quy tắc sẽ theo mục “Ứng dụng lạ”.")
+        up.appRules.forEachIndexed { i, r ->
+            SettingRow(
+                "${AppRules.actionLabel(r.action)} · ${AppRules.describe(r)}",
+                subtitle = "Quy tắc ${i + 1}/${up.appRules.size}",
+                changed = orig != null && orig.appRules.getOrNull(i) != r,
+            ) {
+                RuleBtn("▲", "Đưa lên", i > 0) { edit { u -> u.copy(appRules = AppRules.move(u.appRules, i, -1)) } }
+                RuleBtn("▼", "Đưa xuống", i < up.appRules.lastIndex) { edit { u -> u.copy(appRules = AppRules.move(u.appRules, i, 1)) } }
+                RuleBtn("✕", "Xóa quy tắc", true) { edit { u -> u.copy(appRules = AppRules.remove(u.appRules, i)) } }
+            }
+        }
+        SettingRow("Thêm quy tắc chặn / cho phép", last = true, onClick = { open(PolicyDialog.AppRuleAdd) }) {
+            Text("+", style = MaterialTheme.typography.titleLarge, color = Primary)
+        }
     }
 
     val w = up.web
@@ -552,6 +588,49 @@ private fun NetExemptDialog(initial: List<AppMatch>, onDismiss: () -> Unit, onSa
             }
         },
         confirmButton = { TextButton(enabled = err == null, onClick = { onSave(list.map { AppMatch(path = it) }) }) { Text("Lưu") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
+        containerColor = Surface,
+    )
+}
+
+@Composable
+private fun RuleBtn(text: String, desc: String, enabled: Boolean, onClick: () -> Unit) {
+    Text(
+        text, color = if (enabled) TextBody else Outline,
+        modifier = Modifier.clip(CircleShape).then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .semantics { contentDescription = desc }.padding(horizontal = 10.dp, vertical = 8.dp),
+    )
+}
+
+/** Adds app rules: choose Chặn/Cho phép, then pick apps from the PC or type patterns. One rule is created per app pattern. */
+@Composable
+private fun AppRuleDialog(
+    vm: PolicyViewModel, activity: androidx.fragment.app.FragmentActivity, onDismiss: () -> Unit,
+    onSave: (RuleAction, List<AppMatch>) -> Unit,
+) {
+    var action by remember { mutableStateOf(RuleAction.BLOCK) }
+    val matches = remember { mutableStateListOf<AppMatch>() }
+    val err = matches.firstNotNullOfOrNull { AppRules.matchError(AppRules.clean(it)) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Thêm quy tắc ứng dụng") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RuleAction.entries.forEach { a ->
+                        io.github.nevminhnh.mincontrol.master.ui.components.FilterChip(AppRules.actionLabel(a), action == a, { action = a })
+                    }
+                }
+                Text(
+                    if (action == RuleAction.BLOCK) "Các ứng dụng này sẽ bị chặn chạy. Quy tắc chặn được đặt phía trên các quy tắc “Cho phép”."
+                    else "Các ứng dụng này luôn được phép, dù khớp một quy tắc chặn nằm dưới. Quy tắc được thêm vào cuối danh sách; dùng ▲ để đưa lên trên quy tắc chặn.",
+                    style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+                )
+                AppMatchEditor(vm, activity, "", matches)
+                if (err != null) Text(err, style = MaterialTheme.typography.bodySmall, color = DangerText)
+            }
+        },
+        confirmButton = { TextButton(enabled = matches.isNotEmpty() && err == null, onClick = { onSave(action, matches.toList()) }) { Text("Thêm") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
         containerColor = Surface,
     )

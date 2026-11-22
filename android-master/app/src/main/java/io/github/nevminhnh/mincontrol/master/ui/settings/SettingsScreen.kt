@@ -63,7 +63,7 @@ private sealed interface SettingsDialog {
 
 /** Settings: server, key fingerprints, seal-key backup (export/import), devices (revoke), re-register. */
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}) {
+fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: () -> Unit = {}) {
     val ctx = LocalContext.current
     val graph = ctx.graph
     val scope = rememberCoroutineScope()
@@ -113,6 +113,8 @@ fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}) {
 
                 SectionLabel("Máy tính", Modifier.padding(top = 8.dp))
                 Card {
+                    SettingRow("Chẩn đoán máy", subtitle = "Gửi lệnh chẩn đoán và xem tình trạng dịch vụ, bộ lọc, proxy, nhật ký",
+                        last = devices.isEmpty(), onClick = onDiagnose.takeIf { devices.isNotEmpty() })
                     if (devices.isEmpty()) SettingRow("Chưa có máy tính", last = true)
                     devices.forEachIndexed { i, d ->
                         SettingRow(
