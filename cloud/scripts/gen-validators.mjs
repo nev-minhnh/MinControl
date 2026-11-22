@@ -42,6 +42,7 @@ const exportsMap = {
   validateCommandAck: P + "command-ack.schema.json",
   validateEvent: P + "event.schema.json",
   validateEventBatch: P + "event-batch.schema.json",
+  validateInventory: P + "inventory.schema.json",
   validateEnrollRequest: C + "enroll-request.schema.json",
   validateEnrollStartRequest: C + "enroll-start-request.schema.json",
   validateMasterRegister: C + "master-register.schema.json",

@@ -5,7 +5,7 @@ import { DeviceHub } from "./device-hub";
 import type { Env } from "./env";
 import { json } from "./lib/http";
 import { Router } from "./router";
-import { deviceWs, postEvents, putBlob } from "./routes/device";
+import { deviceWs, postEvents, putBlob, putInventory } from "./routes/device";
 import { approveClaim, enrollStart, getClaim, getClaimByCode, pollClaim, rejectClaim } from "./routes/claims";
 import { createPairingCode, enroll } from "./routes/enroll";
 import * as m from "./routes/master";
@@ -22,6 +22,7 @@ export const router = new Router()
   .add("GET", "/v1/device/ws", "none", deviceWs)
   .add("POST", "/v1/device/events", "none", postEvents) // upload token checked in the handler
   .add("PUT", "/v1/device/blobs/*key", "none", putBlob) // upload token checked in the handler
+  .add("PUT", "/v1/device/inventory", "none", putInventory) // upload token checked in the handler
   // master
   .add("POST", "/v1/master/register", "none", m.register) // bootstrap secret checked in the handler
   .add("POST", "/v1/master/pairing-codes", "master", createPairingCode)
@@ -39,6 +40,7 @@ export const router = new Router()
   .add("GET", "/v1/master/devices/:id/events", "master", m.listEvents)
   .add("GET", "/v1/master/devices/:id/web", "master", m.listWeb)
   .add("GET", "/v1/master/devices/:id/usage", "master", m.getUsage)
+  .add("GET", "/v1/master/devices/:id/apps", "master", m.getApps)
   .add("GET", "/v1/master/devices/:id/screenshots", "master", m.listScreenshots)
   .add("GET", "/v1/master/blobs/*key", "master", m.getBlob)
   .add("GET", "/v1/master/alerts", "master", m.listAlerts)
