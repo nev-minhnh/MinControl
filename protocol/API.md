@@ -215,7 +215,7 @@ The parent only ever scans the QR shown by `MinControl-Setup.exe` / `MinControl.
 5. **Device**: a `master_keys` envelope verified with a currently pinned key **replaces** the pinned key set (and
    the seal public key) atomically; ack like a command (`applied`). An envelope signed by an unknown key → rejected.
 **B. Lost phone — recovery code.** The pre-generated QR (`mincontrol://setup…`, bootstrap secret) is renamed
-"Mã khôi phục": created once when the server is deployed, meant to be printed and kept. Using it (`/v1/master/register`)
-revokes old keys; the cloud then **rotates `ADMIN_BOOTSTRAP_SECRET` is NOT possible from the Worker**, so the app
-tells the parent to ask for a new recovery code; every PC must be re-paired ("Kết nối MinControl với điện thoại" →
-"Ghép nối lại"), because devices cannot verify keys no old phone vouched for.
+"Mã khôi phục": created once when the server is deployed, meant to be printed and kept. Using it (`/v1/master/register`) revokes old keys and marks that secret as used (the Worker stores a hash and refuses
+the same secret again), so the parent needs a new recovery code afterwards (`scripts/deploy-cloud.ps1 -RotateBootstrap`
+regenerates it and the QR). Every PC must then be re-paired ("Kết nối MinControl với điện thoại" → "Ghép nối lại"),
+because devices cannot verify keys no old phone vouched for.
