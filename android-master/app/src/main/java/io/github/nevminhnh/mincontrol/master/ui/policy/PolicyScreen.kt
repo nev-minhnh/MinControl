@@ -64,6 +64,7 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.AppMatch
 import io.github.nevminhnh.mincontrol.master.data.protocol.NewExecutable
 import io.github.nevminhnh.mincontrol.master.data.protocol.UserPolicy
 import io.github.nevminhnh.mincontrol.master.data.protocol.WebCategory
+import io.github.nevminhnh.mincontrol.master.ui.activity.WebLabels
 import io.github.nevminhnh.mincontrol.master.data.protocol.WebMode
 import io.github.nevminhnh.mincontrol.master.data.protocol.Weekday
 import io.github.nevminhnh.mincontrol.master.data.protocol.WeekdayMinutes
@@ -479,7 +480,10 @@ private fun CategoriesDialog(up: UserPolicy, onDismiss: () -> Unit, onSave: (Lis
                     val s = state[c] ?: CatState.OFF
                     var open by remember { mutableStateOf(false) }
                     Row(Modifier.fillMaxWidth().clickable { open = true }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(c.label, modifier = Modifier.weight(1f))
+                        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(c.label)
+                            Text(WebLabels.categoryDescription(c), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        }
                         Box {
                             Text("${s.label} ▾", color = if (s == CatState.OFF) TextSecondary else Primary, style = MaterialTheme.typography.titleSmall)
                             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
@@ -490,6 +494,7 @@ private fun CategoriesDialog(up: UserPolicy, onDismiss: () -> Unit, onSave: (Lis
                         }
                     }
                 }
+                Text(WebLabels.CATEGORY_SOURCE_NOTE, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(top = 8.dp))
                 if (state.values.any { it == CatState.SCHEDULE }) {
                     OutlinedTextField(study, { study = it }, label = { Text("Giờ học (Thứ 2 – Thứ 6)") }, isError = studyErr != null, modifier = Modifier.fillMaxWidth())
                     studyErr?.let { Text(it, color = DangerText, style = MaterialTheme.typography.bodySmall) }
