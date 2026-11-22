@@ -2,8 +2,13 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <OutputType>Exe</OutputType>
+    <!-- Setup runs elevated; the manifest makes Windows prompt for UAC when started from a normal prompt. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\MinControl.Core\MinControl.Core.csproj" />
+    <!-- uninstall cleanup: WFP filters (NetGuard) and browser policies / native host registration (Browser) -->
+    <ProjectReference Include="..\MinControl.NetGuard\MinControl.NetGuard.csproj" />
+    <ProjectReference Include="..\MinControl.Browser\MinControl.Browser.csproj" />
   </ItemGroup>
 </Project>
