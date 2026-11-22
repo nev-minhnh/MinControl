@@ -4,7 +4,7 @@
   "title": "Device -> server WebSocket frame (API.md section 2)",
   "type": "object",
   "required": ["t"],
-  "properties": { "t": { "enum": ["auth", "ack", "policy_applied", "policy_rejected", "state", "blob_missing", "ping", "pong"] } },
+  "properties": { "t": { "enum": ["auth", "ack", "policy_applied", "policy_rejected", "master_keys_applied", "master_keys_rejected", "state", "blob_missing", "ping", "pong"] } },
   "oneOf": [
     {
       "type": "object",
@@ -39,6 +39,25 @@
       "required": ["t", "seq", "error"],
       "properties": {
         "t": { "const": "policy_rejected" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "error": { "$ref": "https://mincontrol.local/protocol/command-ack.schema.json#/properties/error" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "seq"],
+      "properties": {
+        "t": { "const": "master_keys_applied" },
+        "seq": { "type": "integer", "minimum": 1 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "seq", "error"],
+      "properties": {
+        "t": { "const": "master_keys_rejected" },
         "seq": { "type": "integer", "minimum": 1 },
         "error": { "$ref": "https://mincontrol.local/protocol/command-ack.schema.json#/properties/error" }
       }

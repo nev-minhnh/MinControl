@@ -3,7 +3,7 @@ import type { EnqueueResult, PolicyMeta } from "../device-hub";
 import type { Env } from "../env";
 import { verifyEnvelope } from "../envelope";
 import { decodeCursor, cursorClause, paginate, parseLimit } from "../lib/cursor";
-import { type SigAlg, keyIdOf, publicKeyLengthOk, secretEquals } from "../lib/crypto";
+import { type SigAlg, keyIdOf, publicKeyLengthOk, secretEquals, sha256Hex } from "../lib/crypto";
 import { b64urlDecode } from "../lib/encoding";
 import { HttpError, json, noContent, notFound, parseJsonBytes, readBytes, validateOrThrow } from "../lib/http";
 import { localDay, normTs, nowIso } from "../lib/time";
@@ -91,6 +91,10 @@ export async function register(c: Ctx): Promise<Response> {
   if (!secret || !(await secretEquals(body.bootstrapSecret, secret))) {
     throw new HttpError(403, "forbidden", "bootstrap secret rejected");
   }
+  // Recovery code is single use (API.md section 13B): only the sha256 of the used secret is kept.
+  const secretHash = await sha256Hex(secret);
+  const used = await env.DB.prepare("SELECT v FROM config WHERE k = 'bootstrap_used'").first<{ v: string }>();
+  if (used?.v === secretHash) throw new HttpError(403, "recovery_code_used", "this recovery code was already used; generate a new one (deploy-cloud.ps1 -RotateBootstrap)");
   const ids = new Set<string>();
   for (const k of body.keys) {
     const raw = b64urlDecode(k.publicKey);
@@ -111,6 +115,7 @@ export async function register(c: Ctx): Promise<Response> {
         .bind(k.keyId, k.alg, k.publicKey, k.role, now),
     ),
     env.DB.prepare("INSERT OR REPLACE INTO config (k, v, updated_at) VALUES ('master_seal_pub_key', ?, ?)").bind(body.sealPubKey, now),
+    env.DB.prepare("INSERT OR REPLACE INTO config (k, v, updated_at) VALUES ('bootstrap_used', ?, ?)").bind(secretHash, now),
   ]);
   return json({ keys: body.keys.map((k) => ({ keyId: k.keyId, role: k.role })) }, 201);
 }

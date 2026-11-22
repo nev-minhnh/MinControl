@@ -24,3 +24,5 @@ export const validateMasterRegisterWithClaim: ValidateFn;
 export const validatePushSubscribe: ValidateFn;
 export const validateDeviceState: ValidateFn;
 export const validateWsDeviceMessage: ValidateFn;
+export const validateTransferClaim: ValidateFn;
+export const validateTransferComplete: ValidateFn;
