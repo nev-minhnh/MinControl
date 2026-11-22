@@ -21,6 +21,7 @@ public sealed class BrowserPolicyMapper
     public const string EdgePolicyKey = @"Software\Policies\Microsoft\Edge";
     public const string ChromePolicyKey = @"Software\Policies\Google\Chrome";
     public const string ForcelistSubKey = "ExtensionInstallForcelist";
+    public const string ClearBrowsingDataOnExitListSubKey = "ClearBrowsingDataOnExitList";
     public const string InternetSettingsKey = @"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
     public const string ConnectionsKey = InternetSettingsKey + @"\Connections";
     public const string IeControlPanelPolicyKey = @"Software\Policies\Microsoft\Internet Explorer\Control Panel";
@@ -67,7 +68,12 @@ public sealed class BrowserPolicyMapper
             list.Add(Str(key, "ProxyMode", "fixed_servers"));
             list.Add(Str(key, "ProxyServer", proxy));
             list.Add(Str(key, "ProxyBypassList", ProxyBypass));
+            // History is read from the browser's own History database: keep it and keep it undeletable.
+            list.Add(Dword(key, "AllowDeletingBrowserHistory", 0));
+            list.Add(Dword(key, "SavingBrowserHistoryDisabled", 0));
+            list.Add(Dword(key, "ForceEphemeralProfiles", 0));
         }
+        list.Add(Dword(EdgePolicyKey, "ClearBrowsingDataOnExit", 0));
 
         // WinINET proxy for apps using the system proxy (per-user).
         list.Add(Dword(InternetSettingsKey, "ProxyEnable", 1));
@@ -82,6 +88,14 @@ public sealed class BrowserPolicyMapper
         list.Add(Dword(IeControlPanelPolicyKey, "ConnectionSettings", 1));
         return list;
     }
+
+    /// <summary>List policies that must be empty for managed users (every value is deleted on apply), so browsing
+    /// data is never wiped on exit.</summary>
+    public static IReadOnlyList<string> ClearedListKeys() =>
+    [
+        EdgePolicyKey + "\\" + ClearBrowsingDataOnExitListSubKey,
+        ChromePolicyKey + "\\" + ClearBrowsingDataOnExitListSubKey,
+    ];
 
     /// <summary>(key, name) pairs the writer deletes on removal; same set as <see cref="MapUserValues"/>.
     /// The Connections blob is reset rather than deleted (see <see cref="MapUserResetValues"/>).</summary>

@@ -108,6 +108,14 @@ def body(kind, seq, b, exp="2026-11-22T09:50:00Z"):
     return {"deviceId": DEV, "kind": kind, "seq": seq, "issuedAt": "2026-11-22T08:50:00Z", "expiresAt": exp, "body": b}
 
 
+INV = {"deviceId": DEV, "generatedAt": "2026-11-22T08:45:00Z", "users": {SID: {"apps": [
+    {"id": "a" * 64, "name": "Minecraft Launcher", "kind": "win32", "publisher": "Mojang", "version": "2.3.1",
+     "installDir": r"C:\Program Files (x86)\Minecraft Launcher", "exe": "MinecraftLauncher.exe",
+     "exePath": r"C:\Program Files (x86)\Minecraft Launcher\MinecraftLauncher.exe",
+     "lastUsed": "2026-11-22T07:30:00Z", "minutes7d": 310, "category": "game"},
+    {"id": "b" * 64, "name": "game.exe", "kind": "seen", "exe": "game.exe", "minutes7d": 12},
+]}}}
+
 FIXTURES = {
     "policy": {
         "valid": {
@@ -193,6 +201,18 @@ FIXTURES = {
         "invalid": {
             "empty": {"deviceId": DEV, "sentAt": "2026-11-22T08:45:00Z", "events": []},
             "contains-invalid-event": {"deviceId": DEV, "sentAt": "2026-11-22T08:45:00Z", "events": [mutate(VISIT, lambda e: e.pop("userSid"))]},
+        },
+    },
+    "inventory": {
+        "valid": {
+            "two-apps": INV,
+            "empty-user": {"deviceId": DEV, "generatedAt": "2026-11-22T08:45:00Z", "users": {SID: {"apps": []}}},
+        },
+        "invalid": {
+            "bad-kind": mutate(INV, lambda i: i["users"][SID]["apps"][0].update(kind="msi")),
+            "bad-sha256-id": mutate(INV, lambda i: i["users"][SID]["apps"][0].update(id="NOTHEX")),
+            "unknown-field": mutate(INV, lambda i: i["users"][SID]["apps"][0].update(icon="x")),
+            "missing-name": mutate(INV, lambda i: i["users"][SID]["apps"][0].pop("name")),
         },
     },
     "signed-envelope": {

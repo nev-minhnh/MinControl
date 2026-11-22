@@ -137,6 +137,8 @@ class Repository(
 
     suspend fun commandStatus(deviceId: String, commandId: String) = api.commandStatus(deviceId, commandId)
 
+    suspend fun apps(deviceId: String, sid: String) = api.apps(deviceId, sid)
+
     fun newCommandId(): String = Ulid.next()
 
     // ---------- policy ----------

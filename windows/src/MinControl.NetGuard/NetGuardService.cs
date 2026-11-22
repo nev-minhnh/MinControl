@@ -22,6 +22,7 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
 {
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CategoryRefreshInterval = TimeSpan.FromHours(6);
+    private static readonly TimeSpan VerifyCacheTtl = TimeSpan.FromSeconds(60);
 
     private readonly NetGuardOptions _options;
     private readonly IWfpManager _wfp;
@@ -39,6 +40,9 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
     private IReadOnlyList<WfpUserRule>? _desired;   // null until the first successful ApplyAsync
     private CancellationTokenSource? _loopCts;
     private Task? _loop;
+    private VerifyCache? _verifyCache;   // last WFP verify result, reused by the bypass scan for ≤ 60 s
+
+    private sealed record VerifyCache(long AtMs, IReadOnlyList<WfpUserRule> Desired, WfpVerifyResult Result);
 
     public NetGuardService(NetGuardOptions options, IWfpManager wfp, FilteringProxy proxy, DomainAggregator aggregator,
         BypassDetector bypass, ExemptAppResolver exempt, CategoryStore categories, IUserDirectory users, IEventSink events,
@@ -68,7 +72,10 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
             // Proxy first: once filters are in place the managed user can only reach the network through it.
             StartProxySafe();
             await Task.Run(() => _wfp.Apply(rules), ct).ConfigureAwait(false);   // transactional: on failure old filters stay (I4)
+            var changed = ChangedRules(_desired, rules);
             _desired = rules;
+            _verifyCache = null;
+            EnforceNow(changed);
             EnsureLoop();
         }
         finally
@@ -102,6 +109,8 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
         {
             await Task.Run(() => _wfp.RemoveAll(), ct).ConfigureAwait(false);
             _desired = null;
+            _verifyCache = null;
+            _bypass.OnFiltersRemoved();
             await _proxy.StopAsync().ConfigureAwait(false);
             _aggregator.FlushAll();
         }
@@ -133,6 +142,45 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
             rules.Add(new WfpUserRule(sid, exempt));
         }
         return rules;
+    }
+
+    /// <summary>Rules that are new or whose exempt apps changed compared with <paramref name="previous"/>.</summary>
+    internal static List<WfpUserRule> ChangedRules(IReadOnlyList<WfpUserRule>? previous, IReadOnlyList<WfpUserRule> next)
+    {
+        var old = (previous ?? []).ToDictionary(r => r.Sid, StringComparer.OrdinalIgnoreCase);
+        return next.Where(r => !old.TryGetValue(r.Sid, out var o) ||
+                               !o.ExemptAppPaths.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(r.ExemptAppPaths)).ToList();
+    }
+
+    /// <summary>Resets the pre-existing connections the just-applied filters would block (only those SIDs).</summary>
+    private void EnforceNow(IReadOnlyList<WfpUserRule> rules)
+    {
+        if (rules.Count == 0) return;
+        try { _bypass.OnFiltersApplied(rules); }
+        catch (Exception ex) { _log.LogWarning(ex, "Resetting pre-existing connections failed"); }
+    }
+
+    /// <summary>
+    /// Bypass-scan check: are our filters for <paramref name="sid"/> installed? Uses a WFP verify result at most
+    /// 60 s old. Unknown (no rule / verify error) = false, so nothing is reported without proof the lock is in place.
+    /// </summary>
+    internal bool FiltersPresentFor(string sid)
+    {
+        var desired = _desired;
+        var rule = desired?.FirstOrDefault(r => string.Equals(r.Sid, sid, StringComparison.OrdinalIgnoreCase));
+        if (desired is null || rule is null) return false;
+        var cache = _verifyCache;
+        if (cache is null || !ReferenceEquals(cache.Desired, desired) ||
+            _clock.MonotonicMs - cache.AtMs > (long)VerifyCacheTtl.TotalMilliseconds)
+        {
+            try { cache = new VerifyCache(_clock.MonotonicMs, desired, _wfp.Verify(desired)); }
+            catch (WfpException ex) { _log.LogWarning(ex, "WFP verify failed"); return false; }
+            _verifyCache = cache;
+        }
+        var r = cache.Result;
+        if (!r.ProviderPresent || !r.SublayerPresent) return false;
+        var missing = r.MissingFilterKeys.ToHashSet();
+        return !WfpManager.ExpectedKeys(rule).Any(missing.Contains);
     }
 
     private void StartProxySafe()
@@ -183,7 +231,7 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
                 var desired = _desired;
                 var exempt = desired?.ToDictionary(r => r.Sid, r => r.ExemptAppPaths, StringComparer.OrdinalIgnoreCase)
                              ?? new Dictionary<string, IReadOnlyList<string>>();
-                _bypass.Scan(_options.ProxyPort, exempt);
+                _bypass.Scan(_options.ProxyPort, exempt, FiltersPresentFor);
             }
             if (now - lastCategories >= (long)CategoryRefreshInterval.TotalMilliseconds)
             {
@@ -210,6 +258,7 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
             WfpVerifyResult r;
             try { r = _wfp.Verify(desired); }
             catch (WfpException ex) { _log.LogWarning(ex, "WFP verify failed"); return; }
+            _verifyCache = new VerifyCache(_clock.MonotonicMs, desired, r);
             if (r.Ok) return;
 
             var missing = r.MissingFilterKeys.ToHashSet();
@@ -223,7 +272,12 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
                 try { _events.Emit(EventTypes.TamperWfpFilterMissing, rule.Sid, new JsonObject { ["detail"] = detail }); }
                 catch (Exception ex) { _log.LogWarning(ex, "Emit tamper.wfp_filter_missing failed"); }
             }
-            try { _wfp.Apply(desired); }
+            try
+            {
+                _wfp.Apply(desired);
+                _verifyCache = null;
+                EnforceNow(affected);   // connections opened while the filters were missing are pre-existing now
+            }
             catch (WfpException ex) { _log.LogError(ex, "WFP re-apply failed"); }
         }
         finally

@@ -464,3 +464,14 @@ export async function pushSubscribe(c: Ctx): Promise<Response> {
   return noContent();
 }
 
+
+/** GET /v1/master/devices/:id/apps?user=<sid>: latest app inventory of one user (API.md section 11); 404 when none yet. */
+export async function getApps(c: Ctx): Promise<Response> {
+  const d = await requireDevice(c.env, c.params.id, true);
+  const sid = qSid(c);
+  if (!sid) throw new HttpError(400, "invalid_query", "user (SID) is required");
+  const row = await c.env.DB.prepare("SELECT generated_at, apps_json FROM app_inventory WHERE device_id = ? AND user_sid = ?")
+    .bind(d.id, sid).first<{ generated_at: string; apps_json: string }>();
+  if (!row) throw notFound("no inventory yet");
+  return json({ generatedAt: row.generated_at, apps: JSON.parse(row.apps_json) });
+}

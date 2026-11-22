@@ -185,3 +185,22 @@ data class PushAlert(
     val title: String,
     val body: String,
 )
+
+/** `GET /v1/master/devices/:id/apps` (API.md §11). */
+@Serializable
+data class InventoryApp(
+    val id: String,
+    val name: String,
+    val kind: String = "win32",
+    val publisher: String? = null,
+    val version: String? = null,
+    val installDir: String? = null,
+    val exe: String? = null,
+    val exePath: String? = null,
+    val lastUsed: String? = null,
+    val minutes7d: Int? = null,
+    val category: String? = null,
+)
+
+@Serializable
+data class InventoryResponse(val generatedAt: String? = null, val apps: List<InventoryApp> = emptyList())

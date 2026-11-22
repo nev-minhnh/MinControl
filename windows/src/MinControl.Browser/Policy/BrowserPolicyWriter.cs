@@ -43,6 +43,11 @@ public sealed class BrowserPolicyWriter : IBrowserPolicyWriter
                 using var user = _hive.OpenUserHive(sid, _users.ProfilePath(sid));
                 foreach (var w in _mapper.MapUserValues(web, proxyPort)) user.SetValue(w.Key, w.Name, w.Kind, w.Value);
                 foreach (var f in _mapper.MapForcelists()) WriteForcelist(user, f.Key, f.ExtensionId, f.Value);
+                foreach (var key in BrowserPolicyMapper.ClearedListKeys())
+                {
+                    foreach (var name in user.GetValues(key).Keys) user.DeleteValue(key, name);
+                    user.DeleteKeyIfEmpty(key, @"Software\Policies");
+                }
             }, ct).ConfigureAwait(false);
             _log.LogInformation("browser policy applied for {Sid} (proxy port {Port})", sid, proxyPort);
         }

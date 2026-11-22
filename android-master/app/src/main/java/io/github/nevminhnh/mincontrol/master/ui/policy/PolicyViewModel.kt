@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.nevminhnh.mincontrol.master.data.Child
 import io.github.nevminhnh.mincontrol.master.data.api.userMessage
+import io.github.nevminhnh.mincontrol.master.data.protocol.Command
+import io.github.nevminhnh.mincontrol.master.data.protocol.InventoryApp
 import io.github.nevminhnh.mincontrol.master.data.protocol.Policy
 import io.github.nevminhnh.mincontrol.master.data.protocol.UserPolicy
 import io.github.nevminhnh.mincontrol.master.graph
@@ -15,6 +17,7 @@ import io.github.nevminhnh.mincontrol.master.policy.PolicyDiff
 import io.github.nevminhnh.mincontrol.master.policy.PolicyValidation
 import io.github.nevminhnh.mincontrol.master.security.BiometricCancelledException
 import io.github.nevminhnh.mincontrol.master.ui.pick
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +26,16 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+sealed interface InventoryState {
+    data object Idle : InventoryState
+    data object Loading : InventoryState
+    data object Refreshing : InventoryState
+    /** 404: the PC has not uploaded an inventory yet. */
+    data object Missing : InventoryState
+    data class Failed(val message: String) : InventoryState
+    data class Ready(val apps: List<InventoryApp>, val generatedAt: String?) : InventoryState
+}
 
 /** Editing state for one device policy. */
 data class PolicyDraft(val deviceId: String, val original: Policy?, val draft: Policy)
@@ -48,6 +61,44 @@ class PolicyViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             child.map { it?.deviceId }.distinctUntilChanged().collect { id -> if (id != null && id !in drafts.value) load(id) }
+        }
+    }
+
+    // ---------- app inventory (API.md §11) ----------
+    val inventory = MutableStateFlow<InventoryState>(InventoryState.Idle)
+
+    fun loadInventory() {
+        val c = child.value ?: return
+        viewModelScope.launch {
+            inventory.value = InventoryState.Loading
+            inventory.value = try {
+                repo.apps(c.deviceId, c.sid)?.let { InventoryState.Ready(it.apps, it.generatedAt) } ?: InventoryState.Missing
+            } catch (e: Exception) { InventoryState.Failed(e.userMessage()) }
+        }
+    }
+
+    /** Sends a signed `refresh` command, then polls the inventory for up to 30 s. */
+    fun refreshInventory(activity: FragmentActivity) {
+        val c = child.value ?: return
+        val before = (inventory.value as? InventoryState.Ready)?.generatedAt
+        viewModelScope.launch {
+            inventory.value = InventoryState.Refreshing
+            try {
+                repo.sendCommand(activity, c.deviceId, Command.Refresh(repo.newCommandId()), "Làm mới danh sách ứng dụng của ${c.hostname}")
+            } catch (e: BiometricCancelledException) {
+                inventory.value = InventoryState.Missing; return@launch
+            } catch (e: Exception) {
+                inventory.value = InventoryState.Failed(e.userMessage()); return@launch
+            }
+            val deadline = System.currentTimeMillis() + 30_000
+            while (System.currentTimeMillis() < deadline) {
+                delay(3_000)
+                val r = runCatching { repo.apps(c.deviceId, c.sid) }.getOrNull()
+                if (r != null && (before == null || r.generatedAt != before)) {
+                    inventory.value = InventoryState.Ready(r.apps, r.generatedAt); return@launch
+                }
+            }
+            inventory.value = InventoryState.Failed("Máy chưa phản hồi. Thử lại sau ít phút.")
         }
     }
 

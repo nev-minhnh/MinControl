@@ -78,7 +78,8 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
 
         _components =
         [
-            new Installs.InstallWatcher(users, sink, options, loggerFactory.CreateLogger<Installs.InstallWatcher>()),
+            new Installs.InstallWatcher(users, sink, options, loggerFactory.CreateLogger<Installs.InstallWatcher>(),
+                onInstall: () => { try { _services.GetService<Inventory.InventoryService>()?.Trigger(); } catch { } }),
             new Usb.UsbWatcher(users, policy, sink, loggerFactory.CreateLogger<Usb.UsbWatcher>()),
             new Downloads.DownloadWatcher(users, policy, sink, options, loggerFactory.CreateLogger<Downloads.DownloadWatcher>()),
             aclLayer,
@@ -100,6 +101,9 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         ThreadPool.UnsafeQueueUserWorkItem(_ => RescanAll(), null);
 
         _sweep = new Timer(_ => Sweep(), null, _options.GroupSweepInterval, _options.GroupSweepInterval);
+
+        try { _services.GetService<Inventory.InventoryService>()?.Start(_services.GetService<MinControl.Core.Commands.CommandDispatcher>()); }
+        catch (Exception ex) { _log.LogWarning(ex, "Inventory service failed to start"); }
 
         foreach (var c in _components)
         {
@@ -132,6 +136,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         if (Interlocked.Exchange(ref _started, 0) == 0) return Task.CompletedTask;
         _policy.PolicyChanged -= OnPolicyChanged;
         _sweep?.Dispose();
+        try { _services.GetService<Inventory.InventoryService>()?.Stop(); } catch { }
         _source?.Dispose();
         _source = null;
         foreach (var c in _components)
@@ -180,6 +185,9 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
             Block(s.Pid, s.ParentPid, sid, path, decision);
             return;
         }
+
+        if (!_options.QuietExes.Contains(Path.GetFileName(path)))
+            try { _services.GetService<Inventory.UsageLedger>()?.Touch(sid, path, _clock.UtcNow); } catch { /* inventory is best effort */ }
 
         bool emit = !initial && ShouldEmit(s.ParentPid, path);
         if (_tracked.TryAdd(s.Pid, new Tracked(s.Pid, s.ParentPid, sid, path, emit, _clock.MonotonicMs)) && emit)

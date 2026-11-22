@@ -57,6 +57,29 @@ public class BrowserPolicyMapperTests
     }
 
     [Theory]
+    [InlineData(BrowserPolicyMapper.EdgePolicyKey)]
+    [InlineData(BrowserPolicyMapper.ChromePolicyKey)]
+    public void History_is_kept_and_cannot_be_deleted(string key)
+    {
+        var w = Mapper("", "").MapUserValues(Web(), 8877);
+        Assert.Equal(0, Value(w, key, "AllowDeletingBrowserHistory"));
+        Assert.Equal(0, Value(w, key, "SavingBrowserHistoryDisabled"));
+        Assert.Equal(0, Value(w, key, "ForceEphemeralProfiles"));
+        Assert.Equal(0, Value(w, key, "BrowserAddPersonEnabled"));
+        Assert.Equal(0, Value(w, key, "BrowserGuestModeEnabled"));
+        Assert.DoesNotContain(w, x => x.Name == "SyncDisabled");
+        Assert.Contains(key + @"\ClearBrowsingDataOnExitList", BrowserPolicyMapper.ClearedListKeys());
+    }
+
+    [Fact]
+    public void Edge_does_not_clear_browsing_data_on_exit()
+    {
+        var w = Mapper().MapUserValues(Web(), 8877);
+        Assert.Equal(0, Value(w, BrowserPolicyMapper.EdgePolicyKey, "ClearBrowsingDataOnExit"));
+        Assert.DoesNotContain(w, x => x.Key == BrowserPolicyMapper.ChromePolicyKey && x.Name == "ClearBrowsingDataOnExit");
+    }
+
+    [Theory]
     [InlineData(true, "strict", 1, 2)]
     [InlineData(true, "moderate", 1, 1)]
     [InlineData(false, "off", 0, 0)]

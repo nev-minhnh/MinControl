@@ -25,7 +25,9 @@ public sealed class ExtensionHeartbeatTracker
 /// <summary>
 /// Every <see cref="BrowserOptions.HeartbeatCheckInterval"/> looks for msedge.exe / chrome.exe processes owned by
 /// managed users. A browser running longer than <see cref="BrowserOptions.HeartbeatTimeout"/> with no heartbeat in
-/// that window emits tamper.extension_missing once per episode.
+/// that window emits tamper.extension_missing once per episode. Only browsers whose extension id is configured in
+/// <see cref="BrowserOptions"/> are monitored; with no id the extension is not expected (history comes from the
+/// History database) and this is a no-op.
 /// </summary>
 public sealed class ExtensionHeartbeatMonitor : BackgroundService, IExtensionHealth
 {
@@ -48,7 +50,12 @@ public sealed class ExtensionHeartbeatMonitor : BackgroundService, IExtensionHea
         _tracker = tracker; _users = users; _sink = sink; _clock = clock; _options = options.Value; _log = log;
     }
 
-    public bool IsExtensionMissing(string sid, string browser) => _alerted.TryGetValue((sid, browser), out var a) && a;
+    /// <summary>Always false for a browser without a configured extension id (the extension is optional).</summary>
+    public bool IsExtensionMissing(string sid, string browser) =>
+        _options.ExtensionConfigured(browser) && _alerted.TryGetValue((sid, browser), out var a) && a;
+
+    /// <summary>Test seam: replaces the process scan.</summary>
+    internal Func<IReadOnlyCollection<(string Sid, string Browser)>>? RunningProbe { get; set; }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -65,6 +72,7 @@ public sealed class ExtensionHeartbeatMonitor : BackgroundService, IExtensionHea
         long now = _clock.MonotonicMs;
         long timeoutMs = (long)_options.HeartbeatTimeout.TotalMilliseconds;
         var running = RunningBrowsers();
+        running.RemoveWhere(k => !_options.ExtensionConfigured(k.Browser));   // no id configured → nothing to monitor
 
         foreach (var key in _runningSince.Keys)
             if (!running.Contains(key)) { _runningSince.TryRemove(key, out _); _alerted.TryRemove(key, out _); }
@@ -90,11 +98,14 @@ public sealed class ExtensionHeartbeatMonitor : BackgroundService, IExtensionHea
 
     private HashSet<(string Sid, string Browser)> RunningBrowsers()
     {
+        if (RunningProbe is not null) return new HashSet<(string, string)>(RunningProbe());
         var set = new HashSet<(string, string)>();
+        if (!Browsers.Any(b => _options.ExtensionConfigured(b.Browser))) return set;
         var managed = _users.ManagedSids;
         if (managed.Count == 0) return set;
         foreach (var (proc, browser) in Browsers)
         {
+            if (!_options.ExtensionConfigured(browser)) continue;
             foreach (var p in Process.GetProcessesByName(proc))
             {
                 using (p)

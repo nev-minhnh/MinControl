@@ -2,12 +2,12 @@
 import { saveAndPushAlerts } from "../alerts";
 import { verifyUploadToken } from "../auth/upload-token";
 import { type IngestEvent, ingestEvents } from "../ingest";
-import { HttpError, errorResponse, json, parseJsonBytes, readBytes } from "../lib/http";
+import { HttpError, errorResponse, json, parseJsonBytes, readBytes, validateOrThrow } from "../lib/http";
 import { normTs } from "../lib/time";
 import { ULID_RE } from "../lib/ulid";
 import type { Ctx } from "../router";
 import { BLOB_KEY_RE } from "./master";
-import { validateEvent } from "../generated/validators";
+import { validateEvent, validateInventory } from "../generated/validators";
 
 export const MAX_BLOB_BYTES = 2 * 1024 * 1024;
 const MAX_BATCH_BYTES = 5 * 1024 * 1024;
@@ -114,4 +114,42 @@ export async function putBlob(c: Ctx): Promise<Response> {
   const ok = await hub.resolveBlob(reqId, key, bytes);
   if (!ok) throw new HttpError(410, "gone", "unknown or expired reqId");
   return new Response(null, { status: 200 });
+}
+
+const MAX_INVENTORY_BYTES = 512 * 1024;
+
+interface InventoryBody {
+  deviceId: string;
+  generatedAt: string;
+  users: Record<string, { apps: Array<{ id: string }> }>;
+}
+
+/**
+ * PUT /v1/device/inventory (API.md section 11): latest app inventory per managed SID, replaced on every upload.
+ * SIDs that are not managed users of this device are ignored; duplicate app ids within a user are dropped.
+ */
+export async function putInventory(c: Ctx): Promise<Response> {
+  const device = await authDevice(c);
+  const body = validateOrThrow<InventoryBody>(validateInventory, parseJsonBytes(await readBytes(c.request, MAX_INVENTORY_BYTES)), "inventory");
+  if (body.deviceId !== device.id) throw new HttpError(403, "wrong_device", "inventory deviceId does not match the upload token");
+  const managed = new Set(
+    (await c.env.DB.prepare("SELECT user_sid FROM managed_users WHERE device_id = ? AND managed = 1").bind(device.id).all<{ user_sid: string }>()).results.map((r) => r.user_sid),
+  );
+  const at = normTs(body.generatedAt)!;
+  const stmts = [];
+  let stored = 0;
+  for (const [sid, u] of Object.entries(body.users)) {
+    if (!managed.has(sid)) continue;
+    const seen = new Set<string>();
+    const apps = u.apps.filter((a) => !seen.has(a.id) && seen.add(a.id));
+    stmts.push(
+      c.env.DB.prepare(
+        "INSERT INTO app_inventory (device_id, user_sid, generated_at, apps_json) VALUES (?, ?, ?, ?) " +
+          "ON CONFLICT (device_id, user_sid) DO UPDATE SET generated_at = excluded.generated_at, apps_json = excluded.apps_json",
+      ).bind(device.id, sid, at, JSON.stringify(apps)),
+    );
+    stored++;
+  }
+  if (stmts.length) await c.env.DB.batch(stmts);
+  return json({ stored });
 }
