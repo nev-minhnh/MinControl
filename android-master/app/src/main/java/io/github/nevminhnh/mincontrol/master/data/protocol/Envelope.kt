@@ -27,6 +27,7 @@ enum class SigAlg {
 enum class BodyKind {
     @SerialName("policy") POLICY,
     @SerialName("command") COMMAND,
+    @SerialName("master_keys") MASTER_KEYS,
 }
 
 /**
