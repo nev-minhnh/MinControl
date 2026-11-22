@@ -1,13 +1,16 @@
 package io.github.nevminhnh.mincontrol.master.data.protocol
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 /** Mirrors `protocol/signed-envelope.schema.json`. `payload` = base64url (no padding) of the UTF-8 [SignedBody] JSON. */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class SignedEnvelope(
-    val v: Int = 1,
+    @EncodeDefault val v: Int = 1,
     val alg: SigAlg,
     val keyId: String,
     val payload: String,
