@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/protocol/policy.schema.json",
+  "title": "Device policy (desired state)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "timezone", "users", "retentionDays"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "timezone": { "type": "string", "pattern": "^[A-Za-z_]+(/[A-Za-z0-9_+-]+){1,2}$", "default": "Asia/Ho_Chi_Minh" },
+    "users": {
+      "type": "object",
+      "description": "managed users keyed by SID; any SID not listed is unmanaged",
+      "propertyNames": { "$ref": "common.schema.json#/$defs/sid" },
+      "additionalProperties": { "$ref": "#/$defs/userPolicy" },
+      "maxProperties": 16
+    },
+    "retentionDays": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events", "web", "screenshots"],
+      "properties": {
+        "events": { "type": "integer", "minimum": 1, "maximum": 730 },
+        "web": { "type": "integer", "minimum": 1, "maximum": 730 },
+        "screenshots": { "type": "integer", "minimum": 1, "maximum": 365 }
+      }
+    }
+  },
+  "$defs": {
+    "userPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "screenTime", "appGroups", "appRules", "newExecutable", "web", "monitoring"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "screenTime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dailyQuotaMin", "allowedWindows", "warnAtMin", "graceSec", "countIdle", "idleThresholdSec"],
+          "properties": {
+            "dailyQuotaMin": { "$ref": "common.schema.json#/$defs/weekdayMinutes" },
+            "allowedWindows": { "$ref": "common.schema.json#/$defs/weekdayWindows" },
+            "warnAtMin": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 60 }, "maxItems": 4, "uniqueItems": true },
+            "graceSec": { "type": "integer", "minimum": 0, "maximum": 600 },
+            "countIdle": { "type": "boolean" },
+            "idleThresholdSec": { "type": "integer", "minimum": 60, "maximum": 3600 }
+          }
+        },
+        "appGroups": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_-]{0,31}$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "match"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1, "maxLength": 40 },
+              "match": { "type": "array", "minItems": 1, "items": { "$ref": "common.schema.json#/$defs/appMatch" } },
+              "dailyQuotaMin": { "$ref": "common.schema.json#/$defs/weekdayMinutes" }
+            }
+          }
+        },
+        "appRules": {
+          "type": "array",
+          "description": "evaluated in order; first match wins",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "match"],
+            "properties": {
+              "action": { "enum": ["block", "allow"] },
+              "match": { "$ref": "common.schema.json#/$defs/appMatch" },
+              "except": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/appMatch" } }
+            }
+          }
+        },
+        "newExecutable": { "enum": ["allow", "block", "ask"] },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "blockedCategories", "blockDomains", "allowDomains", "safeSearch", "youtube", "allowedBrowsers", "netExemptApps"],
+          "properties": {
+            "mode": { "enum": ["blocklist", "allowlist"] },
+            "blockedCategories": { "type": "array", "uniqueItems": true, "items": { "enum": ["adult", "gambling", "proxy-vpn", "games", "social", "video", "violence", "drugs", "dating", "malware"] } },
+            "categorySchedules": {
+              "type": "object",
+              "description": "category blocked only inside these windows (e.g. games during study time); categories listed here must not also be in blockedCategories",
+              "propertyNames": { "enum": ["games", "social", "video"] },
+              "additionalProperties": { "$ref": "common.schema.json#/$defs/weekdayWindows" }
+            },
+            "blockDomains": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/domainPattern" } },
+            "allowDomains": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/domainPattern" } },
+            "safeSearch": { "type": "boolean" },
+            "youtube": { "enum": ["off", "moderate", "strict"] },
+            "allowedBrowsers": { "type": "array", "minItems": 1, "items": { "enum": ["msedge.exe", "chrome.exe"] }, "uniqueItems": true },
+            "netExemptApps": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/appMatch" } }
+          }
+        },
+        "monitoring": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["foregroundTitles", "browserHistory", "domainLog", "downloads", "usb", "screenshots"],
+          "properties": {
+            "foregroundTitles": { "type": "boolean" },
+            "browserHistory": { "type": "boolean" },
+            "domainLog": { "type": "boolean" },
+            "downloads": { "type": "boolean" },
+            "usb": { "type": "boolean" },
+            "screenshots": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["intervalMin", "onlyWhenActive", "maxWidth", "jpegQuality"],
+              "properties": {
+                "intervalMin": { "type": "integer", "minimum": 0, "maximum": 240, "description": "0 = only on demand" },
+                "onlyWhenActive": { "type": "boolean" },
+                "maxWidth": { "type": "integer", "minimum": 320, "maximum": 3840 },
+                "jpegQuality": { "type": "integer", "minimum": 20, "maximum": 95 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/protocol/command-ack.schema.json",
+  "title": "Command acknowledgement (device → cloud)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["commandId", "status", "at"],
+  "properties": {
+    "commandId": { "$ref": "common.schema.json#/$defs/ulid" },
+    "status": { "enum": ["applied", "rejected", "failed"] },
+    "at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "error": { "enum": ["bad_signature", "unknown_key", "wrong_device", "replayed", "expired", "invalid_body", "unmanaged_user", "not_found", "internal"] },
+    "detail": { "type": "string", "maxLength": 500 }
+  },
+  "if": { "properties": { "status": { "const": "applied" } } },
+  "then": { "not": { "required": ["error"] } },
+  "else": { "required": ["error"] }
+}

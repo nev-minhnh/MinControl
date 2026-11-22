@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "timezone": "Asia/Ho_Chi_Minh",
+  "users": {},
+  "retentionDays": {
+    "events": 180,
+    "web": 180,
+    "screenshots": 30
+  }
+}
