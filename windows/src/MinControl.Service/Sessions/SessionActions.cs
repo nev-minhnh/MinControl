@@ -16,9 +16,11 @@ internal sealed class SessionActions(
     SessionTracker sessions,
     UserDirectory users,
     SessionChannelRegistry channels,
+    IClock clock,
     ILogger<SessionActions> log) : ISessionActions
 {
     public static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(15);
+    private readonly BlockedNoticeLimiter _noticeLimiter = new();
 
     public Task LogoffAsync(string sid, string reason, CancellationToken ct)
     {
@@ -41,6 +43,19 @@ internal sealed class SessionActions(
 
     public Task ShowMessageAsync(string sid, string text, CancellationToken ct) =>
         Broadcast(sid, IpcMessage.Of(IpcTypes.Message, new JsonObject { ["text"] = text.Length > 2000 ? text[..2000] : text }), ct);
+
+    /// <summary>Corner toast "MinControl đã chặn …" (web proxy / app monitor). Same title ≤ 1 per 60 s and ≤ 3 per
+    /// minute per user (<see cref="BlockedNoticeLimiter"/>); the rest is dropped.</summary>
+    public Task ShowBlockedNoticeAsync(string sid, string title, string reason, CancellationToken ct)
+    {
+        if (!users.IsManaged(sid)) return Task.CompletedTask;   // quiet: proxy/monitor only call this for managed users
+        if (!_noticeLimiter.TryAcquire(sid, title, clock.MonotonicMs)) return Task.CompletedTask;
+        return Broadcast(sid, IpcMessage.Of(IpcTypes.BlockedNotice, new JsonObject
+        {
+            ["title"] = title.Length > 200 ? title[..200] : title,
+            ["reason"] = reason.Length > 300 ? reason[..300] : reason,
+        }), ct);
+    }
 
     public Task<bool> KillProcessAsync(string sid, int pid, string? expectedExe, CancellationToken ct)
     {

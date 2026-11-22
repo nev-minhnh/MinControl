@@ -31,6 +31,7 @@ public sealed class FilteringProxy : IAsyncDisposable
     private readonly CallerIdentifier _callers;
     private readonly DomainAggregator _aggregator;
     private readonly EventThrottle _blockedThrottle;
+    private readonly IBlockNotifier? _notifier;
     private readonly ILogger _log;
     private readonly object _gate = new();
     private Socket? _listener;
@@ -39,7 +40,8 @@ public sealed class FilteringProxy : IAsyncDisposable
     private int _active;
 
     public FilteringProxy(NetGuardOptions options, IUserDirectory users, IPolicyProvider policy, IEventSink events, IClock clock,
-        WebDecisionEngine engine, CallerIdentifier callers, DomainAggregator aggregator, ILogger<FilteringProxy>? log = null)
+        WebDecisionEngine engine, CallerIdentifier callers, DomainAggregator aggregator, ILogger<FilteringProxy>? log = null,
+        IBlockNotifier? notifier = null)
     {
         _options = options;
         _users = users;
@@ -50,6 +52,7 @@ public sealed class FilteringProxy : IAsyncDisposable
         _callers = callers;
         _aggregator = aggregator;
         _blockedThrottle = new EventThrottle(clock, options.BlockedEventDedup);
+        _notifier = notifier;
         _log = (ILogger?)log ?? NullLogger.Instance;
     }
 
@@ -287,6 +290,10 @@ public sealed class FilteringProxy : IAsyncDisposable
         if (!head.IsConnect) data["url"] = DomainAggregator.Truncate(head.Target, 2048);
         try { _events.Emit(EventTypes.WebBlocked, sid, data); }
         catch (Exception ex) { _log.LogWarning(ex, "Emit web.blocked failed"); }
+        // Same (sid, host) throttle as the event (once per BlockedEventDedup); the Service adds a per-user cap.
+        // The Vietnamese reason is only shown in the toast: web.blocked has additionalProperties:false.
+        try { _notifier?.NotifyWebBlocked(sid, host, d); }
+        catch (Exception ex) { _log.LogDebug(ex, "blocked notice failed"); }
     }
 
     /// <summary>Copies until EOF, then half-closes the destination. Returns bytes copied.</summary>

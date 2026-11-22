@@ -69,14 +69,73 @@ public sealed class CategoryIndex : ICategoryStore
 }
 
 /// <summary>
-/// Loads <c>%ProgramData%\MinControl\categories\&lt;category&gt;.txt</c> (one domain per line, suffix match)
-/// and swaps the index atomically on <see cref="Reload"/>.
+/// Snapshot of all category lists: hashed binary sets (<c>&lt;category&gt;[.&lt;part&gt;].bin</c>, written by
+/// <see cref="Categories.CategoryUpdater"/>) plus plain-text lists (<c>&lt;category&gt;.txt</c>, fallback / tests).
+/// A category matches when any of its sets or its text list contains the host or a parent domain.
+/// </summary>
+public sealed class CategorySnapshot : ICategoryStore
+{
+    private static readonly string[] None = [];
+    private readonly CategoryIndex _text;
+    private readonly KeyValuePair<string, HashedDomainSet>[] _sets;
+
+    public CategorySnapshot(CategoryIndex text, IEnumerable<KeyValuePair<string, HashedDomainSet>> sets)
+    {
+        _text = text;
+        _sets = sets.Where(kv => kv.Value.Count > 0)
+            .Select(kv => new KeyValuePair<string, HashedDomainSet>(kv.Key.Trim().ToLowerInvariant(), kv.Value)).ToArray();
+    }
+
+    public static CategorySnapshot Empty { get; } = new(CategoryIndex.Empty, []);
+
+    public int TextDomainCount => _text.DomainCount;
+    public long HashedDomainCount => _sets.Sum(kv => (long)kv.Value.Count);
+
+    public IReadOnlyCollection<string> CategoriesOf(string normalizedHost)
+    {
+        if (normalizedHost.Length == 0) return None;
+        var fromText = _text.CategoriesOf(normalizedHost);
+        if (_sets.Length == 0) return fromText;
+
+        // Hash each suffix once (a.b.c → a.b.c, b.c, c), then probe every set.
+        Span<ulong> hashes = stackalloc ulong[32];
+        var n = 0;
+        var span = normalizedHost.AsSpan();
+        while (span.Length > 0 && n < hashes.Length)
+        {
+            hashes[n++] = HashedDomainSet.Hash(span);
+            var dot = span.IndexOf('.');
+            if (dot < 0) break;
+            span = span[(dot + 1)..];
+        }
+
+        List<string>? result = fromText.Count > 0 ? new List<string>(fromText) : null;
+        foreach (var (cat, set) in _sets)
+        {
+            if (result is not null && result.Contains(cat)) continue;
+            for (var i = 0; i < n; i++)
+            {
+                if (!set.ContainsHash(hashes[i])) continue;
+                (result ??= new List<string>(2)).Add(cat);
+                break;
+            }
+        }
+        return (IReadOnlyCollection<string>?)result ?? None;
+    }
+}
+
+/// <summary>
+/// Loads <c>%ProgramData%\MinControl\categories\</c>: <c>*.bin</c> hashed sets (category = file name up to the first
+/// dot, so <c>proxy-vpn.vpn.bin</c> and <c>proxy-vpn.redirector.bin</c> both feed "proxy-vpn") and <c>*.txt</c>
+/// lists (one domain per line, suffix match). Swaps the snapshot atomically on <see cref="Reload"/>.
 /// </summary>
 public sealed class CategoryStore : ICategoryStore
 {
     private readonly string _directory;
     private readonly ILogger _log;
-    private volatile CategoryIndex _index = CategoryIndex.Empty;
+    private volatile CategorySnapshot _snapshot = CategorySnapshot.Empty;
+    private string? _fingerprint;
+    private readonly object _reloadGate = new();
 
     public CategoryStore(NetGuardOptions options, ILogger<CategoryStore>? log = null)
     {
@@ -86,40 +145,69 @@ public sealed class CategoryStore : ICategoryStore
     }
 
     public string Directory => _directory;
-    public CategoryIndex Current => _index;
+    public CategorySnapshot Current => _snapshot;
 
-    public IReadOnlyCollection<string> CategoriesOf(string normalizedHost) => _index.CategoriesOf(normalizedHost);
+    public IReadOnlyCollection<string> CategoriesOf(string normalizedHost) => _snapshot.CategoriesOf(normalizedHost);
 
-    /// <summary>Re-reads every *.txt file. On any failure the previous index is kept.</summary>
-    public void Reload()
+    /// <summary>Category name of a list file: <c>adult.bin</c> / <c>proxy-vpn.vpn.bin</c> / <c>games.txt</c> → adult / proxy-vpn / games.</summary>
+    public static string CategoryOfFile(string path)
     {
-        try
+        var name = Path.GetFileName(path);
+        var dot = name.IndexOf('.');
+        return (dot > 0 ? name[..dot] : name).ToLowerInvariant();
+    }
+
+    /// <summary>Re-reads every *.bin / *.txt file when any of them changed (or <paramref name="force"/>).
+    /// A corrupt file is skipped; on any other failure the previous snapshot is kept.</summary>
+    public void Reload(bool force = false)
+    {
+        lock (_reloadGate)
         {
-            if (!System.IO.Directory.Exists(_directory))
+            try
             {
-                _log.LogWarning("Category directory {Dir} missing; category blocking disabled", _directory);
-                return;
+                if (!System.IO.Directory.Exists(_directory))
+                {
+                    _log.LogWarning("Category directory {Dir} missing; category blocking disabled", _directory);
+                    return;
+                }
+                var files = System.IO.Directory.EnumerateFiles(_directory, "*.bin")
+                    .Concat(System.IO.Directory.EnumerateFiles(_directory, "*.txt"))
+                    .Select(f => new FileInfo(f)).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+                var fingerprint = string.Join("|", files.Select(f => $"{f.Name}:{f.Length}:{f.LastWriteTimeUtc.Ticks}"));
+                if (!force && fingerprint == _fingerprint) return;
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var lists = new List<KeyValuePair<string, IEnumerable<string>>>();
+                var sets = new List<KeyValuePair<string, HashedDomainSet>>();
+                foreach (var f in files)
+                {
+                    var cat = CategoryOfFile(f.FullName);
+                    if (f.Extension.Equals(".txt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        lists.Add(new(cat, File.ReadAllLines(f.FullName)));
+                        continue;
+                    }
+                    try { sets.Add(new(cat, HashedDomainSet.Read(f.FullName))); }
+                    catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+                    {
+                        _log.LogError("Category file {File} is corrupt ({Error}); skipped", f.Name, ex.Message);
+                    }
+                }
+                var snap = new CategorySnapshot(new CategoryIndex(lists), sets);
+                _snapshot = snap;
+                _fingerprint = fingerprint;
+                _log.LogInformation("Loaded categories from {Dir}: {Hashed} hashed + {Text} text domains in {Ms} ms",
+                    _directory, snap.HashedDomainCount, snap.TextDomainCount, sw.ElapsedMilliseconds);
             }
-            var lists = new List<KeyValuePair<string, IEnumerable<string>>>();
-            foreach (var file in System.IO.Directory.EnumerateFiles(_directory, "*.txt"))
+            catch (Exception ex)
             {
-                var cat = Path.GetFileNameWithoutExtension(file);
-                lists.Add(new(cat, File.ReadAllLines(file)));
+                _log.LogError(ex, "Category reload failed; keeping previous lists");
             }
-            var idx = new CategoryIndex(lists);
-            _index = idx;
-            _log.LogInformation("Loaded {Count} category domains from {Dir}", idx.DomainCount, _directory);
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "Category reload failed; keeping previous lists");
         }
     }
 
-    /// <summary>
-    /// Refresh hook. TODO(M6): download signed category lists from the cloud into <see cref="Directory"/>
-    /// (contract not yet defined — see docs/contract-requests/netguard.md). For now it only reloads local files.
-    /// </summary>
+    /// <summary>Periodic refresh hook (NetGuardService watchdog): reloads only when a list file changed.
+    /// Downloads are done by <see cref="Categories.CategoryUpdater"/>, which calls <see cref="Reload"/> itself.</summary>
     public Task RefreshAsync(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
