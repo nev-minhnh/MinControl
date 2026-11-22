@@ -31,6 +31,24 @@ data class RegisterRequest(val bootstrapSecret: String, val keys: List<RegisterK
 @Serializable
 data class PairingCode(val code: String, val expiresAt: String)
 
+/** Local Windows account reported by the device in its pairing claim (API.md §10). */
+@Serializable
+data class ClaimUser(val sid: String = "", val name: String = "", val isAdmin: Boolean = false)
+
+/** `GET /v1/master/claims/<id>` (and by-code, which also carries [claimId]). */
+@Serializable
+data class ClaimInfo(
+    val hostname: String = "",
+    val osVersion: String = "",
+    val localUsers: List<ClaimUser> = emptyList(),
+    val fp: String = "",
+    val expiresAt: String? = null,
+    val claimId: String? = null,
+)
+
+@Serializable
+data class ApproveResponse(val deviceId: String)
+
 @Serializable
 data class GroupState(val usedMin: Int = 0, val remainingMin: Int? = null)
 

@@ -204,7 +204,7 @@ private fun EmptyOverview(refreshing: Boolean, onAdd: () -> Unit) {
             CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally), color = Primary)
         } else {
             Text("Chưa có máy tính nào được quản lý", style = MaterialTheme.typography.titleMedium)
-            Text("Thêm máy tính của con, rồi chọn tài khoản cần quản lý.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            Text("Quét mã QR trên máy tính của con, rồi chọn tài khoản cần quản lý.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
             PrimaryButton("Thêm máy tính", onAdd, Modifier.fillMaxWidth(), icon = Icons.Outlined.Add)
         }
     }

@@ -105,6 +105,18 @@ class Repository(
 
     suspend fun createPairingCode() = api.createPairingCode()
 
+    // ---------- QR pairing (API.md §10) ----------
+    suspend fun claim(claimId: String) = api.claim(claimId)
+    suspend fun claimByCode(code: String) = api.claimByCode(code)
+    suspend fun rejectClaim(claimId: String) = api.rejectClaim(claimId)
+
+    /** Approves a claim; the request is signed with the biometric `sign` key. Returns the new deviceId. */
+    suspend fun approveClaim(activity: FragmentActivity, claimId: String, hostname: String): String =
+        api.approveClaim(claimId) { data ->
+            val s = signer.sign(activity, "Cho phép máy này", hostname, data)
+            s.session.keyId to s.signature
+        }.deviceId
+
     // ---------- signing ----------
     private suspend fun signEnvelope(activity: FragmentActivity, title: String, subtitle: String?, build: (Long) -> io.github.nevminhnh.mincontrol.master.data.protocol.SignedBody, kind: BodyKind, deviceId: String): SignedEnvelope {
         val serverSeq = api.seq(deviceId)
