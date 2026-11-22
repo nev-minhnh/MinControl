@@ -68,6 +68,13 @@ internal static class SystemTools
         return false;
     }
 
+    /// <summary>sc start (does not wait for RUNNING). Exit code 1056 = already running.</summary>
+    public static (int ExitCode, string Output) StartService()
+    {
+        var r = Run(Sc, "start", ServiceName);
+        return r.ExitCode == 1056 ? (0, r.Output) : r;
+    }
+
     public static bool DeleteService() => Run(Sc, "delete", ServiceName).ExitCode == 0;
 
     /// <summary>Kills leftover helper / native-host processes so MSI can remove the files. Best effort.</summary>

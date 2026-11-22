@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MinControl MSI UI (Vietnamese, strings in vi-VN.wxl). The normal path is MinControl-Setup.exe (bootstrapper: silent
+  MSI + QR pairing); this UI is for someone double-clicking the MSI itself. No typed code on the child's PC:
+    install:     WelcomeDlg -> VerifyReadyDlg ("Cài đặt", UAC) -> ProgressDlg -> ExitDialog
+                 (not paired yet: checkbox "Mở màn hình kết nối" -> MinControl.Connect.exe = QR screen)
+    maintenance: MaintenanceWelcomeDlg -> MaintenanceTypeDlg (Repair / Remove) -> VerifyReadyDlg
+  No license dialog. Silent installs skip all of this: msiexec /i MinControl-x.y.z.msi PAIRCODE=XXXXXXXX /qn
+  Dialog building blocks come from WixToolset.UI.wixext (same layout/bitmaps as the stock WixUI sets).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="MinControlUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+      <DialogRef Id="WelcomeDlg" />
+      <DialogRef Id="MaintenanceWelcomeDlg" />
+      <DialogRef Id="MaintenanceTypeDlg" />
+      <DialogRef Id="VerifyReadyDlg" />
+
+      <!-- ===================================================== navigation -->
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="1" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+
+      <!-- Finish: open the QR connect screen (checkbox shown only when this PC is not paired, see ReadEnrollResult) -->
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="CA_LaunchConnect" Order="1"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <ProgressText Action="CA_SetupInstall" Message="!(loc.ProgressSetupInstall)" />
+      <ProgressText Action="CA_SetupEnroll" Message="!(loc.ProgressSetupEnroll)" />
+
+      <InstallUISequence>
+        <Custom Action="CA_ReadEnrollResult" After="ExecuteAction" Condition="NOT Installed" />
+      </InstallUISequence>
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+</Wix>
