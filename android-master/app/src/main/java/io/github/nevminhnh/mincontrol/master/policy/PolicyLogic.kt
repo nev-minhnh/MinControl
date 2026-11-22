@@ -217,9 +217,10 @@ object PolicyValidation {
         return null
     }
 
-    private val absPathRe = Regex("^([A-Za-z]:[\\\\/]|\\\\\\\\)[^\\\\/].*")
+    // Drive letter, UNC, or an environment variable the Windows agent expands (e.g. %ProgramFiles%\App\app.exe).
+    private val absPathRe = Regex("^([A-Za-z]:[\\\\/]|\\\\\\\\|%[A-Za-z_()0-9]+%[\\\\/])[^\\\\/].*")
 
-    /** netExemptApps entries need a full path (drive letter or UNC), not just an exe name. */
+    /** netExemptApps entries need a full path (drive letter, UNC or %ENVVAR%\...), not just an exe name. */
     fun pathError(p: String): String? = if (absPathRe.matches(p.trim())) null else "Cần đường dẫn đầy đủ, vd: C:\\Program Files\\App\\app.exe (\"$p\")"
 
     fun domainError(d: String): String? = if (domainRe.matches(d)) null else "Tên miền \"$d\" không hợp lệ"
