@@ -71,8 +71,10 @@ public class ProtocolContractTests
     public void Semantic_invalid_fixture_is_schema_valid(string stem, string file) =>
         Assert.True(IsValid(stem, JsonNode.Parse(ReadText(stem, "semantic-invalid", file))), $"{stem}/semantic-invalid/{file} should pass the schema");
 
-    [Fact(Skip = "M2: semantic policy validator")]
-    public void Semantic_invalid_fixtures_rejected_by_policy_validator() { }
+    [Theory, MemberData(nameof(SemanticInvalid))]
+    public void Semantic_invalid_fixtures_rejected_by_policy_validator(string stem, string file) =>
+        Assert.False(MinControl.Core.Policies.PolicyParser.Parse(ReadText(stem, "semantic-invalid", file)).Ok,
+            $"{stem}/semantic-invalid/{file} must be rejected by the policy validator");
 
     [Theory, MemberData(nameof(CommandFixtures))]
     public void Command_roundtrips(string stem, string file)
