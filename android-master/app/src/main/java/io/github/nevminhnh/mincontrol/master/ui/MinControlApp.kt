@@ -48,6 +48,7 @@ import io.github.nevminhnh.mincontrol.master.ui.overview.OverviewScreen
 import io.github.nevminhnh.mincontrol.master.ui.pairing.PairingScreen
 import io.github.nevminhnh.mincontrol.master.ui.policy.PolicyScreen
 import io.github.nevminhnh.mincontrol.master.ui.settings.SettingsScreen
+import io.github.nevminhnh.mincontrol.master.ui.setup.SetupLink
 import io.github.nevminhnh.mincontrol.master.ui.setup.SetupScreen
 import io.github.nevminhnh.mincontrol.master.ui.theme.Background
 import io.github.nevminhnh.mincontrol.master.ui.theme.Danger
@@ -74,6 +75,15 @@ fun MinControlApp(openTab: String? = null) {
     val current = entry?.destination?.route
     val alertCountFlow = remember { graph.repo.alerts.map { list -> list.count { !it.acked } } }
     val alertCount by alertCountFlow.collectAsState(initial = 0)
+
+    // First run: nothing enrolled yet -> go straight to "Thêm máy tính".
+    LaunchedEffect(Unit) {
+        if (!SetupLink.justRegistered) return@LaunchedEffect
+        SetupLink.justRegistered = false
+        val any = runCatching { graph.repo.refreshDevices().isNotEmpty() }
+            .getOrElse { runCatching { graph.repo.cachedDevices().isNotEmpty() }.getOrDefault(false) }
+        if (!any) nav.navigate(Routes.PAIRING)
+    }
 
     LaunchedEffect(openTab) {
         if (openTab != null && Destination.entries.any { it.route == openTab }) nav.switchTab(openTab)

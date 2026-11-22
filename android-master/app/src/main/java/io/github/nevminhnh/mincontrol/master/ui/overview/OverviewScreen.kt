@@ -63,6 +63,7 @@ import io.github.nevminhnh.mincontrol.master.ui.components.McCard
 import io.github.nevminhnh.mincontrol.master.ui.components.PrimaryButton
 import io.github.nevminhnh.mincontrol.master.ui.components.ProgressTrack
 import io.github.nevminhnh.mincontrol.master.ui.confirm.LockConfirmSheet
+import io.github.nevminhnh.mincontrol.master.ui.confirm.UnlockConfirmSheet
 import io.github.nevminhnh.mincontrol.master.ui.rememberActivity
 import io.github.nevminhnh.mincontrol.master.ui.theme.AvatarColors
 import io.github.nevminhnh.mincontrol.master.ui.theme.Background
@@ -102,6 +103,7 @@ fun OverviewScreen(
     val message by vm.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     var lockTarget by remember { mutableStateOf<Child?>(null) }
+    var unlockTarget by remember { mutableStateOf<Child?>(null) }
     var now by remember { mutableStateOf(java.time.ZonedDateTime.now()) }
 
     LaunchedEffect(Unit) { while (true) { now = java.time.ZonedDateTime.now(); delay(30_000) } }
@@ -138,7 +140,7 @@ fun OverviewScreen(
                         bedtime = vm.bedtime(child),
                         busy = child.sid in pending,
                         onLock = { lockTarget = child },
-                        onUnlock = { vm.unlockNow(activity, child) },
+                        onUnlock = { unlockTarget = child },
                         onAdd = { vm.addTime(activity, child, it) },
                         onActivity = { vm.select(child); onActivity() },
                     )
@@ -156,6 +158,13 @@ fun OverviewScreen(
             onDismiss = { lockTarget = null },
             onLock = { until -> vm.lock(activity, child, until) },
             onUnlock = { vm.unlock(activity, child) },
+        )
+    }
+    unlockTarget?.let { child ->
+        UnlockConfirmSheet(
+            targetName = child.label,
+            onDismiss = { unlockTarget = null },
+            onConfirm = { vm.unlock(activity, child) },
         )
     }
 }
