@@ -3,6 +3,7 @@ package io.github.nevminhnh.mincontrol.master.data.api
 import io.github.nevminhnh.mincontrol.master.data.protocol.AlertItem
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApproveResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.ClaimInfo
+import io.github.nevminhnh.mincontrol.master.data.protocol.InventoryResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApiErrorBody
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApiJson
 import io.github.nevminhnh.mincontrol.master.data.protocol.CommandResponse
@@ -128,6 +129,13 @@ class MasterApi(
     /** null when the device has no policy yet (404). */
     suspend fun policy(id: String): PolicyResponse? = try {
         call("GET", "v1/master/devices/$id/policy", out = PolicyResponse.serializer())
+    } catch (e: ApiException.Http) {
+        if (e.status == 404) null else throw e
+    }
+
+    /** null when the device has not uploaded an inventory yet (404). */
+    suspend fun apps(id: String, user: String): InventoryResponse? = try {
+        call("GET", "v1/master/devices/$id/apps", listOf("user" to user), out = InventoryResponse.serializer())
     } catch (e: ApiException.Http) {
         if (e.status == 404) null else throw e
     }
