@@ -28,6 +28,13 @@ data class RegisterKey(val keyId: String, val alg: SigAlg, val publicKey: String
 @Serializable
 data class RegisterRequest(val bootstrapSecret: String, val keys: List<RegisterKey>, val sealPubKey: String)
 
+/** `POST /v1/master/register-with-claim` (API.md 12). [sig] = b64url signature by the new sign key over `"register|"+claimId`. */
+@Serializable
+data class RegisterWithClaimRequest(val claimId: String, val keys: List<RegisterKey>, val sealPubKey: String, val sig: String)
+
+@Serializable
+data class RegisterWithClaimResponse(val deviceId: String)
+
 @Serializable
 data class PairingCode(val code: String, val expiresAt: String)
 

@@ -20,6 +20,7 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.PutPolicyResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.RegisterKey
 import io.github.nevminhnh.mincontrol.master.data.protocol.RegisterRequest
 import io.github.nevminhnh.mincontrol.master.data.protocol.SignedEnvelope
+import io.github.nevminhnh.mincontrol.master.ui.pairing.PairingRegister
 import io.github.nevminhnh.mincontrol.master.data.protocol.UserState
 import io.github.nevminhnh.mincontrol.master.data.protocol.WebItem
 import io.github.nevminhnh.mincontrol.master.envelope.EnvelopeBuilder
@@ -79,6 +80,25 @@ class Repository(
             sealPubKey = B64Url.encode(sealPk),
         )
         api.register(server, req)
+    }
+
+    /**
+     * API.md 12: creates keys, signs `"register|"+claimId` with the biometric sign key and registers + approves the claim.
+     * Returns the new deviceId.
+     */
+    suspend fun registerWithClaim(activity: FragmentActivity, server: String, claimId: String): String {
+        withContext(Dispatchers.Default) { keys.ensureKeys() }
+        val sealPk = sealKeys.ensureKey()
+        val signed = signer.sign(activity, "Thiết lập MinControl", "Ghép điện thoại này với máy tính", PairingRegister.signText(claimId))
+        val req = PairingRegister.request(
+            claimId,
+            KeyRole.entries.map { r ->
+                val k = keys.publicKey(r)
+                RegisterKey(keyId = k.keyId, alg = k.alg, publicKey = B64Url.encode(k.raw), role = r.wire)
+            },
+            B64Url.encode(sealPk), B64Url.encode(signed.signature),
+        )
+        return api.registerWithClaim(server, req).deviceId
     }
 
     // ---------- devices ----------

@@ -20,7 +20,7 @@ class PairLinkTest {
     }
 
     @Test fun rejectsBadQr() {
-        assertNull(PairLink.parse("mincontrol://pair?v=2&c=$id&f=3f9ac21d77e0"))
+        assertNull(PairLink.parse("mincontrol://pair?v=3&c=$id&f=3f9ac21d77e0"))
         assertNull(PairLink.parse("mincontrol://setup?v=1&c=$id&f=3f9ac21d77e0"))
         assertNull(PairLink.parse("https://pair?v=1&c=$id&f=3f9ac21d77e0"))
         assertNull(PairLink.parse("mincontrol://pair?v=1&c=$id"))

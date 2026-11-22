@@ -4,12 +4,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import java.net.URI
 import java.net.URLDecoder
 
-/** Parsed `mincontrol://pair?v=1&c=<claimId>&f=<12 hex>` (API.md §10). [fp] is normalised: 12 upper-case hex chars. */
-data class PairPayload(val claimId: String, val fp: String)
+/** Parsed `mincontrol://pair?v=1|2&c=<claimId>&f=<12 hex>[&u=<server URL, v2>]` (API.md 10/12). [fp] is normalised: 12 upper-case hex chars. */
+data class PairPayload(val claimId: String, val fp: String, val serverUrl: String? = null, val version: Int = 1)
 
 object PairLink {
     /** Pending payload from a deep link or scan; consumed by PairingScreen. */
     val pending = MutableStateFlow<PairPayload?>(null)
+
+    /** Set by the first-run flow after register-with-claim; consumed by PairingScreen to go on to "choose users". */
+    val afterRegister = MutableStateFlow<AfterRegister?>(null)
 
     private val CLAIM_ID = Regex("^[A-Za-z0-9_-]{16,64}$")
 
@@ -21,11 +24,13 @@ object PairLink {
             val i = kv.indexOf('=')
             if (i <= 0) null else kv.substring(0, i) to runCatching { URLDecoder.decode(kv.substring(i + 1), "UTF-8") }.getOrNull()
         }.toMap()
-        if (params["v"] != "1") return null
+        val v = params["v"]?.toIntOrNull()
+        if (v != 1 && v != 2) return null
         val c = params["c"]?.trim().orEmpty()
         val f = Fingerprint.normalize(params["f"])
         if (!CLAIM_ID.matches(c) || f == null) return null
-        return PairPayload(c, f)
+        val u = params["u"]?.trim()?.trimEnd('/')?.takeIf { v == 2 && (it.startsWith("https://") || it.startsWith("http://")) }
+        return PairPayload(c, f, u, v)
     }
 }
 
@@ -56,4 +61,45 @@ object ClaimCode {
             ?.map { when (it) { 'I', 'L' -> '1'; 'O' -> '0'; else -> it } }?.joinToString("") ?: return null
         return s.takeIf { it.length == 8 && it.all { c -> c in ALPHABET } }
     }
+}
+
+/** First-run registration finished: continue with the approved claim's device. */
+data class AfterRegister(val claimId: String, val deviceId: String)
+
+/** What the app does with a scanned/opened `mincontrol://pair` link (API.md 12). */
+sealed interface PairRoute {
+    /** Phone already set up: show the 10 confirmation (approve with the sign key). */
+    data object Approve : PairRoute
+    /** Phone not set up, link has the server URL: show fingerprint check, then register-with-claim. */
+    data class FirstRun(val serverUrl: String) : PairRoute
+    /** Phone not set up and the link is v1 / has no `u`: the PC installer is too old. */
+    data object UpdateInstaller : PairRoute
+}
+
+object PairRouting {
+    fun route(registered: Boolean, p: PairPayload): PairRoute = when {
+        registered -> PairRoute.Approve
+        p.serverUrl != null -> PairRoute.FirstRun(p.serverUrl)
+        else -> PairRoute.UpdateInstaller
+    }
+
+    const val UPDATE_INSTALLER_MESSAGE =
+        "Mã QR này từ bản MinControl-Setup cũ nên chưa có địa chỉ máy chủ. Hãy cập nhật MinControl-Setup trên máy tính " +
+            "lên bản mới nhất rồi quét lại mã QR."
+}
+
+/** Request construction for `POST /v1/master/register-with-claim` (API.md 12). */
+object PairingRegister {
+    fun signText(claimId: String): ByteArray = ("register|" + claimId).toByteArray(Charsets.UTF_8)
+
+    fun request(
+        claimId: String,
+        keys: List<io.github.nevminhnh.mincontrol.master.data.protocol.RegisterKey>,
+        sealPubKeyB64: String,
+        sigB64: String,
+    ) = io.github.nevminhnh.mincontrol.master.data.protocol.RegisterWithClaimRequest(claimId, keys, sealPubKeyB64, sigB64)
+
+    /** True for the `409 master_exists` response (a master is already registered on the server). */
+    fun isMasterExists(e: Throwable) =
+        e is io.github.nevminhnh.mincontrol.master.data.api.ApiException.Http && e.status == 409 && e.code == "master_exists"
 }
