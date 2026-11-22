@@ -1,0 +1,24 @@
+name = "mincontrol-api"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[[durable_objects.bindings]]
+name = "DEVICE_HUB"
+class_name = "DeviceHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DeviceHub"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mincontrol"
+database_id = "<D1_DATABASE_ID>"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "mincontrol-blobs"
+
+[triggers]
+crons = ["0 * * * *"]

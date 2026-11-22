@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: protocol } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: protocol/package-lock.json }
+      - run: npm ci
+      - run: npm test
+      - name: fixtures are generated, not hand-edited
+        run: python3 tools/gen_fixtures.py && git diff --exit-code -- fixtures
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: windows/global.json }
+      - run: dotnet build windows/MinControl.sln -c Release
+      - run: dotnet test windows/MinControl.sln -c Release --no-build
+
+  cloud:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: cloud } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: cloud/package-lock.json }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  android-master:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: android-master } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21, cache: gradle }
+      - run: chmod +x gradlew && ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
