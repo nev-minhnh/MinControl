@@ -109,6 +109,10 @@ import io.github.nevminhnh.mincontrol.master.ui.theme.Surface
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextBody
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextPrimary
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextSecondary
+import io.github.nevminhnh.mincontrol.master.policy.AppRules
+import io.github.nevminhnh.mincontrol.master.refresh.AutoRefreshEffect
+import io.github.nevminhnh.mincontrol.master.refresh.RefreshBox
+import io.github.nevminhnh.mincontrol.master.refresh.UpdatedLine
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -127,6 +131,8 @@ fun ActivityScreen(vm: ActivityViewModel = viewModel()) {
 
     LaunchedEffect(request) { request?.let { vm.tab.value = it; ActivityTabRequest.value = null } }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.message.value = null } }
+    AutoRefreshEffect(vm.refresher)
+    LaunchedEffect(tab) { vm.refresher.trigger() }
 
     Box(Modifier.fillMaxSize().background(Background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -147,15 +153,18 @@ fun ActivityScreen(vm: ActivityViewModel = viewModel()) {
                 ChildSwitcher(children, child, { vm.select(it) })
                 SegmentedTabs(ActivityTab.entries.map { it.label }, tab.ordinal, { vm.tab.value = ActivityTab.entries[it] })
                 if (tab == ActivityTab.Web) WebSearchHeader(vm)
+                UpdatedLine(vm.refresher)
             }
             val c = child
             if (c == null) {
                 EmptyState("Chưa có máy tính nào được quản lý")
-            } else when (tab) {
-                ActivityTab.Timeline -> TimelineTab(vm, c)
-                ActivityTab.Web -> if (vm.webView.collectAsState().value == WebView.Domains) DomainsTab(vm) else WebTab(vm)
-                ActivityTab.Apps -> AppsTab(vm, c)
-                ActivityTab.Shots -> ShotsTab(vm)
+            } else RefreshBox(vm.refresher, Modifier.fillMaxSize()) {
+                when (tab) {
+                    ActivityTab.Timeline -> TimelineTab(vm, c)
+                    ActivityTab.Web -> if (vm.webView.collectAsState().value == WebView.Domains) DomainsTab(vm) else WebTab(vm)
+                    ActivityTab.Apps -> AppsTab(vm, c)
+                    ActivityTab.Shots -> ShotsTab(vm)
+                }
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp))
@@ -199,6 +208,10 @@ private fun TimelineTab(vm: ActivityViewModel, child: Child) {
     val gameMin = if (isToday && st?.groups?.get("games") != null) st.groups["games"]!!.usedMin
         else (usage?.apps?.filter { it.group == "games" }?.sumOf { it.activeSec } ?: 0) / 60
     val webCount = events.count { it.type == "web.visit" }
+    val activity = rememberActivity()
+    val rules = policy?.users?.get(child.sid)?.appRules.orEmpty()
+    var blockExe by remember { mutableStateOf<String?>(null) }
+    blockExe?.let { BlockAppDialog(it, { blockExe = null }) { vm.blockApp(activity, it) } }
 
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -221,7 +234,8 @@ private fun TimelineTab(vm: ActivityViewModel, child: Child) {
                     else EmptyState("Chưa có hoạt động")
                 }
                 all.forEachIndexed { i, r ->
-                    TimelineRowView(r, last = i == all.lastIndex, onApprove = { vm.tab.value = ActivityTab.Apps })
+                    TimelineRowView(r, last = i == all.lastIndex, onApprove = { vm.tab.value = ActivityTab.Apps },
+                        onBlock = r.exe?.takeIf { policy != null && !AppRules.isBlocked(rules, it) && !it.equals("explorer.exe", true) }?.let { e -> { blockExe = e } })
                 }
             }
         }
@@ -237,7 +251,7 @@ private fun StatTile(value: String, label: String, modifier: Modifier) {
 }
 
 @Composable
-private fun TimelineRowView(r: TimelineRow, last: Boolean, onApprove: () -> Unit) {
+private fun TimelineRowView(r: TimelineRow, last: Boolean, onApprove: () -> Unit, onBlock: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
         Text(Fmt.time(r.ts), style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = TextSecondary,
             modifier = Modifier.width(48.dp).padding(top = 2.dp))
@@ -265,6 +279,10 @@ private fun TimelineRowView(r: TimelineRow, last: Boolean, onApprove: () -> Unit
             if (r.approve) {
                 Text("Duyệt ngay", style = MaterialTheme.typography.labelLarge, color = Primary,
                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onApprove).padding(top = 4.dp, bottom = 4.dp, end = 8.dp))
+            }
+            if (onBlock != null) {
+                Text("Chặn ứng dụng này", style = MaterialTheme.typography.labelLarge, color = DangerText,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onBlock).padding(top = 4.dp, bottom = 4.dp, end = 8.dp))
             }
         }
     }
@@ -470,6 +488,8 @@ private fun AppsTab(vm: ActivityViewModel, child: Child) {
     val date by vm.date.collectAsState()
     val up = policy?.users?.get(child.sid)
     val day = Weekday.of(date.dayOfWeek)
+    var blockExe by remember { mutableStateOf<String?>(null) }
+    blockExe?.let { BlockAppDialog(it, { blockExe = null }) { vm.blockApp(activity, it) } }
 
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         items(pending, key = { it.view.item.id }) { card ->
@@ -524,7 +544,14 @@ private fun AppsTab(vm: ActivityViewModel, child: Child) {
                         }
                         ProgressTrack(a.activeSec.toFloat() / max, color)
                         val groupLabel = a.group?.let { up?.appGroups?.get(it)?.label ?: it } ?: "Không thuộc nhóm"
-                        Text(groupLabel, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(groupLabel, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
+                            if (up != null && !a.exe.equals("explorer.exe", true)) {
+                                if (AppRules.isBlocked(up.appRules, a.exe)) Text("Đã chặn", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                                else Text("Chặn ứng dụng này", style = MaterialTheme.typography.labelMedium, color = DangerText,
+                                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { blockExe = a.exe }.padding(horizontal = 6.dp, vertical = 4.dp))
+                            }
+                        }
                     }
                 }
             }
@@ -623,4 +650,16 @@ private fun shotTint(exe: String?): Color {
         e.contains("zalo") || e.contains("discord") || e.contains("messenger") || e.contains("teams") -> ShotChat
         else -> ShotWeb
     }
+}
+
+@Composable
+private fun BlockAppDialog(exe: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Chặn ứng dụng này?") },
+        text = { Text("Thêm quy tắc chặn “$exe” vào mục Quy tắc > Chặn ứng dụng. Cần xác thực vân tay để áp dụng.") },
+        confirmButton = { TextButton(onClick = { onDismiss(); onConfirm() }) { Text("Chặn", color = DangerText) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
+        containerColor = Surface,
+    )
 }

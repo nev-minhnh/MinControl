@@ -134,7 +134,13 @@ object PolicyDiff {
                 }
             }
         }
-        if (a.appRules != b.appRules) out += PolicyChange(who, "Quy tắc ứng dụng", "${a.appRules.size} quy tắc", "${b.appRules.size} quy tắc")
+        if (a.appRules != b.appRules) {
+            val added = b.appRules.filterNot { it in a.appRules }.joinToString { "${AppRules.actionLabel(it.action)} ${AppRules.describe(it)}" }
+            val removed = a.appRules.filterNot { it in b.appRules }.joinToString { "${AppRules.actionLabel(it.action)} ${AppRules.describe(it)}" }
+            out += PolicyChange(who, "Quy tắc ứng dụng",
+                "${a.appRules.size} quy tắc" + if (removed.isNotEmpty()) " (bỏ: $removed)" else "",
+                "${b.appRules.size} quy tắc" + if (added.isNotEmpty()) " (thêm: $added)" else "")
+        }
         add("Ứng dụng lạ", newExeLabel(a.newExecutable), newExeLabel(b.newExecutable))
 
         val wa = a.web
@@ -245,6 +251,7 @@ object PolicyValidation {
                 if (path == null) out += "${u.label}: ứng dụng miễn lọc mạng cần đường dẫn đầy đủ"
                 else pathError(path)?.let { out += "${u.label}: $it" }
             }
+            AppRules.errors(u.appRules).forEach { out += "${u.label}: $it" }
             val both = u.web.categorySchedules.orEmpty().keys.intersect(u.web.blockedCategories.toSet())
             if (both.isNotEmpty()) out += "${u.label}: danh mục vừa chặn hẳn vừa chặn theo giờ"
             val overlap = u.web.blockDomains.toSet().intersect(u.web.allowDomains.toSet())

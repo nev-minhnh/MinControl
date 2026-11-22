@@ -124,6 +124,7 @@ class McMessagingService : FirebaseMessagingService() {
             runCatching { graph.repo.refreshAlerts() }
             runCatching { graph.repo.refreshDevices() }
             WidgetUpdater.update(applicationContext)
+            io.github.nevminhnh.mincontrol.master.refresh.AppEvents.alertArrived.tryEmit(Unit)
         }
     }
 }

@@ -17,6 +17,8 @@ import io.github.nevminhnh.mincontrol.master.policy.PolicyDiff
 import io.github.nevminhnh.mincontrol.master.policy.PolicyValidation
 import io.github.nevminhnh.mincontrol.master.security.BiometricCancelledException
 import io.github.nevminhnh.mincontrol.master.ui.pick
+import io.github.nevminhnh.mincontrol.master.refresh.AutoRefresher
+import io.github.nevminhnh.mincontrol.master.refresh.RefreshIntervals
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -62,6 +64,18 @@ class PolicyViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             child.map { it?.deviceId }.distinctUntilChanged().collect { id -> if (id != null && id !in drafts.value) load(id) }
         }
+    }
+
+    /** Resume + every 20 s + FCM alert + pull-to-refresh. Never overwrites unapplied edits. */
+    val refresher = AutoRefresher(viewModelScope, RefreshIntervals.DEFAULT_MS) { reloadQuiet() }
+
+    private suspend fun reloadQuiet() {
+        val c = child.value ?: return
+        val d = drafts.value[c.deviceId] ?: return
+        if (applying.value || PolicyDiff.diff(d.original, d.draft).isNotEmpty()) return
+        val loaded = repo.loadPolicy(c.deviceId).policy ?: return
+        if (loaded == d.original) return
+        drafts.value = drafts.value + (c.deviceId to PolicyDraft(c.deviceId, loaded, loaded))
     }
 
     // ---------- app inventory (API.md §11) ----------

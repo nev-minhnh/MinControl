@@ -25,7 +25,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import io.github.nevminhnh.mincontrol.master.refresh.AutoRefreshEffect
+import io.github.nevminhnh.mincontrol.master.refresh.RefreshBox
+import io.github.nevminhnh.mincontrol.master.refresh.UpdatedLine
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -69,6 +71,7 @@ fun AlertsScreen(onTimeline: () -> Unit, onWeb: () -> Unit, vm: AlertsViewModel 
     val message by vm.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.message.value = null } }
+    AutoRefreshEffect(vm.refresher)
 
     Box(Modifier.fillMaxSize().background(Background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -80,7 +83,8 @@ fun AlertsScreen(onTimeline: () -> Unit, onWeb: () -> Unit, vm: AlertsViewModel 
                     }
                 }
             }
-            PullToRefreshBox(isRefreshing = refreshing, onRefresh = { vm.refresh() }, modifier = Modifier.fillMaxSize()) {
+            UpdatedLine(vm.refresher, Modifier.padding(horizontal = 16.dp))
+            RefreshBox(vm.refresher, Modifier.fillMaxSize()) {
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
