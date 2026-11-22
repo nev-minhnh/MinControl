@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trang bị chặn</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap">
+  <style>
+    :root {
+      --accent: #2F54EB; --accent-soft: #E8EDFF; --ink: #0E1726; --muted: #5B6577;
+      --line: #DCE3EE; --bg: #F4F6FA; --card: #FFFFFF; --danger: #B3232A; --danger-soft: #FDECEC;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: 'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg); color: var(--ink);
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 24px;
+      max-width: 440px; width: 100%; padding: 36px 32px; text-align: center;
+      box-shadow: 0 8px 32px rgba(14, 23, 38, 0.06);
+    }
+    .badge {
+      width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 20px;
+      background: var(--danger-soft); color: var(--danger);
+      display: flex; align-items: center; justify-content: center;
+    }
+    h1 { font-size: 22px; font-weight: 700; margin: 0 0 8px; }
+    .host {
+      display: inline-block; margin: 4px 0 14px; padding: 6px 12px; border-radius: 10px;
+      background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 14px;
+      word-break: break-all;
+    }
+    p { color: var(--muted); font-size: 15px; line-height: 1.55; margin: 0 0 8px; }
+    button {
+      margin-top: 20px; border: 0; border-radius: 14px; padding: 12px 22px;
+      background: var(--accent); color: #FFFFFF; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer;
+    }
+    button:hover { filter: brightness(1.06); }
+    .foot { margin-top: 22px; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="badge" aria-hidden="true">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>
+      </svg>
+    </div>
+    <h1>Trang này đã bị chặn</h1>
+    <div class="host" id="host">Trang web</div>
+    <p id="reason">Trang này đã bị chặn theo cài đặt của bố mẹ.</p>
+    <p>Nếu con cần trang này cho việc học, hãy nhờ bố mẹ mở khoá trong ứng dụng MinControl.</p>
+    <button id="back" type="button">Quay lại</button>
+    <div class="foot">MinControl</div>
+  </main>
+  <script src="blocked.js"></script>
+</body>
+</html>
