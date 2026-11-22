@@ -266,7 +266,7 @@ private fun ChildCard(
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
                     Text(Fmt.appName(st.foregroundExe), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
-                        "đang mở" + (st.foregroundTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+                        "đang mở" + (Fmt.openMinutes(st.foregroundStartedAt)?.let { " · ${Fmt.duration(it)}" } ?: "") + (st.foregroundTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
                         style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }

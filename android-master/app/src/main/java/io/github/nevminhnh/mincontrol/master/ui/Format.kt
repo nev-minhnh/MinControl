@@ -69,6 +69,19 @@ object Fmt {
         return exe.removeSuffix(".exe").removeSuffix(".EXE")
     }
 
+    /** "N phút" the foreground app has been open, from [startedAt] (RFC3339) to [now]; null when unknown. */
+    fun openMinutes(startedAt: String?, now: Instant = Instant.now()): Int? =
+        parse(startedAt)?.let { ((now.epochSecond - it.epochSecond) / 60).toInt().coerceAtLeast(0) }
+
+    fun engineLabel(engine: String?, host: String? = null): String {
+        val e = (engine ?: host.orEmpty()).lowercase()
+        return when {
+            "google" in e -> "Google"; "bing" in e -> "Bing"; "youtube" in e -> "YouTube"
+            "coccoc" in e || "cốc" in e -> "Cốc Cốc"; "duckduckgo" in e -> "DuckDuckGo"
+            else -> engine.orEmpty()
+        }
+    }
+
     fun bytes(n: Long?): String = when {
         n == null -> ""
         n >= 1_000_000 -> "%.1f MB".format(n / 1_000_000.0).replace('.', ',')

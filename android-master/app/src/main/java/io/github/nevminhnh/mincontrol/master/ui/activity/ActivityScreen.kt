@@ -334,11 +334,12 @@ private fun WebRow(it: WebItem, divider: Boolean) {
     }
     val title = when (it.kind) {
         "blocked" -> "Đã chặn: $host"
+        "search" -> it.query?.ifBlank { null } ?: it.title?.ifBlank { null } ?: host
         else -> it.title?.ifBlank { null } ?: host
     }
     val sub = when (it.kind) {
         "blocked" -> it.category?.let { "Danh mục $it" } ?: "Bị chặn"
-        "search" -> "Tìm kiếm" + (if (host.contains("google")) " Google" else if (host.contains("bing")) " Bing" else if (host.contains("youtube")) " YouTube" else "")
+        "search" -> ("Tìm kiếm " + Fmt.engineLabel(it.engine, host)).trim()
         else -> host + (it.durationSec?.takeIf { s -> s >= 60 }?.let { s -> " · ${s / 60} phút" } ?: "")
     }
     Row(

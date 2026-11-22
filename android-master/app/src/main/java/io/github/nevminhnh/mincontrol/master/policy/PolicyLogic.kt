@@ -54,8 +54,14 @@ fun formatMinutes(min: Int): String = when {
     else -> "${min / 60} giờ ${min % 60}"
 }
 
-fun formatWindows(list: List<String>): String =
-    if (list.isEmpty()) "Không cho dùng" else list.joinToString(", ") { it.replace("-", " – ") }
+/** "Cả ngày" window written by the editor (`allowedWindows`: empty list = no screen time that day). */
+const val ALL_DAY_WINDOW = "00:00-24:00"
+
+fun formatWindows(list: List<String>): String = when {
+    list.isEmpty() -> "Không dùng"
+    list == listOf(ALL_DAY_WINDOW) -> "Cả ngày"
+    else -> list.joinToString(", ") { it.replace("-", " – ") }
+}
 
 fun dayGroupLabel(days: Set<Weekday>): String {
     val weekdays = setOf(Weekday.MON, Weekday.TUE, Weekday.WED, Weekday.THU, Weekday.FRI)
@@ -211,16 +217,33 @@ object PolicyValidation {
         return null
     }
 
+    private val absPathRe = Regex("^([A-Za-z]:[\\\\/]|\\\\\\\\)[^\\\\/].*")
+
+    /** netExemptApps entries need a full path (drive letter or UNC), not just an exe name. */
+    fun pathError(p: String): String? = if (absPathRe.matches(p.trim())) null else "Cần đường dẫn đầy đủ, vd: C:\\Program Files\\App\\app.exe (\"$p\")"
+
     fun domainError(d: String): String? = if (domainRe.matches(d)) null else "Tên miền \"$d\" không hợp lệ"
 
     fun errors(p: Policy): List<String> {
         val out = mutableListOf<String>()
+        if (p.timezone !in java.time.ZoneId.getAvailableZoneIds()) out += "Múi giờ \"${p.timezone}\" không tồn tại"
         for ((_, u) in p.users) {
+            val warnTooBig = Weekday.entries.any { d ->
+                val q = u.screenTime.dailyQuotaMin.get(d)
+                q > 0 && u.screenTime.warnAtMin.any { it >= q }
+            }
+            if (warnTooBig) out += "${u.label}: thời điểm nhắc phải nhỏ hơn hạn mức của ngày"
+            if (u.web.mode == WebMode.ALLOWLIST && u.web.allowDomains.isEmpty()) out += "${u.label}: chế độ chỉ trang cho phép cần ít nhất một tên miền"
             Weekday.entries.forEach { d ->
                 windowsError(u.screenTime.allowedWindows.get(d))?.let { out += "${u.label} · ${d.label}: $it" }
                 u.web.categorySchedules?.values?.forEach { ws -> windowsError(ws.get(d))?.let { out += "${u.label}: $it" } }
             }
             (u.web.blockDomains + u.web.allowDomains).forEach { dom -> domainError(dom)?.let { out += "${u.label}: $it" } }
+            u.web.netExemptApps.forEach { m ->
+                val path = m.path
+                if (path == null) out += "${u.label}: ứng dụng miễn lọc mạng cần đường dẫn đầy đủ"
+                else pathError(path)?.let { out += "${u.label}: $it" }
+            }
             val both = u.web.categorySchedules.orEmpty().keys.intersect(u.web.blockedCategories.toSet())
             if (both.isNotEmpty()) out += "${u.label}: danh mục vừa chặn hẳn vừa chặn theo giờ"
             val overlap = u.web.blockDomains.toSet().intersect(u.web.allowDomains.toSet())
