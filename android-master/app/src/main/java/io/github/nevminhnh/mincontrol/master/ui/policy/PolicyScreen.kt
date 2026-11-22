@@ -170,7 +170,7 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
             vm.edit { u -> u.copy(screenTime = u.screenTime.copy(allowedWindows = d.days.fold(u.screenTime.allowedWindows) { w, day -> w.with(day, list) })) }
             dialog = null
         }
-        is PolicyDialog.Group -> GroupDialog(d.id, d.id?.let { up.appGroups[it] }, { dialog = null }) { id, g ->
+        is PolicyDialog.Group -> GroupDialog(vm, activity, d.id, d.id?.let { up.appGroups[it] }, { dialog = null }) { id, g ->
             vm.edit { u -> u.copy(appGroups = if (g == null) u.appGroups - id else u.appGroups + (id to g)) }
             dialog = null
         }
@@ -415,23 +415,13 @@ private fun WindowsDialog(title: String, initial: List<String>, onDismiss: () ->
 }
 
 @Composable
-private fun GroupDialog(id: String?, group: AppGroup?, onDismiss: () -> Unit, onSave: (String, AppGroup?) -> Unit) {
+private fun GroupDialog(vm: PolicyViewModel, activity: androidx.fragment.app.FragmentActivity, id: String?, group: AppGroup?, onDismiss: () -> Unit, onSave: (String, AppGroup?) -> Unit) {
     var label by remember { mutableStateOf(group?.label ?: "") }
     var key by remember { mutableStateOf(id ?: "") }
-    var patterns by remember {
-        mutableStateOf(group?.match.orEmpty().joinToString("\n") { m ->
-            m.exe?.let { "exe:$it" } ?: m.publisher?.let { "publisher:$it" } ?: m.path?.let { "path:$it" } ?: m.sha256?.let { "sha256:$it" } ?: ""
-        })
-    }
+    val matches = remember { mutableStateListOf<AppMatch>().apply { addAll(group?.match.orEmpty()) } }
     var limited by remember { mutableStateOf(group?.dailyQuotaMin != null) }
     var weekday by remember { mutableStateOf(group?.dailyQuotaMin?.mon ?: 60) }
     var weekend by remember { mutableStateOf(group?.dailyQuotaMin?.sat ?: 60) }
-    val matches = patterns.lines().map { it.trim() }.filter { it.isNotEmpty() }.map { line ->
-        val (k, v) = if (':' in line) line.substringBefore(':').lowercase() to line.substringAfter(':').trim() else "exe" to line
-        when (k) {
-            "publisher" -> AppMatch(publisher = v); "path" -> AppMatch(path = v); "sha256" -> AppMatch(sha256 = v.lowercase()); else -> AppMatch(exe = v)
-        }
-    }
     val keyOk = Regex("^[a-z][a-z0-9_-]{0,31}$").matches(key)
     val ok = keyOk && label.isNotBlank() && matches.isNotEmpty()
     AlertDialog(
@@ -442,8 +432,7 @@ private fun GroupDialog(id: String?, group: AppGroup?, onDismiss: () -> Unit, on
                 OutlinedTextField(label, { label = it.take(40) }, singleLine = true, label = { Text("Tên nhóm") }, modifier = Modifier.fillMaxWidth())
                 if (id == null) OutlinedTextField(key, { key = it.lowercase().take(32) }, singleLine = true, label = { Text("Mã nhóm (vd: games)") },
                     isError = key.isNotEmpty() && !keyOk, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(patterns, { patterns = it }, label = { Text("Ứng dụng (mỗi dòng: Minecraft*.exe hoặc publisher:Valve*)") },
-                    minLines = 3, modifier = Modifier.fillMaxWidth())
+                AppMatchEditor(vm, activity, label, matches)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Giới hạn thời gian", modifier = Modifier.weight(1f))
                     McSwitch(limited) { limited = it }
@@ -457,7 +446,7 @@ private fun GroupDialog(id: String?, group: AppGroup?, onDismiss: () -> Unit, on
         },
         confirmButton = {
             TextButton(enabled = ok, onClick = {
-                onSave(key, AppGroup(label.trim(), matches, if (limited) WeekdayMinutes.of(weekday, weekend) else null))
+                onSave(key, AppGroup(label.trim(), matches.toList(), if (limited) WeekdayMinutes.of(weekday, weekend) else null))
             }) { Text("Lưu") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
