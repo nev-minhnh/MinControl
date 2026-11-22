@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using MinControl.Core.Abstractions;
+using MinControl.Core.Cloud;
 using MinControl.Service.Ipc;
 using MinControl.Service.Logic;
 using MinControl.Service.Native;
@@ -67,8 +68,9 @@ internal sealed class SessionActions(
         path is not null && (string.Equals(path, expected, StringComparison.OrdinalIgnoreCase)
             || string.Equals(Path.GetFileName(path), Path.GetFileName(expected), StringComparison.OrdinalIgnoreCase));
 
-    public async Task<byte[]?> CaptureScreenAsync(string? sid, int maxWidth, int jpegQuality, CancellationToken ct) =>
-        (await CaptureFrameAsync(sid, maxWidth, jpegQuality, ct).ConfigureAwait(false))?.Jpeg;
+    public async Task<ScreenCapture?> CaptureScreenAsync(string? sid, int maxWidth, int jpegQuality, CancellationToken ct) =>
+        await CaptureFrameAsync(sid, maxWidth, jpegQuality, ct).ConfigureAwait(false) is { } f
+            ? new ScreenCapture(f.Jpeg, f.Width, f.Height) : null;
 
     /// <summary>Captures the managed user's session (null sid = the active console session, only if it is managed).</summary>
     public async Task<CaptureFrame?> CaptureFrameAsync(string? sid, int maxWidth, int jpegQuality, CancellationToken ct)
@@ -116,9 +118,14 @@ internal sealed class ForegroundTracker(
     SessionTracker sessions,
     SessionChannelRegistry channels,
     IPolicyProvider policy,
-    IClock clock) : IForegroundTracker
+    IClock clock) : IForegroundTracker, IForegroundSince
 {
-    public (string ExePath, string? Title, bool Idle)? Current(string sid)
+    public (string ExePath, string? Title, bool Idle)? Current(string sid) =>
+        Snapshot(sid) is { } s ? (s.Info.ExePath, s.Info.Title, s.Idle) : null;
+
+    public DateTimeOffset? ForegroundStartedAt(string sid) => Snapshot(sid)?.Info.StartedUtc;
+
+    private (ForegroundInfo Info, bool Idle)? Snapshot(string sid)
     {
         var ids = sessions.SessionsOf(sid);
         if (ids.Count == 0) return null;
@@ -130,6 +137,6 @@ internal sealed class ForegroundTracker(
         if (fg is null) return null;
         var thresholdSec = policy.Current?.Users.GetValueOrDefault(sid)?.ScreenTime.IdleThresholdSec ?? 300;
         var idle = channel.IdleMs >= Math.Max(1, thresholdSec) * 1000L;
-        return (fg.ExePath, fg.Title, idle);
+        return (fg, idle);
     }
 }

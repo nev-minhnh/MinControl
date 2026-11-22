@@ -9,11 +9,9 @@ using MinControl.Service.Users;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
-#if MERGED
 using MinControl.Browser;
 using MinControl.Monitoring;
 using MinControl.NetGuard;
-#endif
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(o => o.ServiceName = ServiceInstaller.ServiceName);
@@ -39,13 +37,12 @@ builder.Services.AddHostedService<Enforcer>();
 builder.Services.AddHostedService<TamperWatch>();
 builder.Services.AddHostedService<CloudLinkHost>();
 
-#if MERGED
-// ---- Monitoring / NetGuard / Browser (lead removes the guard at merge).
+// ---- Monitoring / NetGuard / Browser. AppMonitorHost starts IAppMonitor; PolicyApplier calls INetGuard.ApplyAsync and
+// IBrowserPolicyWriter.ApplyAsync/RemoveAsync at start, on PolicyChanged and on managed-set changes.
 builder.Services.AddMinControlMonitoring();
 builder.Services.AddMinControlNetGuard();
 builder.Services.AddMinControlBrowser();
 builder.Services.AddHostedService<AppMonitorHost>();
 builder.Services.AddHostedService<PolicyApplier>();
-#endif
 
 await builder.Build().RunAsync();

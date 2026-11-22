@@ -53,6 +53,8 @@ public sealed class StateStore : IDisposable
                 PRIMARY KEY (sid, day, bucket));
             CREATE TABLE IF NOT EXISTS approvals (sid TEXT NOT NULL, sha256 TEXT NOT NULL, decision TEXT NOT NULL, at TEXT NOT NULL,
                 PRIMARY KEY (sid, sha256));
+            CREATE TABLE IF NOT EXISTS approval_requests (sid TEXT NOT NULL, sha256 TEXT NOT NULL, at TEXT NOT NULL,
+                PRIMARY KEY (sid, sha256));
             CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, json TEXT NOT NULL, size INTEGER NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_outbox_type ON outbox(type, id);
             CREATE TABLE IF NOT EXISTS applied_commands (command_id TEXT PRIMARY KEY, at TEXT NOT NULL);
@@ -238,6 +240,17 @@ public sealed class StateStore : IDisposable
                 ("$s", sid), ("$h", sha256), ("$d", decision), ("$a", atUtc));
     }
 
+    /// <summary>Records that request.exe_approval was sent for (sid, sha256). True only the first time (persisted).</summary>
+    public bool MarkApprovalRequested(string sid, string sha256, string atUtc)
+    {
+        lock (_gate)
+        {
+            using var cmd = Cmd("INSERT OR IGNORE INTO approval_requests(sid,sha256,at) VALUES($s,$h,$a)",
+                ("$s", sid), ("$h", sha256), ("$a", atUtc));
+            return cmd.ExecuteNonQuery() == 1;
+        }
+    }
+
     // ---------------------------------------------------------------- applied commands (re-ack after reconnect)
     public const int AppliedCommandsKept = 2000;
 
@@ -352,7 +365,7 @@ public sealed class StateStore : IDisposable
         lock (_gate)
         {
             Exec("DELETE FROM meta; DELETE FROM master_keys; DELETE FROM seq; DELETE FROM policy; DELETE FROM overrides; " +
-                 "DELETE FROM ledger; DELETE FROM approvals; DELETE FROM applied_commands; DELETE FROM outbox; DELETE FROM pending_blobs;");
+                 "DELETE FROM ledger; DELETE FROM approvals; DELETE FROM approval_requests; DELETE FROM applied_commands; DELETE FROM outbox; DELETE FROM pending_blobs;");
             _outboxBytes = 0;
         }
     }

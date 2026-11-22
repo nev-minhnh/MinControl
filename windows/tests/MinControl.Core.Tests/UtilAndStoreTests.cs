@@ -3,6 +3,7 @@ using MinControl.Core.Cloud;
 using MinControl.Core.Commands;
 using MinControl.Core.Crypto;
 using MinControl.Core.Storage;
+using MinControl.Core.Telemetry;
 using MinControl.Core.Util;
 using NSec.Cryptography;
 using Xunit;
@@ -102,12 +103,27 @@ public class UtilAndStoreTests
     }
 
     [Fact]
-    public void Jpeg_size_is_read_from_sof()
+    public void Approval_request_is_marked_once_and_persisted()
     {
-        byte[] jpg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x02, 0xD0, 0x05, 0x00, 0x03];
-        Assert.True(JpegInfo.TryGetSize(jpg, out var w, out var h));
-        Assert.Equal(1280, w);
-        Assert.Equal(720, h);
+        var path = Path.Combine(Path.GetTempPath(), "mc-test-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var clock = new FakeClock(new DateTimeOffset(2026, 11, 22, 8, 0, 0, TimeSpan.Zero));
+            using (var store = new StateStore(path))
+            {
+                var approvals = new ApprovalStore(store, clock);
+                Assert.True(approvals.MarkRequested("S-1-5-21-1", "ABCDEF"));
+                Assert.False(approvals.MarkRequested("S-1-5-21-1", "abcdef"));
+                Assert.True(approvals.MarkRequested("S-1-5-21-2", "abcdef"));
+            }
+            using (var reopened = new StateStore(path))
+                Assert.False(new ApprovalStore(reopened, clock).MarkRequested("S-1-5-21-1", "abcdef"));
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (var f in new[] { path, path + "-wal", path + "-shm" }) try { File.Delete(f); } catch (IOException) { }
+        }
     }
 
     [Fact]

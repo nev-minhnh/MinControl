@@ -256,8 +256,8 @@ public class NetGuardDecisionTests
     {
         var d = Decide(Web(), host);
         Assert.False(d.Allowed);
-        Assert.Equal(BlockReasons.Blocklist, d.Reason);
-        Assert.Equal("doh", d.Category);
+        Assert.Equal(BlockReasons.Doh, d.Reason);
+        Assert.Null(d.Category);
     }
 
     [Fact]

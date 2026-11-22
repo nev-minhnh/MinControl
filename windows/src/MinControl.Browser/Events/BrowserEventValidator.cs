@@ -43,7 +43,7 @@ public static partial class BrowserEventValidator
             ["url"] = new(Kind.Str, false, 2048),
             // Only the extension speaks on this pipe; "proxy" is reserved for NetGuard.
             ["source"] = new(Kind.Enum, true, Values: ["extension"]),
-            ["reason"] = new(Kind.Enum, true, Values: ["category", "blocklist", "allowlist_miss", "schedule"]),
+            ["reason"] = new(Kind.Enum, true, Values: ["category", "blocklist", "allowlist_miss", "schedule", "doh", "port"]),
             ["category"] = new(Kind.Str, false, 32),
             ["exe"] = new(Kind.Str, false, 260),
         },

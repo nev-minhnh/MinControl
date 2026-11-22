@@ -31,5 +31,5 @@ public static class EventTypes
         TamperWfpFilterMissing = "tamper.wfp_filter_missing", TamperProxyBypassAttempt = "tamper.proxy_bypass_attempt",
         TamperTimezoneChanged = "tamper.timezone_changed", TamperClockJump = "tamper.clock_jump",
         TamperManagedUserIsAdmin = "tamper.managed_user_is_admin", TamperExtensionMissing = "tamper.extension_missing",
-        TamperOfflineGap = "tamper.offline_gap";
+        TamperOfflineGap = "tamper.offline_gap", TamperStateTampered = "tamper.state_tampered";
 }

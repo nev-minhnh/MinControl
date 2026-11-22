@@ -10,7 +10,8 @@ using Microsoft.Extensions.Logging;
 
 namespace MinControl.Service.Ipc;
 
-internal sealed record ForegroundInfo(string ExePath, string? Title, int Pid, long Mono);
+/// <param name="StartedUtc">When this app (same exe + pid) got the focus; title updates keep it.</param>
+internal sealed record ForegroundInfo(string ExePath, string? Title, int Pid, long Mono, DateTimeOffset StartedUtc);
 
 internal sealed record CaptureFrame(byte[] Jpeg, int Width, int Height);
 
@@ -108,7 +109,12 @@ internal sealed class SessionChannel : IAsyncDisposable
                 if (string.IsNullOrEmpty(exe) || exe.Length > MaxExe) return;
                 var title = m.Str("title");
                 if (title is { Length: > MaxTitle }) title = title[..MaxTitle];
-                Foreground = new ForegroundInfo(exe, title, (int)(m.Long("pid") ?? 0), _clock.MonotonicMs);
+                var pid = (int)(m.Long("pid") ?? 0);
+                var previous = Foreground;
+                var started = previous is not null && previous.Pid == pid
+                    && string.Equals(previous.ExePath, exe, StringComparison.OrdinalIgnoreCase)
+                    ? previous.StartedUtc : _clock.UtcNow;
+                Foreground = new ForegroundInfo(exe, title, pid, _clock.MonotonicMs, started);
                 break;
             case IpcTypes.Idle:
                 Interlocked.Exchange(ref _idleMs, Math.Max(0, m.Long("idleMs") ?? 0));

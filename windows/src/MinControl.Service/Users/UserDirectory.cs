@@ -51,6 +51,10 @@ internal sealed class UserDirectory : IUserDirectory
         lock (_gate) return _admins.Contains(sid);
     }
 
+    /// <summary>Raised (on the refreshing thread) when the managed set changed: a SID joined/left the policy or
+    /// became / stopped being an administrator. Policy, NetGuard and browser policies are re-applied on it.</summary>
+    public event EventHandler? ManagedSetChanged;
+
     public IReadOnlyCollection<string> ManagedSids
     {
         get
@@ -137,10 +141,17 @@ internal sealed class UserDirectory : IUserDirectory
         var policy = _policy.Current;
         var policySids = policy?.Users.Keys.ToArray() ?? Array.Empty<string>();
         var managed = new HashSet<string>(policySids.Where(s => !admins.Contains(s)), StringComparer.OrdinalIgnoreCase);
+        bool changed;
         lock (_gate)
         {
+            changed = !_managed.SetEquals(managed);
             _admins = admins;
             _managed = managed;
+        }
+        if (changed)
+        {
+            try { ManagedSetChanged?.Invoke(this, EventArgs.Empty); }
+            catch (Exception e) { _log.LogError(e, "ManagedSetChanged handler failed"); }
         }
 
         foreach (var sid in policySids.Where(admins.Contains))

@@ -41,6 +41,9 @@ public interface IApprovalStore
 {
     string? DecisionFor(string sid, string sha256);   // allow | block | null
     void Record(string sid, string sha256, string decision);
+    /// <summary>Marks that request.exe_approval was sent for (sid, sha256). Persisted; true only the first time,
+    /// so a still-pending exe is requested once even across service restarts.</summary>
+    bool MarkRequested(string sid, string sha256);
 }
 
 /// <summary>Watches process starts for managed users, enforces appRules/newExecutable, emits process.* /
@@ -68,6 +71,17 @@ public interface IBrowserPolicyWriter
 {
     Task ApplyAsync(string sid, WebPolicy web, int proxyPort, CancellationToken ct);
     Task RemoveAsync(string sid, CancellationToken ct);
+    /// <summary>Uninstall only: removes the HKLM native-messaging host registration and its manifest.</summary>
+    Task UnregisterNativeHostAsync(CancellationToken ct);
+}
+
+/// <summary>Whether the MinControl browser extension is alive in a managed user's browser (MinControl.Browser).
+/// App control blocks a browser whose extension is missing (SPEC §8.5).</summary>
+public interface IExtensionHealth
+{
+    /// <summary>True when <paramref name="browser"/> (<c>msedge</c> | <c>chrome</c>) runs for the user and no heartbeat
+    /// arrived within the timeout (grace after browser start).</summary>
+    bool IsExtensionMissing(string sid, string browser);
 }
 
 /// <summary>Receives web.* events from the native-messaging host (validated to come from the managed SID).</summary>
@@ -101,6 +115,9 @@ public interface IScreenTimeEngine
     IReadOnlyCollection<string> ExhaustedGroups(string sid, DateTimeOffset utcNow);
 }
 
+/// <summary>One JPEG screen capture of a user session.</summary>
+public sealed record ScreenCapture(byte[] Jpeg, int Width, int Height);
+
 /// <summary>Session-side actions requested by commands or the enforcer (implemented by win-session).</summary>
 public interface ISessionActions
 {
@@ -109,8 +126,8 @@ public interface ISessionActions
     Task ShowLockOverlayAsync(string sid, string reason, int graceSec, CancellationToken ct);
     Task ShowMessageAsync(string sid, string text, CancellationToken ct);
     Task<bool> KillProcessAsync(string sid, int pid, string? expectedExe, CancellationToken ct);
-    /// <summary>Capture the screen of the user's session; returns JPEG bytes or null if no session.</summary>
-    Task<byte[]?> CaptureScreenAsync(string? sid, int maxWidth, int jpegQuality, CancellationToken ct);
+    /// <summary>Capture the screen of the user's session; null if no session.</summary>
+    Task<ScreenCapture?> CaptureScreenAsync(string? sid, int maxWidth, int jpegQuality, CancellationToken ct);
 }
 
 /// <summary>What the user is doing right now (implemented by win-session from the Session helper).</summary>
