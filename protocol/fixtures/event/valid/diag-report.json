@@ -1,0 +1,21 @@
+{
+  "id": "01JDQ5000000000000000D1AGR",
+  "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+  "ts": "2026-11-23T08:00:00Z",
+  "monoMs": 99,
+  "type": "diag.report",
+  "data": {
+    "commandId": "01JDQ4000000000000000D1AG0",
+    "sections": {
+      "service": {
+        "version": "0.3.0",
+        "uptimeSec": 1234
+      },
+      "policy": {
+        "version": 7,
+        "seq": 42,
+        "storedOk": true
+      }
+    }
+  }
+}
