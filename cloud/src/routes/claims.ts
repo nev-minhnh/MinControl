@@ -42,7 +42,7 @@ export function effectiveStatus(row: Pick<ClaimRow, "status" | "expires_at">, no
 }
 
 /** Fixed-window rate limit (CLAIM_RATE_LIMIT / key / UTC hour) on the `claim_rate` table. */
-async function checkClaimRate(env: Ctx["env"], key: string, nowS: string): Promise<void> {
+export async function checkClaimRate(env: Ctx["env"], key: string, nowS: string): Promise<void> {
   const rate = await env.DB.prepare(
     "INSERT INTO claim_rate (ip, bucket, n) VALUES (?, ?, 1) ON CONFLICT (ip, bucket) DO UPDATE SET n = n + 1 RETURNING n",
   ).bind(key, nowS.slice(0, 13)).first<{ n: number }>();

@@ -3,6 +3,11 @@ package io.github.nevminhnh.mincontrol.master.data.api
 import io.github.nevminhnh.mincontrol.master.data.protocol.AlertItem
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApproveResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.ClaimInfo
+import io.github.nevminhnh.mincontrol.master.data.protocol.CreateTransferResponse
+import io.github.nevminhnh.mincontrol.master.data.protocol.TransferClaimRequest
+import io.github.nevminhnh.mincontrol.master.data.protocol.TransferClaimResponse
+import io.github.nevminhnh.mincontrol.master.data.protocol.TransferCompleteRequest
+import io.github.nevminhnh.mincontrol.master.data.protocol.TransferStatus
 import io.github.nevminhnh.mincontrol.master.data.protocol.InventoryResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApiErrorBody
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApiJson
@@ -49,7 +54,10 @@ sealed class ApiException(message: String, cause: Throwable? = null) : Exception
 }
 
 const val MASTER_EXISTS_MESSAGE =
-    "Máy chủ đã có điện thoại quản lý. Dùng điện thoại cũ để quét mã này, hoặc chọn Đổi điện thoại / khôi phục."
+    "Máy chủ đã có điện thoại quản lý. Trên điện thoại cũ, vào Cài đặt → Chuyển sang điện thoại mới. " +
+        "Nếu đã mất điện thoại cũ, chọn \"Mất điện thoại? Dùng mã khôi phục\"."
+
+const val RECOVERY_CODE_USED_MESSAGE = "Mã khôi phục đã được dùng. Tạo mã mới trên máy chủ."
 
 /** Vietnamese text for a server error code; null when not specifically mapped. */
 fun serverErrorMessage(code: String): String? = when (code) {
@@ -58,6 +66,8 @@ fun serverErrorMessage(code: String): String? = when (code) {
     "rejected" -> "Máy này đã bị từ chối"
     "sign_key_required" -> "Điện thoại chưa có khóa ký, hãy thiết lập lại"
     "master_exists" -> MASTER_EXISTS_MESSAGE
+    "recovery_code_used" -> RECOVERY_CODE_USED_MESSAGE
+    "transfer_claimed", "already_claimed" -> "Mã chuyển máy đã được một điện thoại khác dùng. Tạo mã mới trên điện thoại cũ."
     "not_found" -> "Không tìm thấy mã này"
     "invalid_code" -> "Mã không đúng, hãy kiểm tra lại"
     else -> null
@@ -214,15 +224,42 @@ class MasterApi(
         call("GET", "v1/master/claims/by-code/${code.encodeSeg()}", out = ClaimInfo.serializer())
 
     /** Approval MUST be authenticated with a `sign`-role key (biometric), unlike every other call. */
-    suspend fun approveClaim(claimId: String, signWith: SignRoleSigner): ApproveResponse {
-        val url = url("v1/master/claims/${claimId.encodeSeg()}/approve")
+    suspend fun approveClaim(claimId: String, signWith: SignRoleSigner): ApproveResponse =
+        ApiJson.decodeFromString(ApproveResponse.serializer(),
+            signedPost(url("v1/master/claims/${claimId.encodeSeg()}/approve"), ByteArray(0), signWith).toString(Charsets.UTF_8))
+
+    // --- §13 phone transfer ---
+    /** Old phone: creates a transfer (sign-key auth). */
+    suspend fun createTransfer(signWith: SignRoleSigner): CreateTransferResponse =
+        ApiJson.decodeFromString(CreateTransferResponse.serializer(),
+            signedPost(url("v1/master/transfers"), ByteArray(0), signWith).toString(Charsets.UTF_8))
+
+    /** Both phones poll with their own read key (the new phone's keys work once the transfer is done). */
+    suspend fun transferStatus(id: String): TransferStatus =
+        call("GET", "v1/master/transfers/${id.encodeSeg()}", out = TransferStatus.serializer())
+
+    /** New phone: claims the transfer (no auth; the body is signed instead). */
+    suspend fun claimTransfer(server: String, req: TransferClaimRequest): TransferClaimResponse = withContext(Dispatchers.IO) {
+        val body = ApiJson.encodeToString(TransferClaimRequest.serializer(), req).toByteArray()
+        val url = server.trimEnd('/').toHttpUrl().newBuilder().addPathSegments("v1/master/transfers/claim").build()
+        ApiJson.decodeFromString(TransferClaimResponse.serializer(), exec(build(url, "POST", body, auth = false)).toString(Charsets.UTF_8))
+    }
+
+    /** Old phone: completes the transfer (sign-key auth over the body). */
+    suspend fun completeTransfer(id: String, req: TransferCompleteRequest, signWith: SignRoleSigner) {
+        val body = ProtocolJson.encodeToString(TransferCompleteRequest.serializer(), req).toByteArray()
+        signedPost(url("v1/master/transfers/${id.encodeSeg()}/complete"), body, signWith)
+    }
+
+    /** POST authenticated with the biometric `sign` key instead of the read key. */
+    private suspend fun signedPost(url: HttpUrl, body: ByteArray, signWith: SignRoleSigner): ByteArray {
         val ts = clock().epochSecond.toString()
-        val canon = AuthHeader.canonical("POST", AuthHeader.pathWithQuery(url), ts, ByteArray(0)).toByteArray()
+        val canon = AuthHeader.canonical("POST", AuthHeader.pathWithQuery(url), ts, body).toByteArray()
         val (keyId, sig) = signWith.sign(canon)
         return withContext(Dispatchers.IO) {
-            val req = Request.Builder().url(url).method("POST", ByteArray(0).toRequestBody(jsonType))
+            val req = Request.Builder().url(url).method("POST", body.toRequestBody(jsonType))
                 .header("X-MC-Auth", AuthHeader.header(keyId, ts, sig)).build()
-            ApiJson.decodeFromString(ApproveResponse.serializer(), exec(req).toString(Charsets.UTF_8))
+            exec(req)
         }
     }
 

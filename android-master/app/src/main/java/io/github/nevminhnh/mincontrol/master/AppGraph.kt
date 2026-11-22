@@ -67,7 +67,11 @@ class AppGraph(context: Context) {
         signer = RequestSigner { data -> keys.publicKey(KeyRole.READ).keyId to keys.signRead(data) },
     )
     val signer = BiometricSigner(keys)
-    val repo = Repository(api, db, keys, sealKeys, SeqAllocator(PrefsSeqStore(appContext)), signer)
+    private val seqAllocator = SeqAllocator(PrefsSeqStore(appContext))
+    val repo = Repository(api, db, keys, sealKeys, seqAllocator, signer)
+    val transfers = io.github.nevminhnh.mincontrol.master.transfer.TransferManager(
+        api, repo, db, keys, sealKeys, seqAllocator, signer, settings, securePrefs,
+    )
     val push = PushRegistrar(this)
 
     /** Child selected on the overview (drives the Activity and Rules tabs). */
@@ -82,6 +86,8 @@ class MinControlApplication : Application() {
         super.onCreate()
         graph = AppGraph(this)
         Notifications.createChannels(this)
+        // A transfer that wiped the keys but died before leaving the screen: back to first-run.
+        if (graph.settings.registered.value && !runCatching { graph.keys.hasKeys() }.getOrDefault(true)) graph.settings.setRegistered(false)
         if (graph.settings.registered.value) graph.push.syncToken()
     }
 }

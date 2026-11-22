@@ -41,13 +41,14 @@ export interface PolicyMeta {
 
 export interface EnqueueInput {
   deviceId: string;
-  kind: "policy" | "command";
+  kind: "policy" | "command" | "master_keys";
   seq: number;
   envelopeJson: string;
   keyId: string;
   issuedAt: string;
   expiresAt: string;
   policy?: PolicyMeta;
+  masterKeys?: { transferId: string };
   command?: { commandId: string; type: string; userSid: string | null };
 }
 
@@ -60,6 +61,8 @@ type Msg =
   | { t: "ack"; ack: { commandId: string; status: "applied" | "rejected" | "failed"; at: string; error?: string; detail?: string } }
   | { t: "policy_applied"; version: number; seq: number }
   | { t: "policy_rejected"; seq: number; error: string }
+  | { t: "master_keys_applied"; seq: number }
+  | { t: "master_keys_rejected"; seq: number; error: string }
   | { t: "state"; state: { agentVersion: string; policyVersion?: number | null } & Record<string, unknown> }
   | { t: "blob_missing"; reqId: string }
   | { t: "ping" }
@@ -77,6 +80,9 @@ export class DeviceHub extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS policy (
         id INTEGER PRIMARY KEY CHECK (id = 1), seq INTEGER NOT NULL, version INTEGER NOT NULL,
+        envelope TEXT NOT NULL, expires_ms INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS master_keys (
+        id INTEGER PRIMARY KEY CHECK (id = 1), seq INTEGER NOT NULL, transfer_id TEXT NOT NULL,
         envelope TEXT NOT NULL, expires_ms INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS queue (
         seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, envelope TEXT NOT NULL,
@@ -111,8 +117,8 @@ export class DeviceHub extends DurableObject<Env> {
   }
 
   // ---------------------------------------------------------------- RPC (called by the Worker)
-  async getSeq(): Promise<{ policy: number; command: number }> {
-    return { policy: this.metaNum("lastPolicySeq"), command: this.metaNum("lastCommandSeq") };
+  async getSeq(): Promise<{ policy: number; command: number; masterKeys: number }> {
+    return { policy: this.metaNum("lastPolicySeq"), command: this.metaNum("lastCommandSeq"), masterKeys: this.metaNum("lastMasterKeysSeq") };
   }
 
   async enqueue(input: EnqueueInput): Promise<EnqueueResult> {
@@ -123,6 +129,20 @@ export class DeviceHub extends DurableObject<Env> {
     if (this.revoked) return { ok: false, code: "revoked", lastSeq: 0 };
 
     // Synchronous check-and-insert (no await in between) keeps seq strictly increasing under concurrency.
+    if (input.kind === "master_keys") {
+      // Single slot like the policy: only the newest master_keys envelope matters (API.md section 13).
+      const last = this.metaNum("lastMasterKeysSeq");
+      if (input.seq <= last) return { ok: false, code: "replayed", lastSeq: last };
+      const transferId = input.masterKeys!.transferId;
+      this.sql.exec(
+        "INSERT OR REPLACE INTO master_keys (id, seq, transfer_id, envelope, expires_ms) VALUES (1, ?, ?, ?, ?)",
+        input.seq, transferId, input.envelopeJson, expiresMs,
+      );
+      this.setMeta("lastMasterKeysSeq", input.seq);
+      const delivered = this.sendToDevice(input.envelopeJson);
+      if (delivered) await this.markMasterKeysStatus("delivered", null);
+      return { ok: true, delivered };
+    }
     if (input.kind === "policy") {
       const last = this.metaNum("lastPolicySeq");
       if (input.seq <= last) return { ok: false, code: "replayed", lastSeq: last };
@@ -266,6 +286,10 @@ export class DeviceHub extends DurableObject<Env> {
         return this.handlePolicyResult(m.seq, "applied", null, m.version);
       case "policy_rejected":
         return this.handlePolicyResult(m.seq, "rejected", m.error, null);
+      case "master_keys_applied":
+        return this.handleMasterKeysResult(m.seq, "applied", null);
+      case "master_keys_rejected":
+        return this.handleMasterKeysResult(m.seq, "rejected", m.error);
       case "blob_missing":
         this.blobs.resolveMissing(m.reqId);
         return;
@@ -347,6 +371,13 @@ export class DeviceHub extends DurableObject<Env> {
 
   /** Pending policy first, then queued (and delivered-but-unacked) commands in seq order. */
   private async deliverPending(ws: WebSocket, now: number): Promise<void> {
+    // master_keys first: commands queued after the transfer may be signed by the new keys.
+    const mk = this.sql.exec<{ seq: number; envelope: string; expires_ms: number }>(
+      "SELECT seq, envelope, expires_ms FROM master_keys WHERE id = 1",
+    ).toArray()[0];
+    if (mk && mk.seq > this.metaNum("masterKeysHandledSeq") && mk.expires_ms > now) {
+      if (this.sendEnvelope(ws, mk.envelope)) await this.markMasterKeysStatus("delivered", null);
+    }
     const handled = this.metaNum("policyHandledSeq");
     const p = this.sql.exec<{ seq: number; envelope: string; expires_ms: number }>(
       "SELECT seq, envelope, expires_ms FROM policy WHERE id = 1",
@@ -388,6 +419,22 @@ export class DeviceHub extends DurableObject<Env> {
     await this.env.DB.prepare("UPDATE policies SET status = 'delivered' WHERE device_id = ? AND seq = ? AND status = 'queued'")
       .bind(id, seq)
       .run();
+  }
+
+  /** Mirrors the master_keys delivery state into D1 transfer_devices (never downgrades applied/rejected). */
+  private async markMasterKeysStatus(status: "delivered" | "applied" | "rejected", error: string | null): Promise<void> {
+    const mk = this.sql.exec<{ seq: number; transfer_id: string }>("SELECT seq, transfer_id FROM master_keys WHERE id = 1").toArray()[0];
+    if (!mk) return;
+    await this.env.DB.prepare(
+      `UPDATE transfer_devices SET status = ?, error = ?, updated_at = ?
+       WHERE transfer_id = ? AND device_id = ? AND seq = ? AND (status = 'queued' OR ? != 'delivered')`,
+    ).bind(status, error, nowIso(), mk.transfer_id, this.meta("deviceId"), mk.seq, status).run();
+  }
+
+  private async handleMasterKeysResult(seq: number, status: "applied" | "rejected", error: string | null): Promise<void> {
+    if (seq !== this.metaNum("lastMasterKeysSeq")) return; // unknown / superseded seq
+    this.setMeta("masterKeysHandledSeq", seq);
+    await this.markMasterKeysStatus(status, error);
   }
 
   private async markCommandDelivered(seq: number, commandId: string): Promise<void> {

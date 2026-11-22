@@ -130,7 +130,8 @@ fun MinControlApp(openTab: String? = null) {
             }
             composable(Destination.Rules.route) { PolicyScreen() }
             composable(Routes.PAIRING) { PairingScreen(onBack = { nav.popBackStack() }) }
-            composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }) }
+            composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }, onTransfer = { nav.navigate(Routes.TRANSFER) }) }
+            composable(Routes.TRANSFER) { io.github.nevminhnh.mincontrol.master.ui.transfer.TransferScreen(onBack = { nav.popBackStack() }) }
         }
     }
 }

@@ -4,23 +4,138 @@
   "title": "Signed body (decoded envelope payload)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["deviceId", "kind", "seq", "issuedAt", "expiresAt", "body"],
+  "required": [
+    "deviceId",
+    "kind",
+    "seq",
+    "issuedAt",
+    "expiresAt",
+    "body"
+  ],
   "properties": {
-    "deviceId": { "$ref": "common.schema.json#/$defs/ulid" },
-    "kind": { "enum": ["policy", "command"] },
-    "seq": { "type": "integer", "minimum": 1, "description": "strictly increasing per (deviceId, kind)" },
-    "issuedAt": { "$ref": "common.schema.json#/$defs/timestamp" },
-    "expiresAt": { "$ref": "common.schema.json#/$defs/timestamp" },
-    "body": { "type": "object" }
+    "deviceId": {
+      "$ref": "common.schema.json#/$defs/ulid"
+    },
+    "kind": {
+      "enum": [
+        "policy",
+        "command",
+        "master_keys"
+      ]
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "strictly increasing per (deviceId, kind)"
+    },
+    "issuedAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "expiresAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "body": {
+      "type": "object"
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "kind": { "const": "policy" } } },
-      "then": { "properties": { "body": { "$ref": "policy.schema.json" } } }
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "policy"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "body": {
+            "$ref": "policy.schema.json"
+          }
+        }
+      }
     },
     {
-      "if": { "properties": { "kind": { "const": "command" } } },
-      "then": { "properties": { "body": { "$ref": "command.schema.json" } } }
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "command"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "body": {
+            "$ref": "command.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "master_keys"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "body": {
+            "$ref": "#/$defs/masterKeys"
+          }
+        }
+      }
     }
-  ]
+  ],
+  "$defs": {
+    "masterKeys": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keys",
+        "sealPubKey"
+      ],
+      "properties": {
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "keyId",
+              "alg",
+              "publicKey",
+              "role"
+            ],
+            "properties": {
+              "keyId": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "alg": {
+                "enum": [
+                  "ed25519",
+                  "es256"
+                ]
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "role": {
+                "const": "sign"
+              }
+            }
+          }
+        },
+        "sealPubKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    }
+  }
 }

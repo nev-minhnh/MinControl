@@ -19,4 +19,5 @@ enum class Destination(val route: String, @StringRes val title: Int, val icon: I
 object Routes {
     const val PAIRING = "pairing"
     const val SETTINGS = "settings"
+    const val TRANSFER = "transfer"
 }

@@ -192,3 +192,30 @@ The parent only ever scans the QR shown by `MinControl-Setup.exe` / `MinControl.
   secret (setup-qr / manual), now hidden under "Đổi điện thoại / khôi phục".
 - Re-pairing a PC whose pinned master keys are stale: Setup/Connect "Ghép nối lại" creates a new claim; the approval
   response (§10) carries the current master keys and the device re-pins them.
+
+## 13. Changing the parent's phone (decided by Minh 2026-11-23)
+**A. Transfer (old phone available) — QR generated on the current phone, nothing pre-made.**
+1. Old phone: Cài đặt → "Chuyển sang điện thoại mới" → biometric → `POST /v1/master/transfers` (X-MC-Auth with the
+   **sign** key) → `201 {"transferId","token","expiresAt"}` (token = b64url 32 B, single use, 10 min). Old phone shows
+   QR `mincontrol://transfer?v=1&u=<urlencoded server URL>&t=<token>` and polls `GET /v1/master/transfers/<id>`.
+2. New phone (first-run "Quét mã" accepts this QR): creates keys (sign, read, seal) plus an ephemeral X25519 *transport*
+   key → `POST /v1/master/transfers/claim` (no auth) `{token, keys:[…], sealPubKey, transportPubKey, sig}` where `sig` =
+   new sign key over `"transfer|"+token` → `202 {"transferId","status":"pending"}`; keys stored as **pending**.
+3. Old phone's poll returns `{"status":"claimed", newKeys, transportPubKey, fp}`; it shows the new phone's fingerprint
+   (first 12 hex of sha256(new sign public key)) which the new phone also shows → parent confirms → biometric → old phone:
+   a. signs one envelope per device (§4 SignedBody, new `kind: "master_keys"`, body
+      `{"keys":[{keyId,alg,publicKey,role:"sign"}],"sealPubKey"}`, normal seq per kind, expiresAt +30 days) and
+   b. seals the **old seal private key** to `transportPubKey` (crypto_box_seal) so old screenshots stay readable;
+   `POST /v1/master/transfers/<id>/complete` (sign key) `{envelopes:{<deviceId>: SignedEnvelope}, sealedSealKey}`.
+4. Server atomically: activates the new keys, revokes the old ones, queues each device's `master_keys` envelope
+   (delivered like a policy, before queued commands), stores `sealedSealKey` for the new phone →
+   new phone's `GET /v1/master/transfers/<id>` (now authorised with its own keys) returns `{status:"done", sealedSealKey}`;
+   it imports the old seal private key (keeps it as an additional decryption key) — `sealPubKey` for NEW screenshots
+   becomes the new phone's.
+5. **Device**: a `master_keys` envelope verified with a currently pinned key **replaces** the pinned key set (and
+   the seal public key) atomically; ack like a command (`applied`). An envelope signed by an unknown key → rejected.
+**B. Lost phone — recovery code.** The pre-generated QR (`mincontrol://setup…`, bootstrap secret) is renamed
+"Mã khôi phục": created once when the server is deployed, meant to be printed and kept. Using it (`/v1/master/register`) revokes old keys and marks that secret as used (the Worker stores a hash and refuses
+the same secret again), so the parent needs a new recovery code afterwards (`scripts/deploy-cloud.ps1 -RotateBootstrap`
+regenerates it and the QR). Every PC must then be re-paired ("Kết nối MinControl với điện thoại" → "Ghép nối lại"),
+because devices cannot verify keys no old phone vouched for.

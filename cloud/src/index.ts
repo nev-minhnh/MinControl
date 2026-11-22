@@ -9,6 +9,7 @@ import { deviceWs, postEvents, putBlob, putInventory } from "./routes/device";
 import { approveClaim, enrollStart, getClaim, getClaimByCode, pollClaim, registerWithClaim, rejectClaim } from "./routes/claims";
 import { createPairingCode, enroll } from "./routes/enroll";
 import * as m from "./routes/master";
+import { claimTransfer, completeTransfer, createTransfer, getTransfer } from "./routes/transfers";
 
 export { DeviceHub };
 export type { Env };
@@ -26,6 +27,10 @@ export const router = new Router()
   // master
   .add("POST", "/v1/master/register", "none", m.register) // bootstrap secret checked in the handler
   .add("POST", "/v1/master/register-with-claim", "none", registerWithClaim) // TOFU; sig checked in the handler
+  .add("POST", "/v1/master/transfers/claim", "none", claimTransfer) // token + sig checked in the handler
+  .add("POST", "/v1/master/transfers", "master", createTransfer)
+  .add("GET", "/v1/master/transfers/:id", "master", getTransfer)
+  .add("POST", "/v1/master/transfers/:id/complete", "master", completeTransfer)
   .add("POST", "/v1/master/pairing-codes", "master", createPairingCode)
   .add("GET", "/v1/master/claims/by-code/:code", "master", getClaimByCode)
   .add("GET", "/v1/master/claims/:claimId", "master", getClaim)

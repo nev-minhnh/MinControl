@@ -29,7 +29,8 @@
   ADMIN_BOOTSTRAP_SECRET to set. When omitted: prompt if the session is interactive, otherwise generate a random one
   (printed once at the end).
 .PARAMETER RotateBootstrap
-  Generate and set a NEW ADMIN_BOOTSTRAP_SECRET (e.g. after the master app registered).
+  Generate and set a NEW ADMIN_BOOTSTRAP_SECRET (the recovery code is single use: run this again after it was used)
+  and regenerate the recovery QR release\dev\recovery-qr.png (was setup-qr.png).
 #>
 [CmdletBinding()]
 param(
@@ -136,6 +137,7 @@ try {
 
     # ---------------------------------------------------------------- 7. secrets
     $bootstrap = $null
+    $recoveryPlain = $null
     if (-not $SkipSecrets) {
         Write-Host "==> secrets" -ForegroundColor Cyan
         $existing = (& npx --no-install wrangler secret list -c $localToml) | Out-String
@@ -153,6 +155,7 @@ try {
             if ([string]::IsNullOrWhiteSpace($plain)) { $plain = New-RandomSecret 32; $bootstrap = $plain }
             Set-WorkerSecret "ADMIN_BOOTSTRAP_SECRET" $plain
             Write-Host "    ADMIN_BOOTSTRAP_SECRET set"
+            $recoveryPlain = $plain # the recovery QR (API.md section 13B) always matches the secret just set
         } else { Write-Host "    ADMIN_BOOTSTRAP_SECRET exists (kept; -RotateBootstrap to replace)" }
 
         if ($FcmServiceAccountFile) {
@@ -161,6 +164,31 @@ try {
             Write-Host "    FCM_SERVICE_ACCOUNT_JSON set from file"
         } elseif ($existing -notmatch "FCM_SERVICE_ACCOUNT_JSON") {
             Write-Host "    FCM_SERVICE_ACCOUNT_JSON not set (no pushes). Re-run with -FcmServiceAccountFile <json>." -ForegroundColor Yellow
+        }
+    }
+
+    # ---------------------------------------------------------------- 7b. recovery code QR
+    if ($recoveryPlain) {
+        Write-Host "==> recovery code QR (release\dev\recovery-qr.png)" -ForegroundColor Cyan
+        $qrUrl = $url
+        $secretsFile = Join-Path $root "tools\secrets\cloud-dev.txt"
+        if (-not $qrUrl -and (Test-Path $secretsFile)) {
+            $m = [regex]::Match((Get-Content $secretsFile -Raw), "(?m)^\s*SERVER_URL\s*=\s*(\S+)")
+            if ($m.Success) { $qrUrl = $m.Groups[1].Value.Trim('"', "'") }
+        }
+        if (-not $qrUrl) { Write-Warning "no server URL known; recovery QR not written" }
+        else {
+            $qrOut = Join-Path $root "release\dev\recovery-qr.png"
+            $env:ADMIN_BOOTSTRAP_SECRET = $recoveryPlain
+            $env:SERVER_URL = $qrUrl
+            try {
+                & node (Join-Path $PSScriptRoot "make-setup-qr.mjs") $secretsFile $qrOut
+                if ($LASTEXITCODE -ne 0) { Write-Warning "make-setup-qr.mjs failed (run npm install in scripts\ first)" }
+            } finally {
+                Remove-Item Env:ADMIN_BOOTSTRAP_SECRET -ErrorAction SilentlyContinue
+                Remove-Item Env:SERVER_URL -ErrorAction SilentlyContinue
+            }
+            Write-Host "    Print recovery-qr.png and keep it safe: it works ONCE (then run -RotateBootstrap again)." -ForegroundColor Yellow
         }
     }
 

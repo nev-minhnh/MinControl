@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/cloud/transfer-claim.schema.json",
+  "title": "POST /v1/master/transfers/claim body (cloud-local; API.md section 13)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["token", "keys", "sealPubKey", "transportPubKey", "sig"],
+  "properties": {
+    "token": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+    "keys": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keyId", "alg", "publicKey", "role"],
+        "properties": {
+          "keyId": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+          "alg": { "enum": ["ed25519", "es256"] },
+          "publicKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43,88}$" },
+          "role": { "enum": ["sign", "read"] }
+        }
+      }
+    },
+    "sealPubKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+    "transportPubKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+    "sig": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" }
+  }
+}

@@ -63,7 +63,7 @@ private sealed interface SettingsDialog {
 
 /** Settings: server, key fingerprints, seal-key backup (export/import), devices (revoke), re-register. */
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}) {
     val ctx = LocalContext.current
     val graph = ctx.graph
     val scope = rememberCoroutineScope()
@@ -97,7 +97,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                         Text(sign?.let { SigFormat.fingerprint(it.keyId) } ?: "", fontFamily = Mono, style = MaterialTheme.typography.bodySmall)
                     }
                     SettingRow("Khóa đọc dữ liệu", subtitle = read?.let { "${algLabel(it.alg)} · ${it.keyId}" } ?: "—")
-                    SettingRow("Đăng ký lại với máy chủ", subtitle = "Dùng khi đổi máy chủ hoặc sau khi khôi phục khóa ảnh",
+                    SettingRow("Chuyển sang điện thoại mới", subtitle = "Tạo mã QR trên điện thoại này để điện thoại mới nhận quyền quản lý",
+                        onClick = onTransfer) {}
+                    SettingRow("Đăng ký lại với máy chủ", subtitle = "Cần mã khôi phục. Mọi máy tính sẽ phải ghép nối lại",
                         last = true, onClick = { dialog = SettingsDialog.Reregister }) {}
                 }
 
@@ -156,7 +158,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 } catch (e: Exception) { msg = e.userMessage() }
             }
         }
-        SettingsDialog.Reregister -> TextDialog("Mã khởi tạo (bootstrap secret)", "", true, { dialog = null }) { secret ->
+        SettingsDialog.Reregister -> TextDialog("Mã khôi phục", "", true, { dialog = null }) { secret ->
             scope.launch {
                 try {
                     graph.repo.register(graph.settings.serverUrl ?: error("no server"), secret)

@@ -1,0 +1,18 @@
+{
+  "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+  "kind": "master_keys",
+  "seq": 4,
+  "issuedAt": "2026-11-22T08:50:00Z",
+  "expiresAt": "2026-11-22T09:50:00Z",
+  "body": {
+    "keys": [
+      {
+        "keyId": "3f9a1c2b4d5e6f70",
+        "alg": "ed25519",
+        "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "role": "read"
+      }
+    ],
+    "sealPubKey": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+  }
+}
