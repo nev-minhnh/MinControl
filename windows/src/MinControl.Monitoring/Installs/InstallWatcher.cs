@@ -40,8 +40,11 @@ internal sealed class InstallWatcher : IMonitorComponent
     private readonly ManualResetEvent _stop = new(false);
     private Thread? _thread;
 
-    public InstallWatcher(IUserDirectory users, IEventSink sink, MonitoringOptions options, ILogger log)
+    private readonly Action? _onInstall;
+
+    public InstallWatcher(IUserDirectory users, IEventSink sink, MonitoringOptions options, ILogger log, Action? onInstall = null)
     {
+        _onInstall = onInstall;
         _users = users;
         _sink = sink;
         _options = options;
@@ -148,6 +151,7 @@ internal sealed class InstallWatcher : IMonitorComponent
                     EventData.Install(entry.Product, entry.Version, entry.Publisher, k.Scope));
             }
             catch (Exception ex) { _log.LogWarning(ex, "Emit install.detected"); }
+            _onInstall?.Invoke();
         }
     }
 
