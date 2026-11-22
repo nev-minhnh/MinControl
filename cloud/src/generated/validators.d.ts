@@ -20,6 +20,7 @@ export const validateInventory: ValidateFn;
 export const validateEnrollRequest: ValidateFn;
 export const validateEnrollStartRequest: ValidateFn;
 export const validateMasterRegister: ValidateFn;
+export const validateMasterRegisterWithClaim: ValidateFn;
 export const validatePushSubscribe: ValidateFn;
 export const validateDeviceState: ValidateFn;
 export const validateWsDeviceMessage: ValidateFn;
