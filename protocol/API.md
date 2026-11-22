@@ -155,3 +155,23 @@ embedded in the installer. `/v1/enroll` with a pairing code (§1) stays for CLI/
    `POST /v1/master/claims/<claimId>/approve` → `201 {"deviceId"}` — **must be authenticated with a `sign`-role key**
    (biometric on the phone); `POST /v1/master/claims/<claimId>/reject` → `204`. A claim is single use.
 5. After approval the app continues with the existing "choose managed users → policy v1" flow.
+
+## 11. App inventory from the PC (decided by Minh 2026-11-22)
+The master app builds app groups / app rules by picking from the apps that really exist on the child's PC.
+- **Device → cloud** `PUT /v1/device/inventory` (Bearer upload token, JSON ≤ 512 KB, schema
+  `protocol/inventory.schema.json`): `{ "deviceId", "generatedAt", "users": { "<sid>": { "apps": [App] } } }` for every
+  managed SID. `App` = `{ "id": "<stable sha256 hex of kind|key>", "name", "kind": "win32"|"appx"|"seen",
+  "publisher"?, "version"?, "installDir"?, "exe"?, "exePath"?, "lastUsed"? (RFC3339 Z), "minutes7d"? (int),
+  "category"? ("game"|"browser"|"social"|"video"|"study"|"system"|"other") }`.
+  Sources: Uninstall keys (HKLM, WOW6432Node, HKU\<sid>) — skip SystemComponent/updates; the user's Start-menu
+  shortcuts (resolve .lnk → exe); AppX packages of the user; plus every exe the user actually ran in the last 7 days
+  (`kind:"seen"`, from the process/usage data) with `minutes7d`. Merge by exe path; publisher from Authenticode when
+  known. `category` = best-effort hint from a built-in publisher/name list (Valve, Riot, Epic, Mojang, Roblox,
+  miHoYo/HoYoverse, Garena, VNG… → game; Zalo, Discord, Messenger, Telegram → social; …).
+  Sent at service start, every 6 h, after `install.detected`, and when a `refresh` command is applied.
+- **Cloud** stores the latest inventory per (device, sid) (replace, not append).
+- **Master** `GET /v1/master/devices/:id/apps?user=<sid>` → `{ "generatedAt", "apps": [App] }` (404 if none yet).
+- **Mapping to policy** (app side): win32 with `installDir` → `AppMatch {"path": "<installDir>\*"}` (covers launcher +
+  game exes and survives updates); otherwise `{"exe": "<exe>"}` plus `"publisher"` when known; appx →
+  `{"path": "<installDir>\*"}`. The picker shows name, publisher, "đã dùng N phút/7 ngày", category chip, search,
+  sorted by minutes7d then name; "Gợi ý: nhóm Game" pre-selects category=game.
