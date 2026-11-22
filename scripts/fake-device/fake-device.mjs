@@ -2,6 +2,7 @@
 // Fake Windows device for MinControl QA. Node >= 22, no dependencies.
 //   node fake-device.mjs enroll <code> [--server URL]
 //   node fake-device.mjs run [--no-events]
+//   node fake-device.mjs claim [--server URL] [--host NAME] [--no-run]   (QR pairing, API.md section 10; state-claim.json)
 // State: D:\Coding_Project\MinControl\tools\fake-device\state.json (override with MC_FAKE_STATE)
 //   node fake-device.mjs seal-test <pk> <in> <out>   (crypto self-test vs libsodium)
 // run: also seals a test JPEG to masterSealPubKey on start (--no-screens to skip) and answers blob_request.
@@ -11,7 +12,9 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, appendF
 import { dirname, join } from 'node:path';
 import { createHash, randomBytes, generateKeyPairSync, createPublicKey, diffieHellman } from 'node:crypto';
 
-const STATE = process.env.MC_FAKE_STATE || 'D:/Coding_Project/MinControl/tools/fake-device/state.json';
+const STATE = process.env.MC_FAKE_STATE || (process.argv[2] === 'claim'
+  ? 'D:/Coding_Project/MinControl/tools/fake-device/state-claim.json'
+  : 'D:/Coding_Project/MinControl/tools/fake-device/state.json');
 const TRIGGER = join(dirname(STATE), 'send-events');
 const TRIGGER_NEW = join(dirname(STATE), 'send-new'); // new exe approvals (signed + unsigned) + a device-level tamper event
 const LOGF = process.env.MC_FAKE_LOG || ''; // use a Windows path (D:/...) for node
@@ -318,9 +321,48 @@ async function run() {
   connect();
 }
 
+// --- QR pairing (API.md section 10): device-initiated claim, then continues with run ---
+async function claim() {
+  const server = (arg('--server') || readServer()).replace(/\/$/, '');
+  const kp = await subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  const pub = new Uint8Array(await subtle.exportKey('raw', kp.publicKey));
+  const jwk = await subtle.exportKey('jwk', kp.privateKey);
+  const fp = createHash('sha256').update(pub).digest('hex').slice(0, 12);
+  const body = { devicePubKey: b64u(pub), hostname: arg('--host', 'PC-BIN-FAKE'), osVersion: '10.0.26100', agentVersion: '0.1.0',
+    localUsers: [{ sid: SID_ADMIN, name: 'Ba', isAdmin: true }, { sid: SID_BIN, name: 'Bin', isAdmin: false }] };
+  const r = await fetch(server + '/v1/enroll/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const txt = await r.text();
+  if (r.status !== 201) { log('POST /v1/enroll/start ->', r.status, txt); process.exit(1); }
+  const { claimId, code, expiresAt } = JSON.parse(txt);
+  log('POST /v1/enroll/start -> 201 claimId', claimId, 'code', code, 'expiresAt', expiresAt);
+  log('PAIR_LINK mincontrol://pair?v=1&c=' + claimId + '&f=' + fp);
+  log('FINGERPRINT', fp.toUpperCase().match(/.{4}/g).join('-'), 'FALLBACK_CODE', code);
+  const priv = kp.privateKey;
+  for (;;) {
+    await new Promise((res) => setTimeout(res, 2000));
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = b64u(await subtle.sign({ name: 'Ed25519' }, priv, Buffer.from(`poll|${claimId}|${ts}`)));
+    const pr = await fetch(`${server}/v1/enroll/claim/${claimId}?ts=${ts}&sig=${sig}`);
+    const pt = await pr.text();
+    if (pr.status === 202) continue;
+    if (pr.status === 200) {
+      const res = JSON.parse(pt);
+      if (res.status !== 'approved') { log('poll 200 unexpected', pt); process.exit(1); }
+      save({ server, deviceId: res.deviceId, privateJwk: jwk, publicKey: b64u(pub), masterKeys: res.masterKeys,
+        masterSealPubKey: res.masterSealPubKey, lastSeq: { policy: 0, command: 0 }, policyVersion: null, policy: null,
+        applied: {}, remainingMin: 72, usedMin: 48, extraMin: 0, lockedUntil: null });
+      log('claim APPROVED deviceId', res.deviceId, 'pinned keys', res.masterKeys.map((k) => k.keyId + '/' + k.alg).join(','));
+      return true;
+    }
+    log('poll ->', pr.status, pt);
+    process.exit(pr.status === 410 ? 3 : 1);
+  }
+}
+
 const cmd = process.argv[2];
 if (cmd === 'enroll') await enroll(process.argv[3]);
+else if (cmd === 'claim') { await claim(); if (!process.argv.includes('--no-run')) await run(); }
 else if (cmd === 'run') await run();
 else if (cmd === 'seal-test') { // seal-test <recipientPkB64url> <in> <out>: self-test helper
   writeFileSync(process.argv[5], sealedBox(readFileSync(process.argv[4]), Buffer.from(process.argv[3], 'base64url'))); }
-else { console.log('usage: fake-device.mjs enroll <code> | run [--no-events]'); process.exit(1); }
+else { console.log('usage: fake-device.mjs enroll <code> | claim | run [--no-events]'); process.exit(1); }
