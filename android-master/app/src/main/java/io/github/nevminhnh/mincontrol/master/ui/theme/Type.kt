@@ -18,6 +18,7 @@ private val provider = GoogleFont.Provider(
 )
 
 private val beVietnamPro = GoogleFont("Be Vietnam Pro")
+private val jetBrainsMono = GoogleFont("JetBrains Mono")
 private val weights = listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold)
 
 /** Be Vietnam Pro (downloadable Google Font); system sans-serif is the fallback while loading / if GMS is absent. */
@@ -30,12 +31,30 @@ val BeVietnamPro: FontFamily = FontFamily(
     },
 )
 
-val AppTypography = Typography().let { base ->
-    base.copy(
-        headlineSmall = TextStyle(fontFamily = BeVietnamPro, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 28.sp),
-        titleMedium = TextStyle(fontFamily = BeVietnamPro, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp),
-        bodyLarge = TextStyle(fontFamily = BeVietnamPro, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 24.sp),
-        bodyMedium = TextStyle(fontFamily = BeVietnamPro, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp),
-        labelMedium = TextStyle(fontFamily = BeVietnamPro, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp),
-    )
-}
+/** JetBrains Mono for pairing codes and key fingerprints (falls back to system monospace). */
+val Mono: FontFamily = FontFamily(
+    listOf(FontWeight.Normal, FontWeight.SemiBold).flatMap { w ->
+        listOf(
+            GoogleFontEntry(googleFont = jetBrainsMono, fontProvider = provider, weight = w),
+            Font(DeviceFontFamilyName("monospace"), weight = w),
+        )
+    },
+)
+
+private fun s(size: Int, weight: FontWeight = FontWeight.Normal, line: Int = (size * 1.4).toInt()) =
+    TextStyle(fontFamily = BeVietnamPro, fontWeight = weight, fontSize = size.sp, lineHeight = line.sp)
+
+/** Mock-up scale: 32 big numbers, 20 titles, 15 body, 13 secondary. */
+val AppTypography = Typography(
+    displaySmall = s(32, FontWeight.SemiBold, 38),
+    headlineSmall = s(20, FontWeight.SemiBold, 26),
+    titleLarge = s(20, FontWeight.SemiBold, 26),
+    titleMedium = s(15, FontWeight.SemiBold, 22),
+    titleSmall = s(13, FontWeight.SemiBold, 18),
+    bodyLarge = s(15, FontWeight.Normal, 22),
+    bodyMedium = s(15, FontWeight.Normal, 22),
+    bodySmall = s(13, FontWeight.Normal, 19),
+    labelLarge = s(15, FontWeight.SemiBold, 20),
+    labelMedium = s(13, FontWeight.Normal, 18),
+    labelSmall = s(11, FontWeight.SemiBold, 14),
+)
