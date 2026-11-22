@@ -178,6 +178,7 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
 
     fun reject(s: PairStage.Confirm) {
         viewModelScope.launch { runCatching { graph.repo.rejectClaim(s.claimId) } }
+        message.value = "Đã từ chối máy này"
         stage.value = PairStage.Home
     }
 
@@ -346,7 +347,7 @@ private fun ConfirmStage(s: PairStage.Confirm, approving: Boolean, onApprove: ()
             IconCircle(Icons.Outlined.Shield, PrimaryContainer, Primary)
             Column {
                 Text(s.claim.hostname.ifBlank { "Máy tính mới" }, style = MaterialTheme.typography.titleMedium)
-                if (s.claim.osVersion.isNotBlank()) Text(s.claim.osVersion, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                if (s.claim.osVersion.isNotBlank()) Text(osDisplay(s.claim.osVersion), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
             }
         }
         Text("Tài khoản trên máy", style = MaterialTheme.typography.labelLarge, color = TextSecondary)

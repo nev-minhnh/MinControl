@@ -149,9 +149,11 @@ fun SetupScreen() {
             style = MaterialTheme.typography.bodyMedium, color = TextSecondary,
         )
         if (!manual) {
-            McCard(spacing = 12.dp) {
+            if (!busy) {
+                PrimaryButton("Quét mã QR", onClick = { scan() }, modifier = Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp, icon = Icons.Outlined.QrCodeScanner)
                 Text("Mở mã QR thiết lập trên máy tính rồi quét. Anh không cần gõ gì cả.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-                OutlinedTextField(name, { name = it.take(30) }, label = { Text("Tên của anh/chị (hiển thị lời chào)") }, singleLine = true,
+                OutlinedButton(onClick = { manual = true }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Nhập tay") }
+                OutlinedTextField(name, { name = it.take(30) }, label = { Text("Tên của anh/chị (tùy chọn)") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth().scrollOnFocus())
             }
         } else {
@@ -177,10 +179,7 @@ fun SetupScreen() {
         error?.let { Text(it, color = DangerText, style = MaterialTheme.typography.bodySmall) }
         if (busy) {
             CircularProgressIndicator(color = Primary)
-        } else if (!manual) {
-            PrimaryButton("Quét mã QR", onClick = { scan() }, modifier = Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp, icon = Icons.Outlined.QrCodeScanner)
-            OutlinedButton(onClick = { manual = true }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Nhập tay") }
-        } else {
+        } else if (manual) {
             PrimaryButton("Đăng ký điện thoại này", onClick = { doRegister(server, secret) }, modifier = Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp)
             TextButton(onClick = { manual = false }, modifier = Modifier.fillMaxWidth()) { Text("Quay lại quét mã QR") }
         }
