@@ -28,6 +28,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<FilteringProxy>();
         services.AddSingleton<ExemptAppResolver>();
         services.AddSingleton<IWfpManager, WfpManager>();
+        services.AddSingleton<ITcpTableSource, SystemTcpTableSource>();
         services.AddSingleton<BypassDetector>();
         services.AddSingleton<NetGuardService>();
         services.AddSingleton<INetGuard>(sp => sp.GetRequiredService<NetGuardService>());
