@@ -1,6 +1,6 @@
+using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -15,11 +15,24 @@ public sealed record WfpVerifyResult(bool ProviderPresent, bool SublayerPresent,
     public bool Ok => ProviderPresent && SublayerPresent && MissingFilterKeys.Count == 0;
 }
 
+/// <summary>One filter of our provider as read back from BFE (diagnostics).</summary>
+public sealed record WfpInstalledFilter(ulong Id, Guid Key, string? Name, string Layer, string Action, string? Weight,
+    string? EffectiveWeight, uint Flags, IReadOnlyList<string> Conditions, string? Sid);
+
+/// <summary>A sublayer registered on the machine (ours and other providers', to spot higher-weight competitors).</summary>
+public sealed record WfpSublayerInfo(Guid Key, string? Name, ushort Weight, bool Ours);
+
+/// <summary>Read-back of the WFP state (FwpmFilterEnum0 / FwpmSubLayerEnum0).</summary>
+public sealed record WfpSnapshot(bool ProviderPresent, bool SublayerPresent, IReadOnlyList<WfpSublayerInfo> Sublayers,
+    IReadOnlyList<WfpInstalledFilter> Filters);
+
 public interface IWfpManager
 {
     void Apply(IReadOnlyList<WfpUserRule> rules);
     WfpVerifyResult Verify(IReadOnlyList<WfpUserRule> rules);
     void RemoveAll();
+    /// <summary>Enumerates our provider's filters with decoded conditions, and all sublayers.</summary>
+    WfpSnapshot Describe();
 }
 
 /// <summary>
@@ -27,25 +40,18 @@ public interface IWfpManager
 /// <para>Provider, sublayer and filters are created with the PERSISTENT flag, so BFE re-loads them at boot before the
 /// MinControl service starts — the managed user is offline until the service (proxy) is up (I4). BOOTTIME filters are
 /// deliberately not used: they cannot carry ALE user conditions and would block every account.</para>
-/// <para>Per SID and per layer (ALE_AUTH_CONNECT_V4/V6, ALE_AUTH_RECV_ACCEPT_V4/V6):
-/// permit loopback (weight 15), permit each exempt app (14), hard block everything else (0, CLEAR_ACTION_RIGHT).
-/// The user condition is FWPM_CONDITION_ALE_USER_ID with an SD "D:(A;;CC;;;SID)" (CC = FWP_ACTRL_MATCH_FILTER).</para>
-/// Filter keys are deterministic (hash of sid/layer/kind/app) so <see cref="Verify"/> can diff without state.
+/// <para>Per SID and per layer (ALE_AUTH_CONNECT_V4/V6, ALE_AUTH_RECV_ACCEPT_V4/V6): permit loopback (weight 15), permit
+/// each exempt app (14), hard block everything else (0, CLEAR_ACTION_RIGHT); see <see cref="WfpFilterPlan"/> for the
+/// exact conditions (user SD incl. the AppContainer / restricted-token ACEs).</para>
+/// Our sublayer has weight 0xFFFE, so it is evaluated before Windows Defender Firewall's and most third-party sublayers;
+/// its hard block cannot be overridden by a permit in a lower-weight sublayer.
+/// Filter keys are deterministic (hash of revision/sid/layer/kind/app) so <see cref="Verify"/> can diff without state.
 /// </summary>
-public sealed class WfpManager : IWfpManager
+public sealed partial class WfpManager : IWfpManager
 {
     public static readonly Guid ProviderKey = new("6d1f3c2a-8b4e-4f7a-9c51-2e8a7d0b4c11");
     public static readonly Guid SublayerKey = new("b3e5a7c9-1d2f-4a6b-8e0c-5f7d9a1b3c22");
-    private const ushort SublayerWeight = 0xFFFE;
-    private const byte WeightPermitLoopback = 15, WeightPermitApp = 14, WeightBlock = 0;
-
-    private static readonly (Guid Layer, string Name)[] Layers =
-    [
-        (FwpGuids.LayerAleAuthConnectV4, "connect-v4"),
-        (FwpGuids.LayerAleAuthConnectV6, "connect-v6"),
-        (FwpGuids.LayerAleAuthRecvAcceptV4, "accept-v4"),
-        (FwpGuids.LayerAleAuthRecvAcceptV6, "accept-v6"),
-    ];
+    public const ushort SublayerWeight = 0xFFFE;
 
     private readonly ILogger _log;
 
@@ -64,9 +70,16 @@ public sealed class WfpManager : IWfpManager
             foreach (var f in EnumerateOurFilters(engine.Handle))
                 Check(WfpNative.FwpmFilterDeleteById0(engine.Handle, f.Id), "FwpmFilterDeleteById0", FwpConst.FWP_E_FILTER_NOT_FOUND);
             var added = 0;
+            var perSid = new List<(string Sid, int Filters, int Apps)>();
             foreach (var rule in rules)
-                added += AddUserFilters(engine.Handle, rule);
+            {
+                var (n, apps) = AddUserFilters(engine.Handle, rule);
+                added += n;
+                perSid.Add((rule.Sid, n, apps));
+            }
             Check(WfpNative.FwpmTransactionCommit0(engine.Handle), "FwpmTransactionCommit0");
+            foreach (var (sid, n, apps) in perSid)
+                _log.LogInformation("WFP applied for {Sid}: {Filters} filters, {Apps} exempt app(s), plan {Rev}", sid, n, apps, WfpFilterPlan.Revision);
             _log.LogInformation("WFP applied: {Users} users, {Filters} filters", rules.Count, added);
         }
         catch
@@ -109,25 +122,30 @@ public sealed class WfpManager : IWfpManager
         }
     }
 
-    /// <summary>Deterministic filter keys for one user (exposed for tests/diagnostics).</summary>
-    public static IEnumerable<Guid> ExpectedKeys(WfpUserRule rule)
+    public WfpSnapshot Describe()
     {
-        foreach (var (layer, _) in Layers)
-        {
-            yield return FilterKey(rule.Sid, layer, "loopback", null);
-            foreach (var app in rule.ExemptAppPaths) yield return FilterKey(rule.Sid, layer, "app", app);
-            yield return FilterKey(rule.Sid, layer, "block", null);
-        }
+        using var engine = Engine.Open();
+        var providerPresent = Exists(WfpNative.FwpmProviderGetByKey0(engine.Handle, ProviderKey, out var p), ref p);
+        var sublayerPresent = Exists(WfpNative.FwpmSubLayerGetByKey0(engine.Handle, SublayerKey, out var s), ref s);
+        var filters = new List<WfpInstalledFilter>();
+        EnumerateFilters(engine.Handle, f => { if (IsOurs(f)) filters.Add(DescribeFilter(f)); });
+        return new WfpSnapshot(providerPresent, sublayerPresent, EnumerateSublayers(engine.Handle), filters);
     }
 
-    public static Guid FilterKey(string sid, Guid layer, string kind, string? app)
+    /// <summary>Deterministic filter keys for one user (exposed for tests/diagnostics).</summary>
+    public static IEnumerable<Guid> ExpectedKeys(WfpUserRule rule) => WfpFilterPlan.Build(rule).Select(f => f.Key);
+
+    public static Guid FilterKey(string sid, Guid layer, string kind, string? app) => WfpFilterPlan.FilterKey(sid, layer, kind, app);
+
+    /// <summary>"S-1-5-21-…" of the first ACE in an SDDL string, or null.</summary>
+    internal static string? FirstAceSid(string sddl)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"mincontrol/wfp/{sid.ToUpperInvariant()}/{layer:N}/{kind}/{app?.ToUpperInvariant()}"));
-        var g = bytes.AsSpan(0, 16).ToArray();
-        g[7] = (byte)((g[7] & 0x0F) | 0x50);   // version 5-style
-        g[8] = (byte)((g[8] & 0x3F) | 0x80);   // RFC 4122 variant
-        return new Guid(g);
+        var m = FirstAceRegex().Match(sddl);
+        return m.Success ? m.Groups[1].Value : null;
     }
+
+    [GeneratedRegex(@"\(A;;[^;]*;;;(S-1-[0-9-]+)\)", RegexOptions.CultureInvariant)]
+    private static partial Regex FirstAceRegex();
 
     // ------------------------------------------------------------------ internals
 
@@ -153,61 +171,39 @@ public sealed class WfpManager : IWfpManager
         Check(WfpNative.FwpmSubLayerAdd0(h, sublayer, IntPtr.Zero), "FwpmSubLayerAdd0", FwpConst.FWP_E_ALREADY_EXISTS);
     }
 
-    private int AddUserFilters(IntPtr h, WfpUserRule rule)
+    private (int Filters, int Apps) AddUserFilters(IntPtr h, WfpUserRule rule)
     {
         using var mem = new NativeArena();
         var userSd = mem.UserSecurityDescriptor(rule.Sid);   // FWP_BYTE_BLOB* holding a self-relative SD
-        var appIds = new List<(string Path, IntPtr Blob)>();
+        var appIds = new Dictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in rule.ExemptAppPaths)
         {
             var rc = WfpNative.FwpmGetAppIdFromFileName0(path, out var blob);
             if (rc != 0) { _log.LogWarning("Exempt app {Path} skipped: FwpmGetAppIdFromFileName0 0x{Rc:X8}", path, rc); continue; }
             mem.TrackFwpMemory(blob);
-            appIds.Add((path, blob));
+            appIds[path] = blob;
         }
 
         var count = 0;
-        foreach (var (layer, layerName) in Layers)
+        foreach (var spec in WfpFilterPlan.Build(rule, appIds.Keys))
         {
-            var userCond = new FWPM_FILTER_CONDITION0
-            {
-                fieldKey = FwpGuids.ConditionAleUserId,
-                matchType = FwpConst.FWP_MATCH_EQUAL,
-                conditionValue = new FWP_VALUE0 { type = FwpConst.FWP_SECURITY_DESCRIPTOR_TYPE, ptr = userSd },
-            };
-
-            // 1. permit loopback (the proxy lives there)
-            var loopCond = new FWPM_FILTER_CONDITION0
-            {
-                fieldKey = FwpGuids.ConditionFlags,
-                matchType = FwpConst.FWP_MATCH_FLAGS_ALL_SET,
-                conditionValue = new FWP_VALUE0 { type = FwpConst.FWP_UINT32, uint64 = FwpConst.FWP_CONDITION_FLAG_IS_LOOPBACK },
-            };
-            AddFilter(h, mem, FilterKey(rule.Sid, layer, "loopback", null), layer, $"MinControl permit loopback {layerName}",
-                FwpConst.FWP_ACTION_PERMIT, WeightPermitLoopback, FwpConst.FWPM_FILTER_FLAG_PERSISTENT, [userCond, loopCond]);
-            count++;
-
-            // 2. permit exempt apps
-            foreach (var (path, blob) in appIds)
-            {
-                var appCond = new FWPM_FILTER_CONDITION0
-                {
-                    fieldKey = FwpGuids.ConditionAleAppId,
-                    matchType = FwpConst.FWP_MATCH_EQUAL,
-                    conditionValue = new FWP_VALUE0 { type = FwpConst.FWP_BYTE_BLOB_TYPE, ptr = blob },
-                };
-                AddFilter(h, mem, FilterKey(rule.Sid, layer, "app", path), layer, $"MinControl permit app {layerName}",
-                    FwpConst.FWP_ACTION_PERMIT, WeightPermitApp, FwpConst.FWPM_FILTER_FLAG_PERSISTENT, [userCond, appCond]);
-                count++;
-            }
-
-            // 3. hard block everything else (all protocols: TCP, UDP/QUIC, DoT, raw)
-            AddFilter(h, mem, FilterKey(rule.Sid, layer, "block", null), layer, $"MinControl block {layerName}",
-                FwpConst.FWP_ACTION_BLOCK, WeightBlock,
-                FwpConst.FWPM_FILTER_FLAG_PERSISTENT | FwpConst.FWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT, [userCond]);
+            var conditions = spec.Conditions.Select(c => ToNative(c, userSd, appIds)).ToArray();
+            AddFilter(h, mem, spec.Key, spec.Layer, $"MinControl {spec.Kind} {spec.LayerName}", spec.Action, spec.Weight, spec.Flags, conditions);
             count++;
         }
-        return count;
+        return (count, appIds.Count);
+    }
+
+    private static FWPM_FILTER_CONDITION0 ToNative(WfpConditionSpec c, IntPtr userSd, IReadOnlyDictionary<string, IntPtr> appIds)
+    {
+        var value = c.ValueType switch
+        {
+            FwpConst.FWP_SECURITY_DESCRIPTOR_TYPE => new FWP_VALUE0 { type = c.ValueType, ptr = userSd },
+            FwpConst.FWP_BYTE_BLOB_TYPE => new FWP_VALUE0 { type = c.ValueType, ptr = appIds[c.Value] },
+            FwpConst.FWP_UINT32 => new FWP_VALUE0 { type = c.ValueType, uint64 = uint.Parse(c.Value, CultureInfo.InvariantCulture) },
+            _ => throw new InvalidOperationException($"unsupported condition value type {c.ValueType}"),
+        };
+        return new FWPM_FILTER_CONDITION0 { fieldKey = c.FieldKey, matchType = c.MatchType, conditionValue = value };
     }
 
     private static void AddFilter(IntPtr h, NativeArena mem, Guid key, Guid layer, string name, uint action, byte weight, uint flags,
@@ -233,6 +229,16 @@ public sealed class WfpManager : IWfpManager
     private static List<(ulong Id, Guid Key)> EnumerateOurFilters(IntPtr h)
     {
         var result = new List<(ulong, Guid)>();
+        EnumerateFilters(h, f => { if (IsOurs(f)) result.Add((f.filterId, f.filterKey)); });
+        return result;
+    }
+
+    private static bool IsOurs(in FWPM_FILTER0 f) =>
+        f.providerKey != IntPtr.Zero && Marshal.PtrToStructure<Guid>(f.providerKey) == ProviderKey;
+
+    /// <summary>Visits every filter; the struct's pointers are valid only during the callback.</summary>
+    private static void EnumerateFilters(IntPtr h, Action<FWPM_FILTER0> visit)
+    {
         Check(WfpNative.FwpmFilterCreateEnumHandle0(h, IntPtr.Zero, out var enumHandle), "FwpmFilterCreateEnumHandle0");
         try
         {
@@ -242,12 +248,7 @@ public sealed class WfpManager : IWfpManager
                 try
                 {
                     for (var i = 0; i < n; i++)
-                    {
-                        var fp = Marshal.ReadIntPtr(entries, i * IntPtr.Size);
-                        var f = Marshal.PtrToStructure<FWPM_FILTER0>(fp);
-                        if (f.providerKey != IntPtr.Zero && Marshal.PtrToStructure<Guid>(f.providerKey) == ProviderKey)
-                            result.Add((f.filterId, f.filterKey));
-                    }
+                        visit(Marshal.PtrToStructure<FWPM_FILTER0>(Marshal.ReadIntPtr(entries, i * IntPtr.Size)));
                 }
                 finally
                 {
@@ -260,8 +261,96 @@ public sealed class WfpManager : IWfpManager
         {
             WfpNative.FwpmFilterDestroyEnumHandle0(h, enumHandle);
         }
-        return result;
     }
+
+    private static List<WfpSublayerInfo> EnumerateSublayers(IntPtr h)
+    {
+        var result = new List<WfpSublayerInfo>();
+        Check(WfpNative.FwpmSubLayerCreateEnumHandle0(h, IntPtr.Zero, out var enumHandle), "FwpmSubLayerCreateEnumHandle0");
+        try
+        {
+            while (true)
+            {
+                Check(WfpNative.FwpmSubLayerEnum0(h, enumHandle, 256, out var entries, out var n), "FwpmSubLayerEnum0");
+                try
+                {
+                    for (var i = 0; i < n; i++)
+                    {
+                        var sl = Marshal.PtrToStructure<FWPM_SUBLAYER0>(Marshal.ReadIntPtr(entries, i * IntPtr.Size));
+                        result.Add(new WfpSublayerInfo(sl.subLayerKey, Str(sl.displayData.name), sl.weight, sl.subLayerKey == SublayerKey));
+                    }
+                }
+                finally
+                {
+                    if (entries != IntPtr.Zero) WfpNative.FwpmFreeMemory0(ref entries);
+                }
+                if (n < 256) break;
+            }
+        }
+        finally
+        {
+            WfpNative.FwpmSubLayerDestroyEnumHandle0(h, enumHandle);
+        }
+        return result.OrderByDescending(x => x.Weight).ToList();
+    }
+
+    private static WfpInstalledFilter DescribeFilter(FWPM_FILTER0 f)
+    {
+        var conditions = new List<string>();
+        string? sid = null;
+        var size = Marshal.SizeOf<FWPM_FILTER_CONDITION0>();
+        for (var i = 0; i < f.numFilterConditions && f.filterCondition != IntPtr.Zero; i++)
+        {
+            var c = Marshal.PtrToStructure<FWPM_FILTER_CONDITION0>(f.filterCondition + i * size);
+            var value = DecodeValue(c.conditionValue);
+            if (c.fieldKey == FwpGuids.ConditionAleUserId) sid ??= FirstAceSid(value);
+            conditions.Add($"{WfpFilterPlan.FieldName(c.fieldKey)} {MatchName(c.matchType)} {value}");
+        }
+        return new WfpInstalledFilter(f.filterId, f.filterKey, Str(f.displayData.name), WfpFilterPlan.LayerName(f.layerKey),
+            WfpFilterPlan.ActionName(f.action.type), DecodeValue(f.weight), DecodeValue(f.effectiveWeight), f.flags, conditions, sid);
+    }
+
+    private static string MatchName(uint m) => m switch
+    {
+        FwpConst.FWP_MATCH_EQUAL => "==",
+        FwpConst.FWP_MATCH_FLAGS_ALL_SET => "all-set",
+        _ => $"match#{m}",
+    };
+
+    private static string DecodeValue(FWP_VALUE0 v)
+    {
+        switch (v.type)
+        {
+            case FwpConst.FWP_EMPTY: return "empty";
+            case FwpConst.FWP_UINT8: return ((byte)v.uint64).ToString(CultureInfo.InvariantCulture);
+            case FwpConst.FWP_UINT16: return ((ushort)v.uint64).ToString(CultureInfo.InvariantCulture);
+            case FwpConst.FWP_UINT32: return $"0x{(uint)v.uint64:X}";
+            case FwpConst.FWP_UINT64:   // FWP_VALUE0.uint64 is a UINT64* in the union
+                return v.ptr == IntPtr.Zero ? "null" : ((ulong)Marshal.ReadInt64(v.ptr)).ToString(CultureInfo.InvariantCulture);
+            case FwpConst.FWP_BYTE_BLOB_TYPE:
+            {
+                if (v.ptr == IntPtr.Zero) return "null";
+                var blob = Marshal.PtrToStructure<FWP_BYTE_BLOB>(v.ptr);
+                if (blob.data == IntPtr.Zero || blob.size < 2) return "blob";
+                return (Marshal.PtrToStringUni(blob.data, (int)(blob.size / 2)) ?? "").TrimEnd('\0');
+            }
+            case FwpConst.FWP_SECURITY_DESCRIPTOR_TYPE:
+            {
+                if (v.ptr == IntPtr.Zero) return "null";
+                var blob = Marshal.PtrToStructure<FWP_BYTE_BLOB>(v.ptr);
+                if (blob.data == IntPtr.Zero) return "sd:null";
+                if (!WfpNative.ConvertSecurityDescriptorToStringSecurityDescriptor(blob.data, 1,
+                        WfpNative.OWNER_SECURITY_INFORMATION | WfpNative.GROUP_SECURITY_INFORMATION | WfpNative.DACL_SECURITY_INFORMATION,
+                        out var sddl, out _))
+                    return $"sd:error {Marshal.GetLastPInvokeError()}";
+                try { return Marshal.PtrToStringUni(sddl) ?? ""; }
+                finally { WfpNative.LocalFree(sddl); }
+            }
+            default: return $"type#{v.type}";
+        }
+    }
+
+    private static string? Str(IntPtr p) => p == IntPtr.Zero ? null : Marshal.PtrToStringUni(p);
 
     private static bool Exists(uint rc, ref IntPtr obj)
     {
@@ -313,12 +402,10 @@ public sealed class WfpManager : IWfpManager
             return p;
         }
 
-        /// <summary>FWP_BYTE_BLOB* wrapping a self-relative SD that grants FWP_ACTRL_MATCH_FILTER (CC) to the SID.</summary>
+        /// <summary>FWP_BYTE_BLOB* wrapping the self-relative SD of <see cref="WfpFilterPlan.UserSddl"/>.</summary>
         public IntPtr UserSecurityDescriptor(string sid)
         {
-            if (!sid.StartsWith("S-1-", StringComparison.OrdinalIgnoreCase) || sid.Any(c => !(char.IsAsciiDigit(c) || c is '-' or 'S' or 's')))
-                throw new ArgumentException("invalid SID", nameof(sid));
-            if (!WfpNative.ConvertStringSecurityDescriptorToSecurityDescriptor($"D:(A;;CC;;;{sid})", 1, out var sd, out var size))
+            if (!WfpNative.ConvertStringSecurityDescriptorToSecurityDescriptor(WfpFilterPlan.UserSddl(sid), 1, out var sd, out var size))
                 throw new WfpException("ConvertStringSecurityDescriptorToSecurityDescriptorW", (uint)Marshal.GetLastPInvokeError());
             _local.Add(sd);
             var blob = Alloc(Marshal.SizeOf<FWP_BYTE_BLOB>());

@@ -38,6 +38,14 @@ public sealed class CategoryUpdater : BackgroundService
     private readonly ILogger _log;
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly SemaphoreSlim _pass = new(1, 1);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _lastErrors = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Time of the last completed update pass (diagnostics).</summary>
+    public DateTimeOffset? LastPassUtc { get; private set; }
+    /// <summary>"category/list" → error of its last failed download (cleared on success).</summary>
+    public IReadOnlyDictionary<string, string> LastErrors => _lastErrors;
+    /// <summary>Per list file: ETag/Last-Modified/domains of the last download (diagnostics).</summary>
+    public IReadOnlyDictionary<string, Ut1SourceState> SourceStates() => LoadState();
 
     public CategoryUpdater(NetGuardOptions options, CategoryStore store, IPolicyProvider policy, IUserDirectory users,
         ILogger<CategoryUpdater>? log = null)
@@ -136,11 +144,13 @@ public sealed class CategoryUpdater : BackgroundService
                     {
                         if (await UpdateSourceAsync(cat, list, state, ct).ConfigureAwait(false)) downloaded.Add(key);
                         else notModified.Add(key);
+                        _lastErrors.TryRemove(key, out _);
                     }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                     catch (Exception ex)
                     {
                         failed.Add(key);
+                        _lastErrors[key] = ex.Message;
                         _log.LogWarning("Category list {Key} update failed, keeping the previous file: {Error}", key, ex.Message);
                     }
                 }
@@ -158,6 +168,7 @@ public sealed class CategoryUpdater : BackgroundService
             foreach (var k in state.Keys.Where(k => !keepFiles.Contains(k)).ToList()) state.Remove(k);
 
             SaveState(state);
+            LastPassUtc = DateTimeOffset.UtcNow;
             if (downloaded.Count > 0 || removed.Count > 0) _store.Reload(force: true);
             _log.LogInformation("Category update: {Down} downloaded, {Same} unchanged, {Fail} failed, {Rm} removed in {Ms} ms",
                 downloaded.Count, notModified.Count, failed.Count, removed.Count, sw.ElapsedMilliseconds);

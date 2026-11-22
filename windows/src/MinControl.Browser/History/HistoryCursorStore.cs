@@ -29,6 +29,12 @@ public sealed class HistoryCursorStore
         lock (_gate) return Load().TryGetValue(key, out var c) ? c : null;
     }
 
+    /// <summary>Snapshot of every cursor (diagnostics).</summary>
+    public IReadOnlyDictionary<string, HistoryCursor> All()
+    {
+        lock (_gate) return new Dictionary<string, HistoryCursor>(Load(), StringComparer.Ordinal);
+    }
+
     public void Set(string key, HistoryCursor cursor)
     {
         lock (_gate)
