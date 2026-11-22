@@ -69,10 +69,12 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
     private var webJob: Job? = null
 
     // apps
-    val pendingApprovals: StateFlow<List<AlertCard>> = combine(repo.alerts, repo.children, child) { alerts, kids, c ->
-        alerts.filter { !it.acked && it.item.type == "request.exe_approval" && it.item.deviceId == c?.deviceId && it.item.userSid == c?.sid }
-            .map { AlertsViewModel.toCard(it, kids) }
+    val pendingApprovals: StateFlow<List<AlertCard>> = combine(repo.alerts, repo.children, child, repo.localDecisions) { alerts, kids, c, local ->
+        Approvals.pending(alerts, local, c?.deviceId, c?.sid).map { AlertsViewModel.toCard(it, kids) }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    /** sha256 -> decision, for the timeline (B3). */
+    val decided: StateFlow<Map<String, ApprovalState>> = combine(repo.alerts, repo.localDecisions) { alerts, local -> Approvals.decided(alerts, local) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     val busy = MutableStateFlow<Set<String>>(emptySet())
 
     // screenshots
@@ -109,7 +111,11 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
                 all += page.items
                 cursor = page.next ?: break
             }
-            events.value = all
+            // B4: device-level tamper events carry no userSid and are not returned for a `user` filter.
+            val deviceLevel = runCatching {
+                repo.events(c.deviceId, null, Fmt.dayStart(d), Fmt.dayEnd(d), null, type = "tamper.*").items
+            }.getOrDefault(emptyList())
+            events.value = TimelineBuilder.mergeDeviceEvents(all, deviceLevel)
         } catch (e: Exception) {
             message.value = e.userMessage()
         } finally {
@@ -217,6 +223,7 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         try {
             val cmd = Command.ApproveExe(repo.newCommandId(), sid, sha, if (allow) Decision.ALLOW else Decision.BLOCK)
             repo.sendCommand(activity, item.deviceId, cmd, if (allow) "Cho phép ứng dụng" else "Chặn ứng dụng", card.body)
+            repo.recordDecision(sha, allow)
             repo.ackAlert(item.id)
         } catch (e: BiometricCancelledException) {
         } catch (e: Exception) {

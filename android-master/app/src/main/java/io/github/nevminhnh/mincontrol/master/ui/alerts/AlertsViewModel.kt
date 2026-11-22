@@ -92,6 +92,7 @@ class AlertsViewModel(app: Application) : AndroidViewModel(app) {
             val cmd = Command.ApproveExe(repo.newCommandId(), sid, sha, if (allow) Decision.ALLOW else Decision.BLOCK)
             val exe = item.data.str("exe") ?: "ứng dụng"
             repo.sendCommand(activity, item.deviceId, cmd, if (allow) "Cho phép $exe" else "Chặn $exe", card.child?.label)
+            repo.recordDecision(sha, allow)
             repo.ackAlert(item.id)
             message.value = if (allow) "Đã cho phép $exe." else "Đã chặn $exe."
         } catch (e: BiometricCancelledException) {

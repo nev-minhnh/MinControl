@@ -95,6 +95,15 @@ class OverviewViewModel(app: Application) : AndroidViewModel(app) {
         return r.delivered
     }
 
+    /** Direct unlock from the card (biometric prompt is the confirmation). */
+    fun unlockNow(activity: FragmentActivity, child: Child) = viewModelScope.launch {
+        pending.value = pending.value + child.sid
+        try { unlock(activity, child) }
+        catch (e: BiometricCancelledException) { }
+        catch (e: Exception) { message.value = e.userMessage() }
+        finally { pending.value = pending.value - child.sid }
+    }
+
     suspend fun unlock(activity: FragmentActivity, child: Child) {
         val cmd = Command.Unlock(repo.newCommandId(), child.sid)
         repo.sendCommand(activity, child.deviceId, cmd, "Mở khóa cho ${child.label}", child.hostname)

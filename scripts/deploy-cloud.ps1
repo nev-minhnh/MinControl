@@ -25,6 +25,9 @@
   Path to the Firebase service-account JSON. Omit to skip (no pushes) or set it later.
 .PARAMETER SkipSecrets
   Do not touch secrets (repeat deploys).
+.PARAMETER BootstrapSecret
+  ADMIN_BOOTSTRAP_SECRET to set. When omitted: prompt if the session is interactive, otherwise generate a random one
+  (printed once at the end).
 .PARAMETER RotateBootstrap
   Generate and set a NEW ADMIN_BOOTSTRAP_SECRET (e.g. after the master app registered).
 #>
@@ -35,7 +38,8 @@ param(
     [string]$BucketName = "mincontrol-blobs",
     [string]$FcmServiceAccountFile,
     [switch]$SkipSecrets,
-    [switch]$RotateBootstrap
+    [switch]$RotateBootstrap,
+    [string]$BootstrapSecret
 )
 $ErrorActionPreference = "Stop"
 
@@ -58,9 +62,24 @@ function New-RandomSecret([int]$bytes = 32) {
 }
 
 function Set-WorkerSecret([string]$name, [string]$value) {
-    # value goes through stdin, never on the command line / history
-    $value | & npx --no-install wrangler secret put $name -c $localToml
-    if ($LASTEXITCODE -ne 0) { throw "wrangler secret put $name failed" }
+    # The value goes through stdin, never on the command line / history.
+    # Why not `$value | wrangler ...`: Windows PowerShell 5.1 encodes piped text with $OutputEncoding and appends CRLF;
+    # the Worker ended up with a leading U+FEFF (BOM) + value, so the real secret never matched (QA B1/B2).
+    # So we write the exact bytes ourselves (UTF-8, no BOM, no newline) to a temp file under tools\tmp and let
+    # cmd.exe stream the raw bytes into wrangler.
+    $utf8 = [System.Text.UTF8Encoding]::new($false)
+    $OutputEncoding = $utf8
+    [Console]::OutputEncoding = $utf8
+    $tmpDir = Join-Path $root "tools\tmp"
+    New-Item -ItemType Directory -Force $tmpDir | Out-Null
+    $tmp = Join-Path $tmpDir ("secret-" + [guid]::NewGuid().ToString("N") + ".txt")
+    try {
+        [System.IO.File]::WriteAllText($tmp, $value, $utf8)
+        & cmd.exe /c "type `"$tmp`" | npx --no-install wrangler secret put $name -c `"$localToml`""
+        if ($LASTEXITCODE -ne 0) { throw "wrangler secret put $name failed" }
+    } finally {
+        if (Test-Path $tmp) { Remove-Item $tmp -Force }
+    }
 }
 
 Push-Location $cloud
@@ -126,8 +145,11 @@ try {
         } else { Write-Host "    UPLOAD_TOKEN_SECRET exists (kept)" }
 
         if ($RotateBootstrap -or $existing -notmatch "ADMIN_BOOTSTRAP_SECRET") {
-            $typed = Read-Host "ADMIN_BOOTSTRAP_SECRET (Enter = generate a random one)" -AsSecureString
-            $plain = [System.Net.NetworkCredential]::new("", $typed).Password
+            if ($BootstrapSecret) { $plain = $BootstrapSecret.Trim() }
+            elseif ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+                $typed = Read-Host "ADMIN_BOOTSTRAP_SECRET (Enter = generate a random one)" -AsSecureString
+                $plain = [System.Net.NetworkCredential]::new("", $typed).Password
+            } else { $plain = $null }
             if ([string]::IsNullOrWhiteSpace($plain)) { $plain = New-RandomSecret 32; $bootstrap = $plain }
             Set-WorkerSecret "ADMIN_BOOTSTRAP_SECRET" $plain
             Write-Host "    ADMIN_BOOTSTRAP_SECRET set"
