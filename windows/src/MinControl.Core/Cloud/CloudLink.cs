@@ -31,6 +31,8 @@ public sealed class CloudLink : ICloudLink
     public static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(20);
     public const int MaxMessageBytes = 4 * 1024 * 1024;
     public const int CloseBadAuth = 4401;
+    public const int MaxConcurrentBlobs = 2;
+    public static readonly TimeSpan CleanupInterval = TimeSpan.FromHours(6);
 
     private readonly StateStore _store;
     private readonly DeviceIdentity _identity;
@@ -45,15 +47,18 @@ public sealed class CloudLink : ICloudLink
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly SemaphoreSlim _stateSignal = new(0, int.MaxValue);
     private readonly SemaphoreSlim _uploadSignal = new(0, int.MaxValue);
+    private readonly PolicyProvider _policy;
+    private readonly ScreenshotStorage? _screens;
+    private readonly SemaphoreSlim _blobSlots = new(MaxConcurrentBlobs, MaxConcurrentBlobs);
     private volatile bool _connected;
 
     public CloudLink(StateStore store, DeviceIdentity identity, EnvelopeHandler handler, DeviceStateBuilder state,
         CloudUploader uploader, UploadTokenHolder token, IEventSink events, IClock clock, CoreOptions options,
-        PolicyProvider policy, CommandDispatcher commands, EventSink? concreteSink = null, ScreenshotUploader? screenshots = null,
+        PolicyProvider policy, CommandDispatcher commands, EventSink? concreteSink = null, ScreenshotStorage? screens = null,
         ILogger<CloudLink>? log = null)
     {
         _store = store; _identity = identity; _handler = handler; _state = state; _uploader = uploader; _token = token;
-        _events = events; _clock = clock; _options = options;
+        _events = events; _clock = clock; _options = options; _policy = policy; _screens = screens;
         _log = log ?? (ILogger)NullLogger.Instance;
         policy.PolicyChanged += (_, _) => SignalState();
         commands.StateChanged += SignalState;
@@ -65,7 +70,6 @@ public sealed class CloudLink : ICloudLink
                     || type == EventTypes.QuotaExhausted || _store.OutboxCount >= CloudUploader.MaxBatch)
                     SignalUpload();
             };
-        if (screenshots is not null) screenshots.BlobQueued += SignalUpload;
     }
 
     public bool Connected => _connected;
@@ -78,6 +82,7 @@ public sealed class CloudLink : ICloudLink
     public async Task RunAsync(CancellationToken ct)
     {
         var uploads = Task.Run(() => UploadLoopAsync(ct), ct);
+        var cleanup = Task.Run(() => CleanupLoopAsync(ct), ct);
         int attempt = 0;
         while (!ct.IsCancellationRequested)
         {
@@ -115,6 +120,7 @@ public sealed class CloudLink : ICloudLink
             await Delay(delay > minDelay ? delay : minDelay, ct).ConfigureAwait(false);
         }
         try { await uploads.ConfigureAwait(false); } catch (OperationCanceledException) { }
+        try { await cleanup.ConfigureAwait(false); } catch (OperationCanceledException) { }
     }
 
     /// <summary>Full-jitter exponential backoff: random in [1 s, min(5 min, 2^attempt s)].</summary>
@@ -191,6 +197,9 @@ public sealed class CloudLink : ICloudLink
                         ApplyToken(msg);
                         SignalUpload();
                         break;
+                    case "blob_request":
+                        StartBlobRequest(ws, msg, ct);
+                        break;
                     case "ping":
                         await SendAsync(ws, new JsonObject { ["t"] = "pong" }, ct).ConfigureAwait(false);
                         break;
@@ -256,7 +265,6 @@ public sealed class CloudLink : ICloudLink
                 while (_uploadSignal.CurrentCount > 0) await _uploadSignal.WaitAsync(ct).ConfigureAwait(false);
                 if (_token.Valid(_clock.UtcNow) is null) continue;
                 await _uploader.FlushEventsAsync(ct).ConfigureAwait(false);
-                await _uploader.FlushBlobsAsync(ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception e)
@@ -265,6 +273,53 @@ public sealed class CloudLink : ICloudLink
                 await Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
             }
         }
+    }
+
+    // ------------------------------------------------------------------------------------------ screenshots (API.md section 9)
+
+    /// <summary>Retention + 2 GB cap; runs at start and every 6 h.</summary>
+    private async Task CleanupLoopAsync(CancellationToken ct)
+    {
+        if (_screens is null) return;
+        while (!ct.IsCancellationRequested)
+        {
+            try { _screens.Cleanup(_clock.UtcNow, _policy.Current?.RetentionDays.Screenshots, ScreenshotStorage.DefaultCapBytes, _log); }
+            catch (Exception e) when (e is not OperationCanceledException) { _log.LogWarning(e, "screenshot cleanup failed"); }
+            await Delay(CleanupInterval, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Handles a blob_request off the receive loop; at most <see cref="MaxConcurrentBlobs"/> run at once.</summary>
+    private void StartBlobRequest(ClientWebSocket ws, JsonObject msg, CancellationToken ct)
+    {
+        var reqId = msg["reqId"] is JsonValue rv && rv.TryGetValue<string>(out var r) ? r : null;
+        var key = msg["key"] is JsonValue kv && kv.TryGetValue<string>(out var k) ? k : null;
+        if (string.IsNullOrEmpty(reqId) || reqId.Length > 64) return;
+        if (!_blobSlots.Wait(0))
+        {
+            _log.LogInformation("blob_request {ReqId} dropped: too many in flight", reqId);
+            return; // the server times the master request out (504)
+        }
+        _ = Task.Run(async () =>
+        {
+            try { await AnswerBlobRequestAsync(ws, reqId, key, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { _log.LogInformation("blob_request {ReqId} failed: {Msg}", reqId, e.Message); }
+            finally { _blobSlots.Release(); }
+        }, ct);
+    }
+
+    private async Task AnswerBlobRequestAsync(ClientWebSocket ws, string reqId, string? key, CancellationToken ct)
+    {
+        var deviceId = _store.GetMeta(StateStore.MetaKeys.DeviceId);
+        var bytes = deviceId is null || _screens is null ? null : _screens.TryRead(key, deviceId);
+        if (bytes is null)
+        {
+            await SendAsync(ws, new JsonObject { ["t"] = "blob_missing", ["reqId"] = reqId }, ct).ConfigureAwait(false);
+            return;
+        }
+        var result = await _uploader.PutBlobAsync(key!, reqId, bytes, ct).ConfigureAwait(false);
+        if (result != UploadResult.Done) _log.LogInformation("blob_request {ReqId} relay result {Result}", reqId, result);
     }
 
     // ------------------------------------------------------------------------------------------ helpers

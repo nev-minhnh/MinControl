@@ -394,14 +394,20 @@ export async function listScreenshots(c: Ctx): Promise<Response> {
   });
 }
 
+/** GET /v1/master/blobs/<key>: relayed on demand from the device through its DeviceHub (API.md section 9). */
 export async function getBlob(c: Ctx): Promise<Response> {
   const key = c.params.key ?? "";
-  if (!BLOB_KEY_RE.test(key)) throw notFound("unknown blob");
-  const obj = await c.env.BLOBS.get(key);
-  if (!obj) throw notFound("unknown blob");
-  return new Response(obj.body, {
-    headers: { "content-type": "application/octet-stream", "content-length": String(obj.size), "cache-control": "private, no-store" },
-  });
+  const m = BLOB_KEY_RE.exec(key);
+  if (!m) throw notFound("unknown blob");
+  const r = await hub(c.env, m[1]!).requestBlob(key);
+  if (r.status === "ok") {
+    return new Response(r.bytes, {
+      headers: { "content-type": "application/octet-stream", "content-length": String(r.bytes.length), "cache-control": "no-store" },
+    });
+  }
+  if (r.status === "offline") throw new HttpError(409, "device_offline", "device is offline");
+  if (r.status === "timeout") throw new HttpError(504, "device_timeout", "device did not respond");
+  throw notFound("screenshot no longer on the device");
 }
 
 // ------------------------------------------------------------------ alerts & push

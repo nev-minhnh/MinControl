@@ -28,7 +28,7 @@ public sealed class UploadTokenHolder
 
 public enum UploadResult { Done, NothingToDo, NoToken, Unauthorized, Retry }
 
-/// <summary>HTTPS uploads: event batches (≤ 500 per POST) from the outbox and sealed blobs from pending_blobs.</summary>
+/// <summary>HTTPS uploads: event batches (≤ 500 per POST) from the outbox, plus on-demand blob relay.</summary>
 public sealed class CloudUploader
 {
     public const int MaxBatch = 500;
@@ -133,30 +133,26 @@ public sealed class CloudUploader
         return true;
     }
 
-    /// <summary>Uploads pending sealed blobs (screenshots) one at a time.</summary>
-    public async Task<UploadResult> FlushBlobsAsync(CancellationToken ct)
+    /// <summary>Answers a <c>blob_request</c>: PUT /v1/device/blobs/&lt;key&gt;?reqId=… with the sealed bytes (API.md §9).</summary>
+    public async Task<UploadResult> PutBlobAsync(string key, string reqId, byte[] bytes, CancellationToken ct)
     {
-        var result = UploadResult.NothingToDo;
-        while (_store.PeekBlob() is { } blob)
+        var token = _token.Valid(_clock.UtcNow);
+        var baseUrl = _serverUrl();
+        if (token is null || baseUrl is null) return UploadResult.NoToken;
+        using var req = new HttpRequestMessage(HttpMethod.Put,
+            new Uri(new Uri(baseUrl), "/v1/device/blobs/" + key + "?reqId=" + Uri.EscapeDataString(reqId)))
+        { Content = new ByteArrayContent(bytes) };
+        req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        try
         {
-            var token = _token.Valid(_clock.UtcNow);
-            var baseUrl = _serverUrl();
-            if (token is null || baseUrl is null) return UploadResult.NoToken;
-            using var req = new HttpRequestMessage(HttpMethod.Put, new Uri(new Uri(baseUrl), "/v1/device/blobs/" + blob.Key))
-            { Content = new ByteArrayContent(blob.Bytes) };
-            req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            try
-            {
-                using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-                if (resp.IsSuccessStatusCode) { _store.DeleteBlob(blob.Key); result = UploadResult.Done; continue; }
-                if (resp.StatusCode is HttpStatusCode.Unauthorized) { _token.Clear(); return UploadResult.Unauthorized; }
-                if ((int)resp.StatusCode is 400 or 403 or 413) { _log.LogError("blob {Key} rejected ({Status}); dropping", blob.Key, (int)resp.StatusCode); _store.DeleteBlob(blob.Key); continue; }
-                return UploadResult.Retry;
-            }
-            catch (HttpRequestException e) { _log.LogInformation("blob upload failed: {Msg}", e.Message); return UploadResult.Retry; }
-            catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return UploadResult.Retry; }
+            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode) return UploadResult.Done;
+            if (resp.StatusCode is HttpStatusCode.Unauthorized) { _token.Clear(); return UploadResult.Unauthorized; }
+            _log.LogInformation("blob relay {Key} answered {Status}", key, (int)resp.StatusCode);
+            return UploadResult.Retry;
         }
-        return result;
+        catch (HttpRequestException e) { _log.LogInformation("blob relay failed: {Msg}", e.Message); return UploadResult.Retry; }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return UploadResult.Retry; }
     }
 }

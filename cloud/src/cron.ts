@@ -1,4 +1,4 @@
-// Hourly cron: retention purge (per policy retentionDays, incl. R2 screenshots), command expiry,
+// Hourly cron: retention purge (per policy retentionDays, screenshot metadata rows), command expiry,
 // offline-device alerts (> 2 h, one alert per offline period), stale pairing codes.
 import { isOfflineAlertDue, offlineAlert, saveAndPushAlerts } from "./alerts";
 import type { Env } from "./env";
@@ -85,35 +85,4 @@ async function purgeDevice(env: Env, d: DeviceRow, now: number): Promise<void> {
     db.prepare("DELETE FROM web_visits WHERE device_id = ? AND ts < ?").bind(d.id, webCut),
     db.prepare("DELETE FROM screenshots WHERE device_id = ? AND ts < ?").bind(d.id, shotCut),
   ]);
-  // R2: keys are screens/<deviceId>/<yyyy-mm-dd>/<eventId>.bin; drop whole day folders older than the
-  // cutoff (one extra day of margin for timezone differences). Also removes orphaned uploads.
-  const cutoffDay = new Date(now - (r.screenshots + 1) * DAY_MS).toISOString().slice(0, 10);
-  await purgeR2(env.BLOBS, `screens/${d.id}/`, cutoffDay);
-}
-
-export async function purgeR2(bucket: R2Bucket, devicePrefix: string, cutoffDay: string): Promise<number> {
-  let deleted = 0;
-  let cursor: string | undefined;
-  const oldDays: string[] = [];
-  do {
-    const page = await bucket.list({ prefix: devicePrefix, delimiter: "/", cursor });
-    for (const p of page.delimitedPrefixes) {
-      const day = p.slice(devicePrefix.length, devicePrefix.length + 10);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(day) && day < cutoffDay) oldDays.push(p);
-    }
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
-  for (const prefix of oldDays) {
-    let c: string | undefined;
-    do {
-      const page = await bucket.list({ prefix, cursor: c, limit: 1000 });
-      const keys = page.objects.map((o) => o.key);
-      if (keys.length > 0) {
-        await bucket.delete(keys);
-        deleted += keys.length;
-      }
-      c = page.truncated ? page.cursor : undefined;
-    } while (c);
-  }
-  return deleted;
 }

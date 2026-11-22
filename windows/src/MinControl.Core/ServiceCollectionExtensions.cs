@@ -54,7 +54,9 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IClock>(), () => sp.GetService<IAppMonitor>()));
         services.AddSingleton<IScreenTimeEngine>(sp => sp.GetRequiredService<ScreenTimeEngine>());
 
-        services.AddSingleton(sp => new ScreenshotUploader(sp.GetRequiredService<StateStore>(), sp.GetRequiredService<EventSink>(), sp.GetRequiredService<IClock>()));
+        services.AddSingleton(sp => new ScreenshotStorage(sp.GetRequiredService<DataPaths>().Screens));
+        services.AddSingleton(sp => new ScreenshotUploader(sp.GetRequiredService<StateStore>(), sp.GetRequiredService<EventSink>(), sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<ScreenshotStorage>()));
         services.AddSingleton<IScreenshotUploader>(sp => sp.GetRequiredService<ScreenshotUploader>());
 
         services.AddSingleton(sp => new CommandDispatcher(sp.GetRequiredService<StateStore>(), sp.GetRequiredService<PolicyProvider>(),
@@ -79,7 +81,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<EnvelopeHandler>(), sp.GetRequiredService<DeviceStateBuilder>(), sp.GetRequiredService<CloudUploader>(),
             sp.GetRequiredService<UploadTokenHolder>(), sp.GetRequiredService<IEventSink>(), sp.GetRequiredService<IClock>(), options,
             sp.GetRequiredService<PolicyProvider>(), sp.GetRequiredService<CommandDispatcher>(), sp.GetRequiredService<EventSink>(),
-            sp.GetRequiredService<ScreenshotUploader>(), sp.GetService<ILogger<CloudLink>>()));
+            sp.GetRequiredService<ScreenshotStorage>(), sp.GetService<ILogger<CloudLink>>()));
         services.AddSingleton<ICloudLink>(sp => sp.GetRequiredService<CloudLink>());
 
         return services;

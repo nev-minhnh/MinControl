@@ -15,6 +15,7 @@ public sealed class DataPaths
     public string Root { get; }
     public string StateDb => Path.Combine(Root, "state.db");
     public string DeviceKey => Path.Combine(Root, "device.key");
+    public string Screens => Path.Combine(Root, "screens");
     public string Logs => Path.Combine(Root, "logs");
 
     public void EnsureExists() => Directory.CreateDirectory(Root);

@@ -2,7 +2,8 @@ import type { DeviceHub } from "./device-hub";
 
 export interface Env {
   DB: D1Database;
-  BLOBS: R2Bucket;
+  /** Unused (screenshots live on the device, API.md section 9); kept optional for deployments that still bind R2. */
+  BLOBS?: R2Bucket;
   DEVICE_HUB: DurableObjectNamespace<DeviceHub>;
   /** Secret that allows POST /v1/master/register (unset = registration disabled). */
   ADMIN_BOOTSTRAP_SECRET?: string;

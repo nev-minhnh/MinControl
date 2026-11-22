@@ -8,6 +8,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.nevminhnh.mincontrol.master.data.Child
 import io.github.nevminhnh.mincontrol.master.data.api.userMessage
+import io.github.nevminhnh.mincontrol.master.data.api.LruCache
+import io.github.nevminhnh.mincontrol.master.data.api.BLOB_CACHE_SIZE
+import io.github.nevminhnh.mincontrol.master.data.api.blobErrorMessage
 import io.github.nevminhnh.mincontrol.master.data.protocol.Command
 import io.github.nevminhnh.mincontrol.master.data.protocol.Decision
 import io.github.nevminhnh.mincontrol.master.data.protocol.EventItem
@@ -156,15 +159,25 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun decrypt(item: ScreenshotItem) = viewModelScope.launch {
-        if (item.eventId in decrypted.value || item.eventId in decrypting.value) return@launch
+    private val imageCache = LruCache<String, Bitmap>(BLOB_CACHE_SIZE)
+    /** Set when an auto-opened (capture-now) shot is ready; UI shows it then calls [clearAutoOpen]. */
+    val autoOpen = MutableStateFlow<ScreenshotItem?>(null)
+    fun clearAutoOpen() { autoOpen.value = null }
+
+    fun decrypt(item: ScreenshotItem, openWhenDone: Boolean = false) = viewModelScope.launch { fetchShot(item, openWhenDone) }
+
+    private suspend fun fetchShot(item: ScreenshotItem, openWhenDone: Boolean) {
+        imageCache[item.eventId]?.let { decrypted.value = imageCache.snapshot(); if (openWhenDone) autoOpen.value = item; return }
+        if (item.eventId in decrypting.value) return
         decrypting.value = decrypting.value + item.eventId
         try {
             val jpeg = repo.decryptScreenshot(item.blobKey)
             val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: error("Ảnh hỏng")
-            decrypted.value = decrypted.value + (item.eventId to bmp)
+            imageCache[item.eventId] = bmp
+            decrypted.value = imageCache.snapshot()
+            if (openWhenDone) autoOpen.value = item
         } catch (e: Exception) {
-            message.value = "Không giải mã được ảnh: ${e.userMessage()}"
+            message.value = blobErrorMessage(e)
         } finally {
             decrypting.value = decrypting.value - item.eventId
         }
@@ -173,10 +186,23 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
     fun captureNow(activity: FragmentActivity) = viewModelScope.launch {
         val c = child.value ?: return@launch
         try {
+            val before = shots.value.firstOrNull()?.eventId
             val r = repo.sendCommand(activity, c.deviceId, Command.Screenshot(repo.newCommandId(), c.sid), "Chụp màn hình của ${c.label}", c.hostname)
-            message.value = if (r.delivered) "Đã yêu cầu chụp, ảnh sẽ xuất hiện sau ít giây." else "Máy đang offline, sẽ chụp khi online lại."
-            delay(8_000)
+            if (!r.delivered) { message.value = "Máy đang offline, sẽ chụp khi online lại."; return@launch }
+            message.value = "Đã yêu cầu chụp, đang chờ ảnh…"
+            val d = date.value
+            repeat(6) {
+                delay(3_000)
+                val page = runCatching { repo.screenshots(c.deviceId, c.sid, Fmt.dayStart(d), Fmt.dayEnd(d), null) }.getOrNull() ?: return@repeat
+                val newest = page.items.maxByOrNull { it.ts }
+                if (newest != null && newest.eventId != before) {
+                    shots.value = page.items; shotsNext = page.next; shotsHasMore.value = page.next != null
+                    fetchShot(newest, openWhenDone = true)
+                    return@launch
+                }
+            }
             loadShots(reset = true)
+            message.value = "Chưa thấy ảnh mới, thử lại sau ít giây."
         } catch (e: BiometricCancelledException) {
         } catch (e: Exception) {
             message.value = e.userMessage()

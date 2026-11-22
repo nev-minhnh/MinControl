@@ -9,9 +9,9 @@ using MinControl.Core.Util;
 namespace MinControl.Core.Cloud;
 
 /// <summary>
-/// Seals a JPEG to the master seal key (only the phone can open it), queues the blob under
-/// <c>screens/&lt;deviceId&gt;/&lt;yyyy-mm-dd&gt;/&lt;eventId&gt;.bin</c> and emits <c>screenshot.taken</c> with the same event id.
-/// The cloud link uploads queued blobs as soon as it holds an upload token (works offline, I3).
+/// Seals a JPEG to the master seal key (only the phone can open it), writes the sealed bytes to the local screenshot
+/// store (API.md section 9; nothing is uploaded) and emits <c>screenshot.taken</c> with
+/// <c>blobKey = screens/&lt;deviceId&gt;/&lt;yyyy-mm-dd&gt;/&lt;eventId&gt;.bin</c>. The cloud link serves the file on demand.
 /// </summary>
 public sealed class ScreenshotUploader : IScreenshotUploader
 {
@@ -20,14 +20,12 @@ public sealed class ScreenshotUploader : IScreenshotUploader
     private readonly StateStore _store;
     private readonly EventSink _events;
     private readonly IClock _clock;
+    private readonly ScreenshotStorage _storage;
 
-    public ScreenshotUploader(StateStore store, EventSink events, IClock clock)
+    public ScreenshotUploader(StateStore store, EventSink events, IClock clock, ScreenshotStorage storage)
     {
-        _store = store; _events = events; _clock = clock;
+        _store = store; _events = events; _clock = clock; _storage = storage;
     }
-
-    /// <summary>Raised after a blob was queued (CloudLink uploads right away when connected).</summary>
-    public event Action? BlobQueued;
 
     public Task UploadAsync(string? sid, byte[] jpeg, int width, int height, string reason, string? commandId, string? foregroundExe, CancellationToken ct)
     {
@@ -40,14 +38,14 @@ public sealed class ScreenshotUploader : IScreenshotUploader
 
         var now = _clock.UtcNow;
         var eventId = _events.NewId();
-        var key = $"screens/{deviceId}/{now.UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}/{eventId}.bin";
-        _store.EnqueueBlob(key, SealedBox.Seal(jpeg, sealKey), Time.Utc(now));
+        var day = DateOnly.FromDateTime(now.UtcDateTime);
+        var key = ScreenshotStorage.KeyFor(deviceId, day, eventId);
+        _storage.Write(day, eventId, SealedBox.Seal(jpeg, sealKey));
 
         var data = new JsonObject { ["blobKey"] = key, ["width"] = width, ["height"] = height, ["reason"] = reason };
         if (commandId is not null) data["commandId"] = commandId;
         if (foregroundExe is not null) data["foregroundExe"] = foregroundExe.Length <= 260 ? foregroundExe : foregroundExe[..260];
         _events.Emit(EventTypes.ScreenshotTaken, sid, data, eventId);
-        BlobQueued?.Invoke();
         return Task.CompletedTask;
     }
 }
