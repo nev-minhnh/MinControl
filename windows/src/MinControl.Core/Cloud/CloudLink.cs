@@ -143,7 +143,7 @@ public sealed class CloudLink : ICloudLink
             var challenge = await ReceiveAsync(ws, hs.Token).ConfigureAwait(false);
             if (challenge is null || (string?)challenge["t"] != "challenge" || challenge["nonce"]?.GetValue<string>() is not { } nonce)
                 throw new ProtocolViolationException("expected challenge");
-            var ts = Time.Utc(_clock.UtcNow);
+            var ts = _clock.UtcNow.ToUnixTimeSeconds();
             await SendAsync(ws, new JsonObject
             {
                 ["t"] = "auth", ["deviceId"] = deviceId, ["ts"] = ts, ["sig"] = _identity.AuthSignature(nonce, deviceId, ts),

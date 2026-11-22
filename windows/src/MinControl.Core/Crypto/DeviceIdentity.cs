@@ -76,9 +76,11 @@ public sealed class DeviceIdentity : IDisposable
 
     public byte[] Sign(ReadOnlySpan<byte> data) => SignatureAlgorithm.Ed25519.Sign(Load(), data);
 
-    /// <summary>WS auth (API.md §2): b64url Ed25519 over UTF-8 <c>nonce + "|" + deviceId + "|" + ts</c>.</summary>
-    public string AuthSignature(string nonce, string deviceId, string ts) =>
-        Base64Url.Encode(Sign(Encoding.UTF8.GetBytes(nonce + "|" + deviceId + "|" + ts)));
+    /// <summary>WS auth (API.md §2): b64url Ed25519 over UTF-8 <c>nonce + "|" + deviceId + "|" + ts</c>,
+    /// ts = unix seconds as a decimal integer (lead decision).</summary>
+    public string AuthSignature(string nonce, string deviceId, long unixSeconds) =>
+        Base64Url.Encode(Sign(Encoding.UTF8.GetBytes(nonce + "|" + deviceId + "|" +
+            unixSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture))));
 
     public void Delete()
     {

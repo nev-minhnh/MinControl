@@ -55,6 +55,7 @@ public sealed class StateStore : IDisposable
                 PRIMARY KEY (sid, sha256));
             CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, json TEXT NOT NULL, size INTEGER NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_outbox_type ON outbox(type, id);
+            CREATE TABLE IF NOT EXISTS applied_commands (command_id TEXT PRIMARY KEY, at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS pending_blobs (key TEXT PRIMARY KEY, bytes BLOB NOT NULL, created_at TEXT NOT NULL);
             """);
         _outboxBytes = Scalar<long>("SELECT COALESCE(SUM(size),0) FROM outbox");
@@ -237,6 +238,23 @@ public sealed class StateStore : IDisposable
                 ("$s", sid), ("$h", sha256), ("$d", decision), ("$a", atUtc));
     }
 
+    // ---------------------------------------------------------------- applied commands (re-ack after reconnect)
+    public const int AppliedCommandsKept = 2000;
+
+    public bool IsCommandApplied(string commandId)
+    {
+        lock (_gate) return Scalar<long>("SELECT COUNT(*) FROM applied_commands WHERE command_id=$c", ("$c", commandId)) > 0;
+    }
+
+    public void MarkCommandApplied(string commandId, string atUtc)
+    {
+        lock (_gate)
+        {
+            Exec("INSERT OR IGNORE INTO applied_commands(command_id,at) VALUES($c,$a)", ("$c", commandId), ("$a", atUtc));
+            Exec($"DELETE FROM applied_commands WHERE rowid NOT IN (SELECT rowid FROM applied_commands ORDER BY rowid DESC LIMIT {AppliedCommandsKept})");
+        }
+    }
+
     // ---------------------------------------------------------------- outbox
     public long OutboxBytes { get { lock (_gate) return _outboxBytes; } }
     public long OutboxCount { get { lock (_gate) return Scalar<long>("SELECT COUNT(*) FROM outbox"); } }
@@ -334,7 +352,7 @@ public sealed class StateStore : IDisposable
         lock (_gate)
         {
             Exec("DELETE FROM meta; DELETE FROM master_keys; DELETE FROM seq; DELETE FROM policy; DELETE FROM overrides; " +
-                 "DELETE FROM ledger; DELETE FROM approvals; DELETE FROM outbox; DELETE FROM pending_blobs;");
+                 "DELETE FROM ledger; DELETE FROM approvals; DELETE FROM applied_commands; DELETE FROM outbox; DELETE FROM pending_blobs;");
             _outboxBytes = 0;
         }
     }

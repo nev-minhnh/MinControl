@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MinControl.Core.Abstractions;
 using MinControl.Core.Cloud;
@@ -20,7 +19,8 @@ public static class ServiceCollectionExtensions
     /// Registers the Core services as singletons: IClock, StateStore, DeviceIdentity, EnvelopeVerifier,
     /// IPolicyProvider (PolicyProvider), IScreenTimeEngine (ScreenTimeEngine), IEventSink (EventSink),
     /// IApprovalStore, CommandDispatcher, EnvelopeHandler, IScreenshotUploader (ScreenshotUploader),
-    /// ICloudLink (CloudLink) and — unless disabled — a hosted service running the cloud link.
+    /// ICloudLink (CloudLink). The host runs ICloudLink.RunAsync itself (win-session CloudLinkHost); the engine
+    /// flushes its ledger when the container disposes it.
     /// Optional seams resolved lazily if registered by the host: ISessionActions, IForegroundTracker,
     /// IUserDirectory, IAppMonitor, IUserSessionStatus.
     /// </summary>
@@ -51,8 +51,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IApprovalStore>(sp => new ApprovalStore(sp.GetRequiredService<StateStore>(), sp.GetRequiredService<IClock>()));
 
         services.AddSingleton(sp => new ScreenTimeEngine(sp.GetRequiredService<StateStore>(), sp.GetRequiredService<PolicyProvider>(),
-            sp.GetRequiredService<IClock>(), sp.GetRequiredService<IEventSink>(),
-            () => sp.GetService<IAppMonitor>(), () => sp.GetService<IForegroundTracker>()));
+            sp.GetRequiredService<IClock>(), () => sp.GetService<IAppMonitor>()));
         services.AddSingleton<IScreenTimeEngine>(sp => sp.GetRequiredService<ScreenTimeEngine>());
 
         services.AddSingleton(sp => new ScreenshotUploader(sp.GetRequiredService<StateStore>(), sp.GetRequiredService<EventSink>(), sp.GetRequiredService<IClock>()));
@@ -63,7 +62,7 @@ public static class ServiceCollectionExtensions
             () => sp.GetService<ISessionActions>(), () => sp.GetService<IScreenshotUploader>(),
             () => sp.GetService<IUserDirectory>(), () => sp.GetService<IForegroundTracker>(), sp.GetService<ILogger<CommandDispatcher>>()));
         services.AddSingleton(sp => new EnvelopeHandler(sp.GetRequiredService<EnvelopeVerifier>(), sp.GetRequiredService<PolicyProvider>(),
-            sp.GetRequiredService<CommandDispatcher>(), sp.GetService<ILogger<EnvelopeHandler>>()));
+            sp.GetRequiredService<CommandDispatcher>(), sp.GetRequiredService<StateStore>(), sp.GetService<ILogger<EnvelopeHandler>>()));
 
         services.AddSingleton<UploadTokenHolder>();
         services.AddSingleton(sp => new DeviceStateBuilder(sp.GetRequiredService<PolicyProvider>(), sp.GetRequiredService<IScreenTimeEngine>(),
@@ -83,24 +82,6 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ScreenshotUploader>(), sp.GetService<ILogger<CloudLink>>()));
         services.AddSingleton<ICloudLink>(sp => sp.GetRequiredService<CloudLink>());
 
-        if (options.RunCloudLinkAsHostedService) services.AddHostedService<CoreHostedService>();
         return services;
-    }
-}
-
-/// <summary>Runs <see cref="ICloudLink.RunAsync"/> and flushes the usage ledger on shutdown.</summary>
-internal sealed class CoreHostedService(ICloudLink link, ScreenTimeEngine engine, ILogger<CoreHostedService>? log = null) : BackgroundService
-{
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        try { await link.RunAsync(stoppingToken).ConfigureAwait(false); }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
-        catch (Exception e) { log?.LogCritical(e, "cloud link crashed"); throw; }
-    }
-
-    public override async Task StopAsync(CancellationToken cancellationToken)
-    {
-        await base.StopAsync(cancellationToken).ConfigureAwait(false);
-        engine.Flush();
     }
 }

@@ -75,7 +75,14 @@ public sealed class CloudUploader
             catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return UploadResult.Retry; }
             using (resp)
             {
-                if (resp.IsSuccessStatusCode) { _store.DeleteOutbox(items.Select(x => x.Id)); result = UploadResult.Done; continue; }
+                if (resp.IsSuccessStatusCode)
+                {
+                    // {"accepted": n, "rejected": [eventId…]}: rejected events are invalid forever → drop them too
+                    await LogRejectedAsync(resp, ct).ConfigureAwait(false);
+                    _store.DeleteOutbox(items.Select(x => x.Id));
+                    result = UploadResult.Done;
+                    continue;
+                }
                 if (resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) { _token.Clear(); return UploadResult.Unauthorized; }
                 if (resp.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.UnprocessableEntity)
                 {
@@ -93,6 +100,18 @@ public sealed class CloudUploader
                 return UploadResult.Retry;
             }
         }
+    }
+
+    private async Task LogRejectedAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        try
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (System.Text.Json.Nodes.JsonNode.Parse(body) is System.Text.Json.Nodes.JsonObject o
+                && o["rejected"] is System.Text.Json.Nodes.JsonArray rej && rej.Count > 0)
+                _log.LogWarning("server rejected {Count} events (dropped): {Ids}", rej.Count, string.Join(",", rej.Take(20)));
+        }
+        catch (System.Text.Json.JsonException) { }
     }
 
     private async Task<bool> UploadSinglyAsync(IReadOnlyList<OutboxItem> items, string token, string baseUrl, string deviceId, CancellationToken ct)

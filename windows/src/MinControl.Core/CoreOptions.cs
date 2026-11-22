@@ -18,10 +18,6 @@ public sealed class CoreOptions
     /// <summary>Reconnect after an offline period at least this long emits <c>tamper.offline_gap</c>.</summary>
     public int OfflineGapThresholdSec { get; set; } = 300;
 
-    /// <summary>Register a hosted service that runs <c>ICloudLink.RunAsync</c> and flushes the ledger on stop.
-    /// Set false if the host calls RunAsync itself.</summary>
-    public bool RunCloudLinkAsHostedService { get; set; } = true;
-
     /// <summary>Key protector for device.key; default DPAPI LocalMachine. Tests may supply their own.</summary>
     public IKeyProtector? KeyProtector { get; set; }
 }

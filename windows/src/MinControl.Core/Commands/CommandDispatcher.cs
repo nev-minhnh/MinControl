@@ -48,7 +48,7 @@ public sealed class CommandDispatcher
     public CommandAck Reject(string commandId, string status, string error, string? detail = null) =>
         new(commandId, status, Time.Utc(_clock.UtcNow), error, detail is null ? null : PolicyParser.Trim(detail));
 
-    private CommandAck Applied(string commandId) => new(commandId, "applied", Time.Utc(_clock.UtcNow));
+    public CommandAck Applied(string commandId) => new(commandId, "applied", Time.Utc(_clock.UtcNow));
 
     public async Task<CommandAck> DispatchAsync(VerifiedEnvelope env, CancellationToken ct)
     {
@@ -180,12 +180,25 @@ public sealed class CommandDispatcher
         var sid = c.UserSid ?? _policy.Current?.Users.Keys.FirstOrDefault(u => IsManaged(u) && _foreground()?.Current(u) is not null);
         if (sid is null) return Reject(c.CommandId, "failed", VerifyErrors.NotFound, "no active managed session");
         var shots = _policy.ForUser(sid)!.Monitoring.Screenshots;
-        var jpeg = await s.CaptureScreenAsync(sid, shots.MaxWidth, shots.JpegQuality, ct).ConfigureAwait(false);
-        if (jpeg is null || jpeg.Length == 0) return Reject(c.CommandId, "failed", VerifyErrors.NotFound, "user has no session");
-        if (!JpegInfo.TryGetSize(jpeg, out var w, out var h)) return Reject(c.CommandId, "failed", VerifyErrors.Internal, "capture is not a JPEG");
+        var cap = await CaptureAsync(s, sid, shots.MaxWidth, shots.JpegQuality, ct).ConfigureAwait(false);
+        if (cap is null) return Reject(c.CommandId, "failed", VerifyErrors.NotFound, "user has no session");
         var fg = _foreground()?.Current(sid);
-        await up.UploadAsync(sid, jpeg, w, h, "command", c.CommandId, fg is { } f ? Path.GetFileName(f.ExePath) : null, ct).ConfigureAwait(false);
+        await up.UploadAsync(sid, cap.Value.Jpeg, cap.Value.Width, cap.Value.Height, "command", c.CommandId,
+            fg is { } f ? Path.GetFileName(f.ExePath) : null, ct).ConfigureAwait(false);
         return Applied(c.CommandId);
+    }
+
+    /// <summary>
+    /// MERGE NOTE: the lead is changing ISessionActions.CaptureScreenAsync to return
+    /// <c>ScreenCapture? (byte[] Jpeg, int Width, int Height)</c>. When that lands replace the body with:
+    /// <c>var c = await s.CaptureScreenAsync(...); return c is null || c.Jpeg.Length == 0 ? null : (c.Jpeg, c.Width, c.Height);</c>
+    /// Until then the size is read from the JPEG header.
+    /// </summary>
+    private static async Task<(byte[] Jpeg, int Width, int Height)?> CaptureAsync(ISessionActions s, string sid, int maxWidth, int quality, CancellationToken ct)
+    {
+        var jpeg = await s.CaptureScreenAsync(sid, maxWidth, quality, ct).ConfigureAwait(false);
+        if (jpeg is null || jpeg.Length == 0 || !JpegInfo.TryGetSize(jpeg, out var w, out var h)) return null;
+        return (jpeg, w, h);
     }
 }
 
