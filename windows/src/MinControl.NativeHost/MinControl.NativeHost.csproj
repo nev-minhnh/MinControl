@@ -2,8 +2,19 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>MinControl.NativeHost</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\MinControl.Core\MinControl.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Shared with the service-side pipe server (both owned by the browser stream). -->
+    <Compile Include="..\MinControl.Browser\Ipc\MessageFraming.cs" Link="Ipc\MessageFraming.cs" />
+    <Compile Include="..\MinControl.Browser\Ipc\PipeNative.cs" Link="Ipc\PipeNative.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="com.mincontrol.nativehost.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
