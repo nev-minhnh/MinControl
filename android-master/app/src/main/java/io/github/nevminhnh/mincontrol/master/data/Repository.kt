@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.time.Instant
+import io.github.nevminhnh.mincontrol.master.ui.pairing.disambiguateHostnames
 
 /** A managed Windows user on one PC = one "child card". */
 data class Child(
@@ -83,6 +84,7 @@ class Repository(
     // ---------- devices ----------
     val devices: Flow<List<DeviceInfo>> = dao.devicesFlow().map { rows ->
         rows.mapNotNull { runCatching { ApiJson.decodeFromString(DeviceInfo.serializer(), it.json) }.getOrNull() }
+            .let { disambiguateHostnames(it) }
             .sortedBy { it.hostname }
     }
 

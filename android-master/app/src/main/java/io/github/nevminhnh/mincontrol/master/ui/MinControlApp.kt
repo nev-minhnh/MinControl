@@ -80,9 +80,9 @@ fun MinControlApp(openTab: String? = null) {
     LaunchedEffect(Unit) {
         if (!SetupLink.justRegistered) return@LaunchedEffect
         SetupLink.justRegistered = false
-        val any = runCatching { graph.repo.refreshDevices().isNotEmpty() }
-            .getOrElse { runCatching { graph.repo.cachedDevices().isNotEmpty() }.getOrDefault(false) }
-        if (!any) nav.navigate(Routes.PAIRING)
+        val list = runCatching { graph.repo.refreshDevices() }
+            .getOrElse { runCatching { graph.repo.cachedDevices() }.getOrNull() }
+        if (list != null && io.github.nevminhnh.mincontrol.master.ui.pairing.shouldJumpToPairing(list, java.time.Instant.now())) nav.navigate(Routes.PAIRING)
     }
 
     // Deep link mincontrol://pair?... -> open the confirmation flow.

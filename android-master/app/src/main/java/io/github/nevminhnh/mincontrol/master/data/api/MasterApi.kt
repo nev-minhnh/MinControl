@@ -45,16 +45,28 @@ sealed class ApiException(message: String, cause: Throwable? = null) : Exception
     class NotConfigured : ApiException("server not configured")
 }
 
+/** Vietnamese text for a server error code; null when not specifically mapped. */
+fun serverErrorMessage(code: String): String? = when (code) {
+    "already_approved" -> "Máy này đã được duyệt rồi"
+    "expired" -> "Mã đã hết hạn, hãy tạo mã mới trên máy tính"
+    "rejected" -> "Máy này đã bị từ chối"
+    "sign_key_required" -> "Điện thoại chưa có khóa ký, hãy thiết lập lại"
+    "not_found" -> "Không tìm thấy mã này"
+    "invalid_code" -> "Mã không đúng, hãy kiểm tra lại"
+    else -> null
+}
+
 /** Vietnamese message for UI snackbars. */
 fun Throwable.userMessage(): String = when (this) {
     is ApiException.Network -> "Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại."
     is ApiException.Http -> when {
+        serverErrorMessage(code) != null -> serverErrorMessage(code)!!
         status == 401 || code == "unauthorized" || code == "bad_auth" -> "Máy chủ từ chối chữ ký của điện thoại này."
         status == 404 -> "Không tìm thấy dữ liệu trên máy chủ."
         status == 409 || code == "stale_seq" -> "Số thứ tự lệnh đã cũ, hãy thử lại."
         status == 429 -> "Thao tác quá nhanh, hãy đợi một chút."
         status >= 500 -> "Máy chủ đang gặp lỗi ($status)."
-        else -> "Yêu cầu bị từ chối: $code"
+        else -> "Có lỗi, thử lại"
     }
     is ApiException.NotConfigured -> "Chưa cấu hình máy chủ."
     is io.github.nevminhnh.mincontrol.master.security.BiometricCancelledException -> "Đã hủy xác nhận."
