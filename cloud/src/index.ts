@@ -6,6 +6,7 @@ import type { Env } from "./env";
 import { json } from "./lib/http";
 import { Router } from "./router";
 import { deviceWs, postEvents, putBlob } from "./routes/device";
+import { approveClaim, enrollStart, getClaim, getClaimByCode, pollClaim, rejectClaim } from "./routes/claims";
 import { createPairingCode, enroll } from "./routes/enroll";
 import * as m from "./routes/master";
 
@@ -16,12 +17,18 @@ export const router = new Router()
   .add("GET", "/health", "none", async () => json({ ok: true }))
   // device
   .add("POST", "/v1/enroll", "none", enroll)
+  .add("POST", "/v1/enroll/start", "none", enrollStart)
+  .add("GET", "/v1/enroll/claim/:claimId", "none", pollClaim) // device signature checked in the handler
   .add("GET", "/v1/device/ws", "none", deviceWs)
   .add("POST", "/v1/device/events", "none", postEvents) // upload token checked in the handler
   .add("PUT", "/v1/device/blobs/*key", "none", putBlob) // upload token checked in the handler
   // master
   .add("POST", "/v1/master/register", "none", m.register) // bootstrap secret checked in the handler
   .add("POST", "/v1/master/pairing-codes", "master", createPairingCode)
+  .add("GET", "/v1/master/claims/by-code/:code", "master", getClaimByCode)
+  .add("GET", "/v1/master/claims/:claimId", "master", getClaim)
+  .add("POST", "/v1/master/claims/:claimId/approve", "master", approveClaim)
+  .add("POST", "/v1/master/claims/:claimId/reject", "master", rejectClaim)
   .add("GET", "/v1/master/devices", "master", m.listDevices)
   .add("DELETE", "/v1/master/devices/:id", "master", m.revokeDevice)
   .add("GET", "/v1/master/devices/:id/seq", "master", m.getSeq)
