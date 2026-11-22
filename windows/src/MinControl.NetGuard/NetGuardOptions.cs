@@ -9,6 +9,24 @@ public sealed class NetGuardOptions
     public string CategoriesDirectory { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "MinControl", "categories");
 
+    /// <summary>Base URL of the UT1 per-category archives (<c>&lt;base&gt;&lt;list&gt;.tar.gz</c>).</summary>
+    public string CategorySourceBaseUrl { get; set; } = Categories.Ut1Catalog.DefaultBaseUrl;
+
+    /// <summary>First category download after service start (lets the machine settle after boot).</summary>
+    public TimeSpan CategoryUpdateInitialDelay { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>Category lists are re-checked (conditional GET) this often.</summary>
+    public TimeSpan CategoryUpdateInterval { get; set; } = TimeSpan.FromHours(24);
+
+    /// <summary>Retry delay after a failed category download.</summary>
+    public TimeSpan CategoryRetryInterval { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>Timeout of one archive download (the UT1 server can be slow; adult is tens of MB).</summary>
+    public TimeSpan CategoryDownloadTimeout { get; set; } = TimeSpan.FromMinutes(45);
+
+    /// <summary>Set false to disable downloading (lists in <see cref="CategoriesDirectory"/> are still used).</summary>
+    public bool CategoryDownloadEnabled { get; set; } = true;
+
     /// <summary>How often WFP filters + proxy are verified and repaired.</summary>
     public TimeSpan WatchdogInterval { get; set; } = TimeSpan.FromSeconds(60);
 

@@ -191,6 +191,59 @@ internal sealed class ToastForm : Form
     }
 }
 
+/// <summary>Non-activating corner toast "MinControl đã chặn …" + reason line; closes itself after 5 s.
+/// Never takes focus (WS_EX_NOACTIVATE + ShowWithoutActivation) and is not clickable into anything.</summary>
+internal sealed class BlockedToastForm : Form
+{
+    private const int WS_EX = Native.WS_EX_TOPMOST | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE;
+    public const int VisibleMs = 5_000;
+
+    public BlockedToastForm(string title, string reason, int offsetAbove)
+    {
+        FormBorderStyle = FormBorderStyle.None;
+        StartPosition = FormStartPosition.Manual;
+        TopMost = true;
+        ShowInTaskbar = false;
+        BackColor = Color.FromArgb(32, 33, 44);
+        ForeColor = Color.White;
+        Padding = new Padding(16, 12, 16, 12);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        ClientSize = new Size(380, 96);
+
+        var head = new Label
+        {
+            Text = title, Font = Texts.Font(12, FontStyle.Bold), Dock = DockStyle.Top, Height = 34,
+            ForeColor = Color.FromArgb(255, 120, 110), AutoEllipsis = true, UseMnemonic = false,
+        };
+        var body = new Label
+        {
+            Text = reason, Font = Texts.Font(10.5f), Dock = DockStyle.Fill, AutoEllipsis = true, UseMnemonic = false,
+        };
+        Controls.Add(body);
+        Controls.Add(head);
+
+        var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+        Location = new Point(area.Right - Width - 16, area.Bottom - Height - 16 - Math.Max(0, offsetAbove));
+
+        var close = new Timer { Interval = VisibleMs };
+        close.Tick += (_, _) => { close.Dispose(); Close(); };
+        Shown += (_, _) => close.Start();
+        FormClosed += (_, _) => close.Dispose();
+    }
+
+    protected override bool ShowWithoutActivation => true;
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            cp.ExStyle |= WS_EX;
+            return cp;
+        }
+    }
+}
+
 /// <summary>Message from the parent (command <c>message</c>).</summary>
 internal sealed class MessageForm : Form
 {

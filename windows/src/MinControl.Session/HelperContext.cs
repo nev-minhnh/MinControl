@@ -20,6 +20,7 @@ internal sealed class HelperContext : ApplicationContext
     private readonly object _fgGate = new();
     private (string Exe, string Title, int Pid)? _lastForeground;
     private ToastForm? _toast;
+    private BlockedToastForm? _blockedToast;
 
     public HelperContext(int sessionId, int servicePid)
     {
@@ -90,6 +91,11 @@ internal sealed class HelperContext : ApplicationContext
                 var text = m.Str("text") ?? "";
                 _ui.Post(_ => new MessageForm(text).Show(), null);
                 break;
+            case IpcTypes.BlockedNotice:
+                var noticeTitle = m.Str("title") ?? "MinControl đã chặn";
+                var noticeReason = m.Str("reason") ?? "";
+                _ui.Post(_ => ShowBlockedToast(noticeTitle, noticeReason), null);
+                break;
             case IpcTypes.Capture:
                 var requestId = m.Long("requestId") ?? 0;
                 var maxWidth = (int)(m.Long("maxWidth") ?? 1280);
@@ -118,6 +124,16 @@ internal sealed class HelperContext : ApplicationContext
         _toast = new ToastForm(minutes);
         _toast.FormClosed += (s, _) => { if (ReferenceEquals(_toast, s)) _toast = null; };
         _toast.Show();
+    }
+
+    private void ShowBlockedToast(string title, string reason)
+    {
+        _blockedToast?.Close();
+        // Stack above the "minutes left" toast when it is visible.
+        var above = _toast is { IsDisposed: false, Visible: true } t ? t.Height + 12 : 0;
+        _blockedToast = new BlockedToastForm(title, reason, above);
+        _blockedToast.FormClosed += (s, _) => { if (ReferenceEquals(_blockedToast, s)) _blockedToast = null; };
+        _blockedToast.Show();
     }
 
     protected override void Dispose(bool disposing)

@@ -228,11 +228,20 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         if (decision.RequestApproval && decision.Sha256 is { } sha && MarkRequested(sid, sha))
             EmitProcess(EventTypes.RequestExeApproval, sid, path, pid, parentPid, rule: null, enrich: true);
 
-        var exe = Path.GetFileName(path);
-        NotifyUser(sid, decision.Rule == ExtensionMissingRule
-            ? $"\"{exe}\" bị chặn vì tiện ích MinControl trong trình duyệt không hoạt động. Hãy mở lại trình duyệt; nếu vẫn bị chặn, hãy báo bố mẹ."
-            : $"\"{exe}\" bị chặn bởi MinControl.");
+        NotifyUser(sid, $"MinControl đã chặn {Path.GetFileName(path)}", BlockedReasonText(decision.Rule));
     }
+
+    /// <summary>Vietnamese reason line of the "blocked" toast for an app rule (<see cref="RuleDecision.Rule"/>).</summary>
+    internal static string BlockedReasonText(string? rule) => rule switch
+    {
+        ExtensionMissingRule => "Tiện ích MinControl trong trình duyệt không chạy · hãy mở lại trình duyệt",
+        "allowedBrowsers" => "Trình duyệt này không được phép",
+        "approval" => "Bố mẹ không cho phép ứng dụng này",
+        "newExecutable:ask" => "Ứng dụng mới · đang chờ bố mẹ duyệt",
+        "newExecutable" => "Không được chạy ứng dụng mới",
+        { } r when r.StartsWith("group:", StringComparison.Ordinal) => "Đã hết giờ dùng nhóm ứng dụng này hôm nay",
+        _ => "Ứng dụng nằm trong danh sách chặn",
+    };
 
     /// <summary>Persisted "request once per (sid, sha256)" (IApprovalStore.MarkRequested). On a store failure the
     /// request is sent anyway (a lost request would strand the child; the master de-duplicates alerts).</summary>
@@ -265,13 +274,13 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         }
     }
 
-    private void NotifyUser(string sid, string text)
+    private void NotifyUser(string sid, string title, string reason)
     {
         var actions = _services.GetService<ISessionActions>();
         if (actions is null) return;
         _ = Task.Run(async () =>
         {
-            try { await actions.ShowMessageAsync(sid, text, CancellationToken.None); }
+            try { await actions.ShowBlockedNoticeAsync(sid, title, reason, CancellationToken.None); }
             catch { /* best effort */ }
         });
     }
