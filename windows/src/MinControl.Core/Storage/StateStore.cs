@@ -110,6 +110,20 @@ public sealed class StateStore : IDisposable
         }
     }
 
+    /// <summary>Atomically replaces the pinned key set and the master seal public key (master_keys rotation).</summary>
+    public void ReplaceMasterKeysAndSeal(IEnumerable<PinnedKey> keys, string sealPubKeyB64Url)
+    {
+        lock (_gate)
+        {
+            using var tx = Begin();
+            Exec("DELETE FROM master_keys");
+            foreach (var k in keys)
+                Exec("INSERT INTO master_keys(key_id,alg,public_key) VALUES($i,$a,$p)", ("$i", k.KeyId), ("$a", k.Alg), ("$p", k.PublicKey));
+            Exec("INSERT INTO meta(k,v) VALUES($k,$v) ON CONFLICT(k) DO UPDATE SET v=excluded.v", ("$k", MetaKeys.MasterSealPubKey), ("$v", sealPubKeyB64Url));
+            tx.Commit(); _tx = null;
+        }
+    }
+
     // ---------------------------------------------------------------- seq
     public long GetSeq(string kind)
     {

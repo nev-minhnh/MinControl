@@ -91,7 +91,7 @@ public sealed class EnvelopeVerifier
             || !root.TryGetProperty("expiresAt", out var exEl) || !Time.TryParseUtc(exEl.ValueKind == JsonValueKind.String ? exEl.GetString() : null, out var expiresAt))
             return Fail(VerifyErrors.InvalidBody, "signed body misses deviceId/kind/seq/issuedAt/expiresAt");
         var kind = kindEl.GetString()!;
-        if (kind is not ("policy" or "command")) return Fail(VerifyErrors.InvalidBody, "unknown kind");
+        if (kind is not ("policy" or "command" or "master_keys")) return Fail(VerifyErrors.InvalidBody, "unknown kind");
 
         // 3. our device
         var myId = _store.GetMeta(StateStore.MetaKeys.DeviceId);
