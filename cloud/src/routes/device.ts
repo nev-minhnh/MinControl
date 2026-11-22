@@ -97,18 +97,21 @@ export async function postEvents(c: Ctx): Promise<Response> {
   return json(rejected.length ? { accepted: accepted.length, rejected } : { accepted: accepted.length });
 }
 
-/** PUT /v1/device/blobs/<key>: sealed bytes, ≤ 2 MB, key must be in the caller's prefix. */
+/**
+ * PUT /v1/device/blobs/<key>?reqId=<ULID>: answers a master blob request (API.md section 9). Sealed bytes, <= 2 MB,
+ * key must be in the caller's prefix. The bytes are forwarded to the DeviceHub and never stored.
+ */
 export async function putBlob(c: Ctx): Promise<Response> {
   const device = await authDevice(c);
   const key = c.params.key ?? "";
   const m = BLOB_KEY_RE.exec(key);
   if (!m || m[1] !== device.id) throw new HttpError(403, "forbidden_key", `key must match screens/${device.id}/<yyyy-mm-dd>/<eventId>.bin`);
+  const reqId = c.url.searchParams.get("reqId") ?? "";
+  if (!ULID_RE.test(reqId)) throw new HttpError(400, "invalid_query", "reqId (ULID) is required");
   const bytes = await readBytes(c.request, MAX_BLOB_BYTES);
   if (bytes.length === 0) throw new HttpError(400, "invalid_body", "empty blob");
-  await c.env.BLOBS.put(key, bytes, {
-    httpMetadata: { contentType: "application/octet-stream" },
-    customMetadata: { deviceId: device.id },
-  });
-  return new Response(null, { status: 201 });
+  const hub = c.env.DEVICE_HUB.get(c.env.DEVICE_HUB.idFromName(device.id));
+  const ok = await hub.resolveBlob(reqId, key, bytes);
+  if (!ok) throw new HttpError(410, "gone", "unknown or expired reqId");
+  return new Response(null, { status: 200 });
 }
-

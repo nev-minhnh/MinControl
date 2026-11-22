@@ -4,6 +4,7 @@
 // from here so the Worker can serve master reads without waking the DO.
 import { DurableObject } from "cloudflare:workers";
 import { issueUploadToken } from "./auth/upload-token";
+import { type BlobResult, BlobRelay } from "./blob-relay";
 import type { Env } from "./env";
 import { randomBytes, verifySignatureB64 } from "./lib/crypto";
 import { b64urlEncode, utf8 } from "./lib/encoding";
@@ -60,11 +61,14 @@ type Msg =
   | { t: "policy_applied"; version: number; seq: number }
   | { t: "policy_rejected"; seq: number; error: string }
   | { t: "state"; state: { agentVersion: string; policyVersion?: number | null } & Record<string, unknown> }
+  | { t: "blob_missing"; reqId: string }
   | { t: "ping" }
   | { t: "pong" };
 
 export class DeviceHub extends DurableObject<Env> {
   private readonly sql: SqlStorage;
+  /** Pending master blob requests (in memory only, API.md section 9). */
+  private readonly blobs = new BlobRelay();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -175,9 +179,22 @@ export class DeviceHub extends DurableObject<Env> {
     return { ok: true, delivered };
   }
 
+  /** Master blob request: asks the device for a sealed screenshot and waits (25 s) for its upload. */
+  async requestBlob(key: string): Promise<BlobResult> {
+    const ws = this.authedSockets()[0];
+    if (!ws) return { status: "offline" };
+    return this.blobs.request(key, (frame) => this.sendRaw(ws, frame));
+  }
+
+  /** Device upload (PUT ?reqId=) forwarded by the Worker. False = unknown/expired reqId. */
+  async resolveBlob(reqId: string, key: string, bytes: Uint8Array): Promise<boolean> {
+    return this.blobs.resolveBytes(reqId, key, bytes);
+  }
+
   async revoke(deviceId: string): Promise<void> {
     this.bindDevice(deviceId);
     this.setMeta("revoked", "1");
+    this.blobs.failAll("offline");
     for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.close(CLOSE_REVOKED, "revoked");
@@ -249,6 +266,9 @@ export class DeviceHub extends DurableObject<Env> {
         return this.handlePolicyResult(m.seq, "applied", null, m.version);
       case "policy_rejected":
         return this.handlePolicyResult(m.seq, "rejected", m.error, null);
+      case "blob_missing":
+        this.blobs.resolveMissing(m.reqId);
+        return;
       case "state":
         await this.env.DB.prepare(
           "UPDATE devices SET state_json = ?, last_seen_at = ?, online = 1, agent_version = ? WHERE id = ?",
@@ -418,6 +438,7 @@ export class DeviceHub extends DurableObject<Env> {
     if (!att?.authed) return;
     const stillOnline = this.authedSockets().some((ws) => ws !== closing && ws.readyState === WebSocket.OPEN);
     if (!stillOnline) {
+      this.blobs.failAll("offline");
       await this.env.DB.prepare("UPDATE devices SET online = 0, last_seen_at = ? WHERE id = ?").bind(nowIso(), att.deviceId).run();
     }
   }

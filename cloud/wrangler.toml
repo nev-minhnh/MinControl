@@ -16,9 +16,11 @@ database_name = "mincontrol"
 database_id = "<D1_DATABASE_ID>"
 migrations_dir = "migrations"
 
-[[r2_buckets]]
-binding = "BLOBS"
-bucket_name = "mincontrol-blobs"
+# R2 is not used (API.md section 9: screenshots stay on the device and are relayed on demand).
+# Uncomment only if you want the legacy bucket bound; the code does not need it.
+# [[r2_buckets]]
+# binding = "BLOBS"
+# bucket_name = "mincontrol-blobs"
 
 [triggers]
 crons = ["0 * * * *"]

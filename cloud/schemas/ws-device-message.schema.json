@@ -4,7 +4,7 @@
   "title": "Device -> server WebSocket frame (API.md section 2)",
   "type": "object",
   "required": ["t"],
-  "properties": { "t": { "enum": ["auth", "ack", "policy_applied", "policy_rejected", "state", "ping", "pong"] } },
+  "properties": { "t": { "enum": ["auth", "ack", "policy_applied", "policy_rejected", "state", "blob_missing", "ping", "pong"] } },
   "oneOf": [
     {
       "type": "object",
@@ -48,6 +48,12 @@
       "additionalProperties": false,
       "required": ["t", "state"],
       "properties": { "t": { "const": "state" }, "state": { "$ref": "https://mincontrol.local/protocol/device-state.schema.json" } }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "reqId"],
+      "properties": { "t": { "const": "blob_missing" }, "reqId": { "$ref": "https://mincontrol.local/protocol/common.schema.json#/$defs/ulid" } }
     },
     {
       "type": "object",
