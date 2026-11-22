@@ -7,6 +7,7 @@ using MinControl.Core.Crypto;
 using MinControl.Core.Policies;
 using MinControl.Core.Protocol;
 using MinControl.Core.Storage;
+using MinControl.Core.Util;
 
 namespace MinControl.Core.Cloud;
 
@@ -40,6 +41,7 @@ public sealed class EnvelopeHandler
         {
             _log.LogWarning("envelope rejected: {Error} {Detail} (kind {Kind}, seq {Seq})", v.Error, v.Detail, v.Kind, v.Seq);
             if (v.Kind == "policy") return PolicyRejected(v.Seq, v.Error!);
+            if (v.Kind == "master_keys") return KeysRejected(v.Seq, v.Error!);
             if (v.CommandIdHint is not null) return Ack(_commands.Reject(v.CommandIdHint, "rejected", v.Error!, v.Detail));
             return null;
         }
@@ -54,10 +56,43 @@ public sealed class EnvelopeHandler
             }
             return new JsonObject { ["t"] = "policy_applied", ["version"] = _policy.Current!.Version, ["seq"] = e.Body.Seq };
         }
+        if (e.Body.Kind == "master_keys")
+        {
+            var error = ApplyMasterKeys(e.Body.Body);
+            if (error is not null) return KeysRejected(e.Body.Seq, error);
+            _log.LogInformation("master keys replaced by envelope seq {Seq}", e.Body.Seq);
+            return new JsonObject { ["t"] = "master_keys_applied", ["seq"] = e.Body.Seq };
+        }
         var ack = await _commands.DispatchAsync(e, ct).ConfigureAwait(false);
         if (ack.Status == "applied") _store.MarkCommandApplied(ack.CommandId, ack.At);
         return Ack(ack);
     }
+
+    /// <summary>Replaces pinned keys + seal key atomically. Returns an error code or null.</summary>
+    private string? ApplyMasterKeys(JsonElement body)
+    {
+        try
+        {
+            var keys = new List<PinnedKey>();
+            foreach (var k in body.GetProperty("keys").EnumerateArray())
+            {
+                var alg = k.GetProperty("alg").GetString()!;
+                if (!Base64Url.TryDecode(k.GetProperty("publicKey").GetString(), out var pk)) return VerifyErrors.InvalidBody;
+                keys.Add(new PinnedKey(k.GetProperty("keyId").GetString()!, alg, pk));
+            }
+            var seal = body.GetProperty("sealPubKey").GetString()!;
+            if (!Base64Url.TryDecode(seal, out var sb) || sb.Length != 32) return VerifyErrors.InvalidBody;
+            _store.ReplaceMasterKeysAndSeal(keys, seal);
+            return null;
+        }
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            return VerifyErrors.InvalidBody;
+        }
+    }
+
+    private static JsonObject KeysRejected(long seq, string error) =>
+        new() { ["t"] = "master_keys_rejected", ["seq"] = seq, ["error"] = error };
 
     private static JsonObject PolicyRejected(long seq, string error) =>
         new() { ["t"] = "policy_rejected", ["seq"] = seq, ["error"] = error };
