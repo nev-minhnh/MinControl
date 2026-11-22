@@ -22,3 +22,9 @@ bucket_name = "mincontrol-blobs"
 
 [triggers]
 crons = ["0 * * * *"]
+
+[observability]
+enabled = true
+
+# Secrets (set with `wrangler secret put <NAME>`, never in this file):
+#   ADMIN_BOOTSTRAP_SECRET, UPLOAD_TOKEN_SECRET, FCM_SERVICE_ACCOUNT_JSON
