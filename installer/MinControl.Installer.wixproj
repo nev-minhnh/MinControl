@@ -1,0 +1,23 @@
+<Project Sdk="WixToolset.Sdk/6.0.2">
+  <!--
+    MinControl MSI (per-machine, x64). Built by scripts/build-msi.ps1, which first publishes the agent
+    (self-contained win-x64) into $(AgentPublishDir). Build directly:
+      dotnet build installer/MinControl.Installer.wixproj -c Release -p:AgentPublishDir=<dir> -p:ProductVersion=0.1.0
+    WiX 6 (not 7): v7 requires accepting the OSMF EULA on every build; v6 has the same authoring features we use.
+  -->
+  <PropertyGroup>
+    <OutputName>MinControl</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.1.0</ProductVersion>
+    <AgentPublishDir Condition="'$(AgentPublishDir)' == ''">$(MSBuildThisFileDirectory)..\artifacts\publish\agent</AgentPublishDir>
+    <DefineConstants>PublishDir=$(AgentPublishDir);ProductVersion=$(ProductVersion)</DefineConstants>
+    <OutputPath>$(MSBuildThisFileDirectory)..\artifacts\msi\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.2" />
+  </ItemGroup>
+  <Target Name="CheckAgentPublishDir" BeforeTargets="Build">
+    <Error Condition="!Exists('$(AgentPublishDir)\MinControl.Service.exe')"
+           Text="Agent publish output not found in $(AgentPublishDir). Run scripts/build-msi.ps1 (it publishes first)." />
+  </Target>
+</Project>

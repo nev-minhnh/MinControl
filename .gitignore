@@ -12,3 +12,8 @@ dist/
 *.key
 *.pfx
 .env*
+
+# build output (scripts/build-msi.ps1)
+artifacts/
+# deploy ids written by scripts/deploy-cloud.ps1 (never commit)
+cloud/wrangler.local.toml
