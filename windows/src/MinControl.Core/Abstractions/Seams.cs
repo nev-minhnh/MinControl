@@ -76,3 +76,58 @@ public interface IBrowserEventIngress
     void OnBrowserEvent(string sid, string type, System.Text.Json.Nodes.JsonObject data);
     void OnHeartbeat(string sid, string browser);
 }
+
+// ---- Seams between the win-core stream (Core engine, cloud link) and the win-session stream (Service host, Session app)
+
+public sealed record GroupState(int UsedMin, int? RemainingMin);
+
+/// <summary>Result of screen-time evaluation for one managed user at one instant.</summary>
+public sealed record ScreenTimeState(
+    bool Allowed,                 // false => must not be logged on (logoff after grace)
+    string Reason,                // ok | quota_exhausted | outside_window | locked | not_managed
+    int UsedMin,
+    int? RemainingMin,            // null when unlimited / paused
+    DateTimeOffset? LockedUntil,
+    DateTimeOffset? NextChangeUtc,
+    IReadOnlyDictionary<string, GroupState> Groups);
+
+/// <summary>Pure-ish screen-time engine (implemented in Core by win-core). Persists its ledger itself.</summary>
+public interface IScreenTimeEngine
+{
+    ScreenTimeState Evaluate(string sid, DateTimeOffset utcNow);
+    /// <summary>Called by the Service ~every second for the active managed session.</summary>
+    void RecordUsage(string sid, string? foregroundExePath, long activeMsDelta);
+    /// <summary>Groups currently over quota for this user (exe paths of those groups must be blocked).</summary>
+    IReadOnlyCollection<string> ExhaustedGroups(string sid, DateTimeOffset utcNow);
+}
+
+/// <summary>Session-side actions requested by commands or the enforcer (implemented by win-session).</summary>
+public interface ISessionActions
+{
+    Task LogoffAsync(string sid, string reason, CancellationToken ct);
+    Task ShowWarningAsync(string sid, int remainingMin, CancellationToken ct);
+    Task ShowLockOverlayAsync(string sid, string reason, int graceSec, CancellationToken ct);
+    Task ShowMessageAsync(string sid, string text, CancellationToken ct);
+    Task<bool> KillProcessAsync(string sid, int pid, string? expectedExe, CancellationToken ct);
+    /// <summary>Capture the screen of the user's session; returns JPEG bytes or null if no session.</summary>
+    Task<byte[]?> CaptureScreenAsync(string? sid, int maxWidth, int jpegQuality, CancellationToken ct);
+}
+
+/// <summary>What the user is doing right now (implemented by win-session from the Session helper).</summary>
+public interface IForegroundTracker
+{
+    (string ExePath, string? Title, bool Idle)? Current(string sid);
+}
+
+/// <summary>Seals a screenshot with the master key, uploads it and emits screenshot.taken (win-core).</summary>
+public interface IScreenshotUploader
+{
+    Task UploadAsync(string? sid, byte[] jpeg, int width, int height, string reason, string? commandId, string? foregroundExe, CancellationToken ct);
+}
+
+/// <summary>Cloud connection status (win-core).</summary>
+public interface ICloudLink
+{
+    bool Connected { get; }
+    Task RunAsync(CancellationToken ct);   // connect, auth, receive envelopes, send acks/state; reconnect forever
+}
