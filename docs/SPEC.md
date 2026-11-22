@@ -341,7 +341,9 @@ enforcement on the kids' real PCs before M7.
 
 ## 12. Open questions
 1. Kids' Windows accounts: Microsoft account or local? How many PCs / managed users?
-2. Domain name to buy/use; Cloudflare account creation.
+2. ~~Domain~~ — decided: no custom domain; use `*.workers.dev` / `*.pages.dev`. All URLs are config, so a
+   domain can be added later (only if workers.dev gets blocked). Cloudflare account: created.
 3. Category list source for web filtering (open lists, e.g. UT1 blacklists / OISD) — licence check.
 4. Child-facing features: "request more time" button? Visible tray icon showing time left?
-5. Repo visibility: currently **public** — recommended **private** (source reveals bypass details).
+5. ~~Repo visibility~~ — decided: **public**. Consequence: security must never rely on obscurity;
+   no secrets, URLs of a real deployment, account IDs or SIDs in the repo (use `.dev.vars` / local config).
