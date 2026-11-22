@@ -189,6 +189,15 @@ internal static partial class WfpNative
     public static partial uint FwpmFilterDestroyEnumHandle0(IntPtr engineHandle, IntPtr enumHandle);
 
     [LibraryImport(Dll)]
+    public static partial uint FwpmSubLayerCreateEnumHandle0(IntPtr engineHandle, IntPtr enumTemplate, out IntPtr enumHandle);
+
+    [LibraryImport(Dll)]
+    public static partial uint FwpmSubLayerEnum0(IntPtr engineHandle, IntPtr enumHandle, uint numEntriesRequested, out IntPtr entries, out uint numEntriesReturned);
+
+    [LibraryImport(Dll)]
+    public static partial uint FwpmSubLayerDestroyEnumHandle0(IntPtr engineHandle, IntPtr enumHandle);
+
+    [LibraryImport(Dll)]
     public static partial void FwpmFreeMemory0(ref IntPtr p);
 
     [LibraryImport(Dll, StringMarshalling = StringMarshalling.Utf16)]
@@ -197,6 +206,12 @@ internal static partial class WfpNative
     [LibraryImport("advapi32.dll", EntryPoint = "ConvertStringSecurityDescriptorToSecurityDescriptorW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool ConvertStringSecurityDescriptorToSecurityDescriptor(string sddl, uint revision, out IntPtr sd, out uint size);
+
+    [LibraryImport("advapi32.dll", EntryPoint = "ConvertSecurityDescriptorToStringSecurityDescriptorW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool ConvertSecurityDescriptorToStringSecurityDescriptor(IntPtr sd, uint revision, uint securityInformation, out IntPtr sddl, out uint length);
+
+    public const uint OWNER_SECURITY_INFORMATION = 0x1, GROUP_SECURITY_INFORMATION = 0x2, DACL_SECURITY_INFORMATION = 0x4;
 
     [LibraryImport("kernel32.dll")]
     public static partial IntPtr LocalFree(IntPtr mem);

@@ -5,6 +5,7 @@ using MinControl.Core.Abstractions;
 using MinControl.Core.Cloud;
 using MinControl.Core.Commands;
 using MinControl.Core.Crypto;
+using MinControl.Core.Diagnostics;
 using MinControl.Core.Policies;
 using MinControl.Core.ScreenTime;
 using MinControl.Core.Storage;
@@ -62,7 +63,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => new CommandDispatcher(sp.GetRequiredService<StateStore>(), sp.GetRequiredService<PolicyProvider>(),
             sp.GetRequiredService<IClock>(), sp.GetRequiredService<IApprovalStore>(),
             () => sp.GetService<ISessionActions>(), () => sp.GetService<IScreenshotUploader>(),
-            () => sp.GetService<IUserDirectory>(), () => sp.GetService<IForegroundTracker>(), sp.GetService<ILogger<CommandDispatcher>>()));
+            () => sp.GetService<IUserDirectory>(), () => sp.GetService<IForegroundTracker>(), sp.GetService<ILogger<CommandDispatcher>>(),
+            () => sp.GetService<DiagnosticsCollector>()));
+
+        // diag.report (API.md §14): ring-buffer logger + collector over every registered IDiagnosticsSection.
+        services.TryAddSingleton<LogRing>();
+        services.AddSingleton<ILoggerProvider>(sp => new RingBufferLoggerProvider(sp.GetRequiredService<LogRing>()));
+        services.AddSingleton<IDiagnosticsSection>(sp => new PolicyDiagnostics(sp.GetRequiredService<PolicyProvider>(), sp.GetRequiredService<StateStore>()));
+        services.AddSingleton(sp => new DiagnosticsCollector(() => sp.GetServices<IDiagnosticsSection>(), sp.GetRequiredService<LogRing>(),
+            sp.GetRequiredService<IEventSink>(), sp.GetRequiredService<IClock>(), sp.GetService<ILogger<DiagnosticsCollector>>()));
         services.AddSingleton(sp => new EnvelopeHandler(sp.GetRequiredService<EnvelopeVerifier>(), sp.GetRequiredService<PolicyProvider>(),
             sp.GetRequiredService<CommandDispatcher>(), sp.GetRequiredService<StateStore>(), sp.GetService<ILogger<EnvelopeHandler>>()));
 

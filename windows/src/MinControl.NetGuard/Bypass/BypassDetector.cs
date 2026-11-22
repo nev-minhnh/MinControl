@@ -31,6 +31,9 @@ public readonly record struct EnforcementResult(int Reset, int ResetFailed, int 
 /// (sid, exe) into one <c>tamper.proxy_bypass_attempt</c> per 10 minutes; other findings are de-duplicated for
 /// 10 minutes. UDP is not inspected.
 /// <para><see cref="OnFiltersApplied"/> resets (IPv4) the pre-existing connections the new filters would block.</para>
+/// <para>Safety net: a direct connection found while our filters for the SID are verified present means the WFP lock did
+/// not apply to that process (e.g. a token shape the user condition did not match). Such IPv4 connections are reset
+/// right away (<see cref="ResetBypassConnections"/>), so the bypass is cut within one scan period even before it is fixed.</para>
 /// </summary>
 public sealed class BypassDetector
 {
@@ -79,7 +82,14 @@ public sealed class BypassDetector
         public HashSet<string> Seen = new(StringComparer.Ordinal);   // connections already counted (still open)
     }
 
-    private readonly record struct Conn(string Key, string Endpoint, int Pid);
+    private readonly record struct Conn(string Key, string Endpoint, int Pid, TcpRow Row);
+
+    /// <summary>Reset direct (bypassing) IPv4 connections found by the scan. On by default.</summary>
+    public bool ResetBypassConnections { get; set; } = true;
+
+    /// <summary>Totals for diagnostics.</summary>
+    public long BypassResets => Interlocked.Read(ref _bypassResets);
+    private long _bypassResets;
 
     public BypassDetector(IUserDirectory users, IEventSink events, IClock clock, ILogger<BypassDetector>? log = null,
         ITcpTableSource? tcp = null)
@@ -219,7 +229,7 @@ public sealed class BypassDetector
 
                     var g = (sid, ExeLabel(path, row.Pid));
                     if (!groups.TryGetValue(g, out var list)) groups[g] = list = [];
-                    list.Add(new Conn(key, Endpoint(row.RemoteAddress, row.RemotePort), row.Pid));
+                    list.Add(new Conn(key, Endpoint(row.RemoteAddress, row.RemotePort), row.Pid, row));
                 }
             }
         }
@@ -238,6 +248,7 @@ public sealed class BypassDetector
             }
             if (!ok) continue;   // filters missing: tamper.wfp_filter_missing (watchdog), not a bypass
             ReportDirect(sid, exe, conns);
+            if (ResetBypassConnections) ResetDirect(sid, exe, conns);
         }
         PruneAggregates(present);
     }
@@ -258,6 +269,23 @@ public sealed class BypassDetector
         agg.Pending = 0;
         var path = _tcp.ImagePath(first.Pid);
         Emit(sid, Data(FormatDirect(exe, first.Endpoint, total - 1), path));
+    }
+
+    /// <summary>Resets the bypassing IPv4 connections (IPv6 cannot be reset through SetTcpEntry).</summary>
+    private void ResetDirect(string sid, string exe, List<Conn> conns)
+    {
+        int reset = 0, failed = 0, v6 = 0;
+        foreach (var c in conns)
+        {
+            var remote = c.Row.RemoteAddress;
+            if (remote.AddressFamily != AddressFamily.InterNetwork || remote.IsIPv4MappedToIPv6) { v6++; continue; }
+            bool ok;
+            try { ok = _tcp.TryReset(c.Row); } catch (Exception ex) { _log.LogDebug(ex, "TCP reset failed"); ok = false; }
+            if (ok) reset++; else failed++;
+        }
+        Interlocked.Add(ref _bypassResets, reset);
+        _log.LogWarning("Direct connection(s) bypassing the WFP lock for {Sid} by {Exe}: reset {Reset}, {Failed} reset failure(s), {V6} IPv6 left",
+            sid, exe, reset, failed, v6);
     }
 
     private void PruneAggregates(HashSet<string> present)

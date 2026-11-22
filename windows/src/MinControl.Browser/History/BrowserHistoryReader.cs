@@ -61,6 +61,9 @@ public sealed class BrowserHistoryReader : BackgroundService
         _tempRoot = tempRoot; _options = options; _log = log;
     }
 
+    /// <summary>Read positions (diagnostics).</summary>
+    public HistoryCursorStore Cursors => _cursors;
+
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         PurgeTemp();

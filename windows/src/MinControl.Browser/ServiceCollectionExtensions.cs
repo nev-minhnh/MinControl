@@ -48,7 +48,24 @@ public static class ServiceCollectionExtensions
                 new HistoryCursorStore(Path.Combine(root, "browser-history.json"), log), Path.Combine(root, "tmp"), opts, log);
         });
         services.AddHostedService(sp => sp.GetRequiredService<BrowserHistoryReader>());
+        services.AddSingleton<MinControl.Core.Diagnostics.IDiagnosticsSection>(sp => new BrowserDiagnostics(sp.GetRequiredService<IRegistryHive>(),
+            sp.GetRequiredService<IUserDirectory>(), sp.GetRequiredService<IPolicyProvider>(), sp.GetRequiredService<BrowserPolicyMapper>(),
+            () => sp.GetService<INetGuard>()?.ProxyPort, IsHiveLoaded, () => sp.GetService<BrowserHistoryReader>()));
         return services;
+    }
+
+    /// <summary>HKU\&lt;sid&gt; is present (user logged on): diagnostics read it, never load NTUSER.DAT.</summary>
+    private static bool IsHiveLoaded(string sid)
+    {
+        try
+        {
+            using var k = Microsoft.Win32.Registry.Users.OpenSubKey(sid);
+            return k is not null;
+        }
+        catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            return false;
+        }
     }
 
     private static string HistoryRoot(IServiceProvider sp, BrowserOptions opts) =>

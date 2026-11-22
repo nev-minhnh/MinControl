@@ -17,10 +17,20 @@ namespace MinControl.NetGuard.Proxy;
 /// Managed callers (I1) are filtered by <see cref="WebDecisionEngine"/>; callers of other SIDs are passed through
 /// untouched and unlogged; callers whose SID cannot be determined are refused (fail closed, I4).
 /// Plain HTTP is handled one request per client connection (Connection: close) to keep host decisions exact.
+/// <para>Every established connection of a known SID is tracked in <see cref="Tunnels"/>. On
+/// <see cref="IPolicyProvider.PolicyChanged"/> and every <see cref="RecheckInterval"/> the decision is re-run for each live
+/// connection of a managed SID: newly blocked ones are closed (web.blocked + toast), allowed ones whose SafeSearch/YouTube
+/// rewrite target changed are closed so the browser reconnects through the new target. Browsers reuse HTTP/2
+/// connections for a long time, so without this a new blockDomains entry would not bite until the browser reconnects.</para>
 /// </summary>
 public sealed class FilteringProxy : IAsyncDisposable
 {
     private const int PumpBufferSize = 32 * 1024;
+    private const int RecentDecisionsCapacity = 100;
+
+    /// <summary>Safety-net re-evaluation period of live tunnels (besides every PolicyChanged).</summary>
+    public static readonly TimeSpan RecheckInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan SummaryInterval = TimeSpan.FromMinutes(1);
 
     private readonly NetGuardOptions _options;
     private readonly IUserDirectory _users;
@@ -37,7 +47,17 @@ public sealed class FilteringProxy : IAsyncDisposable
     private Socket? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
+    private Timer? _recheck;
     private int _active;
+    private int _reevaluating;
+
+    // per-minute summary + diagnostics
+    private long _allowedMinute, _blockedMinute, _allowedTotal, _blockedTotal, _closedLiveTotal;
+    private long _lastSummaryMs;
+    private readonly Dictionary<string, int> _blockedHostsMinute = new(StringComparer.Ordinal);
+    private readonly Queue<ProxyDecisionRecord> _recent = new();
+    private DateTimeOffset? _lastReevaluation;
+    private string? _lastReevaluationResult;
 
     public FilteringProxy(NetGuardOptions options, IUserDirectory users, IPolicyProvider policy, IEventSink events, IClock clock,
         WebDecisionEngine engine, CallerIdentifier callers, DomainAggregator aggregator, ILogger<FilteringProxy>? log = null,
@@ -54,7 +74,12 @@ public sealed class FilteringProxy : IAsyncDisposable
         _blockedThrottle = new EventThrottle(clock, options.BlockedEventDedup);
         _notifier = notifier;
         _log = (ILogger?)log ?? NullLogger.Instance;
+        _lastSummaryMs = clock.MonotonicMs;
+        _policy.PolicyChanged += OnPolicyChanged;
     }
+
+    /// <summary>Live connections (CONNECT tunnels and plain-HTTP requests) of known SIDs.</summary>
+    public TunnelRegistry Tunnels { get; } = new();
 
     public int Port => _options.ProxyPort;
     public int ActiveConnections => Volatile.Read(ref _active);
@@ -89,6 +114,7 @@ public sealed class FilteringProxy : IAsyncDisposable
             _listener = s;
             _cts = new CancellationTokenSource();
             _acceptLoop = Task.Run(() => AcceptLoopAsync(s, _cts.Token));
+            _recheck = new Timer(_ => SafeReevaluate("periodic"), null, RecheckInterval, RecheckInterval);
             _log.LogInformation("Filtering proxy listening on 127.0.0.1:{Port}", _options.ProxyPort);
         }
     }
@@ -106,6 +132,8 @@ public sealed class FilteringProxy : IAsyncDisposable
 
     private void StopCore()
     {
+        _recheck?.Dispose();
+        _recheck = null;
         try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
         _listener?.Dispose();
         _listener = null;
@@ -116,6 +144,7 @@ public sealed class FilteringProxy : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _policy.PolicyChanged -= OnPolicyChanged;
         try { await StopAsync().ConfigureAwait(false); } catch { /* shutting down */ }
     }
 
@@ -145,6 +174,7 @@ public sealed class FilteringProxy : IAsyncDisposable
         Interlocked.Increment(ref _active);
         var buffer = ArrayPool<byte>.Shared.Rent(_options.MaxRequestHeadBytes);
         Socket? upstream = null;
+        LiveTunnel? tunnel = null;
         try
         {
             // ---- read request head
@@ -191,21 +221,11 @@ public sealed class FilteringProxy : IAsyncDisposable
             var logDomains = false;
             if (managed)
             {
-                var policy = _policy.Current;
-                UserPolicy? user = null;
-                policy?.Users.TryGetValue(caller.Sid, out user);
-                logDomains = user?.Monitoring.DomainLog ?? false;
-                WebDecision decision;
-                if (policy is null || user is null)
-                    decision = new WebDecision(false, BlockReasons.Blocklist, null, host);   // fail closed
-                else if (_options.AllowedPorts.Count > 0 && !_options.AllowedPorts.Contains(head.Port))
-                    decision = new WebDecision(false, BlockReasons.Port, null, host);
-                else
-                    decision = _engine.Decide(user.Web, host, _clock.UtcNow, policy.Timezone);
-
+                var decision = Decide(caller.Sid, host, head.Port, out logDomains);
+                Record(caller.Sid, caller.ExeName, host, decision, "connect");
                 if (!decision.Allowed)
                 {
-                    OnBlocked(caller, head, host, decision, logDomains);
+                    OnBlocked(caller.Sid, caller.ExeName, host, head.IsConnect ? null : head.Target, decision, logDomains);
                     await SendQuiet(client, head.IsConnect ? Responses.ConnectBlocked : Responses.BlockPage(host, decision.Reason, decision.Category));
                     return;
                 }
@@ -228,6 +248,14 @@ public sealed class FilteringProxy : IAsyncDisposable
             }
 
             if (managed && logDomains) _aggregator.RecordConnection(caller.Sid, caller.ExeName, host, true);
+
+            // Track it so a later policy change can cut it (closing both sockets ends both pumps).
+            var upSocket = upstream;
+            tunnel = Tunnels.Register(caller.Sid, host, caller.ExeName, head.Port, head.IsConnect, connectHost, _clock.UtcNow, () =>
+            {
+                try { client.Close(); } catch { /* gone */ }
+                try { upSocket.Close(); } catch { /* gone */ }
+            });
 
             long preOut = filled - headEnd;   // bytes the client already sent past the head (TLS ClientHello or body)
             if (head.IsConnect)
@@ -261,6 +289,7 @@ public sealed class FilteringProxy : IAsyncDisposable
         }
         finally
         {
+            Tunnels.Remove(tunnel);
             if (buffer is not null) ArrayPool<byte>.Shared.Return(buffer);
             upstream?.Dispose();
             client.Dispose();
@@ -274,26 +303,141 @@ public sealed class FilteringProxy : IAsyncDisposable
         return host is "localhost" || (IPAddress.TryParse(host, out var ip) && (IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any)));
     }
 
-    private void OnBlocked(Caller caller, HttpHead head, string host, WebDecision d, bool logDomains)
+    /// <summary>The proxy decision for a managed SID (also used for live re-evaluation). Fails closed without policy.</summary>
+    internal WebDecision Decide(string sid, string host, int port, out bool logDomains)
     {
-        var sid = caller.Sid!;
-        if (logDomains) _aggregator.RecordConnection(sid, caller.ExeName, host, false);
+        var policy = _policy.Current;
+        UserPolicy? user = null;
+        policy?.Users.TryGetValue(sid, out user);
+        logDomains = user?.Monitoring.DomainLog ?? false;
+        if (policy is null || user is null) return new WebDecision(false, BlockReasons.Blocklist, null, host);   // fail closed
+        if (_options.AllowedPorts.Count > 0 && !_options.AllowedPorts.Contains(port)) return new WebDecision(false, BlockReasons.Port, null, host);
+        return _engine.Decide(user.Web, host, _clock.UtcNow, policy.Timezone);
+    }
+
+    private void OnBlocked(string sid, string exeName, string host, string? url, WebDecision d, bool logDomains)
+    {
+        if (logDomains) _aggregator.RecordConnection(sid, exeName, host, false);
         if (!_blockedThrottle.ShouldEmit(sid + "|" + host)) return;
         var data = new JsonObject
         {
             ["host"] = DomainAggregator.Truncate(host, 253),
             ["source"] = "proxy",
             ["reason"] = d.Reason ?? BlockReasons.Blocklist,
-            ["exe"] = DomainAggregator.Truncate(caller.ExeName, 260),
+            ["exe"] = DomainAggregator.Truncate(exeName, 260),
         };
         if (d.Category is not null) data["category"] = DomainAggregator.Truncate(d.Category, 32);
-        if (!head.IsConnect) data["url"] = DomainAggregator.Truncate(head.Target, 2048);
+        if (url is not null) data["url"] = DomainAggregator.Truncate(url, 2048);
         try { _events.Emit(EventTypes.WebBlocked, sid, data); }
         catch (Exception ex) { _log.LogWarning(ex, "Emit web.blocked failed"); }
         // Same (sid, host) throttle as the event (once per BlockedEventDedup); the Service adds a per-user cap.
         // The Vietnamese reason is only shown in the toast: web.blocked has additionalProperties:false.
         try { _notifier?.NotifyWebBlocked(sid, host, d); }
         catch (Exception ex) { _log.LogDebug(ex, "blocked notice failed"); }
+    }
+
+    // ------------------------------------------------------------------ live re-evaluation
+
+    private void OnPolicyChanged(object? sender, DevicePolicy policy) =>
+        ThreadPool.UnsafeQueueUserWorkItem(_ => SafeReevaluate("policy"), null);
+
+    private void SafeReevaluate(string trigger)
+    {
+        try { ReevaluateTunnels(trigger); }
+        catch (Exception ex) { _log.LogWarning(ex, "Live tunnel re-evaluation failed"); }
+        try { MaybeLogSummary(); }
+        catch (Exception ex) { _log.LogDebug(ex, "proxy summary failed"); }
+    }
+
+    /// <summary>
+    /// Re-runs the decision for every live connection of a managed SID. Closes those now blocked (web.blocked + toast,
+    /// same throttle as new connections) and those whose rewrite target changed. Connections of non-managed SIDs are
+    /// never touched (I1). Returns (closed as blocked, closed for re-routing).
+    /// </summary>
+    public (int Blocked, int Rerouted) ReevaluateTunnels(string trigger = "manual")
+    {
+        if (Interlocked.Exchange(ref _reevaluating, 1) == 1) return (0, 0);
+        try
+        {
+            int blocked = 0, rerouted = 0, checkedCount = 0;
+            foreach (var t in Tunnels.Snapshot())
+            {
+                if (!_users.IsManaged(t.Sid)) continue;
+                checkedCount++;
+                var d = Decide(t.Sid, t.Host, t.Port, out var logDomains);
+                if (!d.Allowed)
+                {
+                    if (!t.TryClose()) continue;
+                    blocked++;
+                    Record(t.Sid, t.ExeName, t.Host, d, "live:" + trigger);
+                    OnBlocked(t.Sid, t.ExeName, t.Host, null, d, logDomains);
+                }
+                else if (!string.Equals(d.ConnectHost, t.ConnectHost, StringComparison.OrdinalIgnoreCase) && t.TryClose())
+                {
+                    rerouted++;
+                }
+            }
+            Interlocked.Add(ref _closedLiveTotal, blocked);
+            _lastReevaluation = _clock.UtcNow;
+            _lastReevaluationResult = $"{trigger}: checked {checkedCount}, closed {blocked} blocked, {rerouted} re-routed";
+            if (blocked > 0 || rerouted > 0 || trigger == "policy")
+                _log.LogInformation("Proxy live re-evaluation ({Trigger}): {Checked} managed connection(s) checked, {Blocked} closed as blocked, {Rerouted} closed for re-routing",
+                    trigger, checkedCount, blocked, rerouted);
+            return (blocked, rerouted);
+        }
+        finally
+        {
+            Volatile.Write(ref _reevaluating, 0);
+        }
+    }
+
+    // ------------------------------------------------------------------ stats / diagnostics
+
+    /// <summary>One decision in the recent-decisions sample (diag.report proxy section).</summary>
+    public sealed record ProxyDecisionRecord(DateTimeOffset At, string Sid, string Exe, string Host, bool Allowed, string? Reason,
+        string? Category, string Trigger);
+
+    private void Record(string sid, string exe, string host, WebDecision d, string trigger)
+    {
+        if (d.Allowed) { Interlocked.Increment(ref _allowedMinute); Interlocked.Increment(ref _allowedTotal); }
+        else { Interlocked.Increment(ref _blockedMinute); Interlocked.Increment(ref _blockedTotal); }
+        lock (_recent)
+        {
+            _recent.Enqueue(new ProxyDecisionRecord(_clock.UtcNow, sid, exe, host, d.Allowed, d.Reason, d.Category, trigger));
+            while (_recent.Count > RecentDecisionsCapacity) _recent.Dequeue();
+            if (!d.Allowed && _blockedHostsMinute.Count < 500)
+                _blockedHostsMinute[host] = _blockedHostsMinute.GetValueOrDefault(host) + 1;
+        }
+    }
+
+    /// <summary>Most recent first.</summary>
+    public IReadOnlyList<ProxyDecisionRecord> RecentDecisions()
+    {
+        lock (_recent) return _recent.Reverse().ToList();
+    }
+
+    public (long Allowed, long Blocked, long ClosedLive) Totals =>
+        (Interlocked.Read(ref _allowedTotal), Interlocked.Read(ref _blockedTotal), Interlocked.Read(ref _closedLiveTotal));
+
+    public (DateTimeOffset? At, string? Result) LastReevaluation => (_lastReevaluation, _lastReevaluationResult);
+
+    /// <summary>Information summary at most once a minute (only when something happened).</summary>
+    private void MaybeLogSummary()
+    {
+        var now = _clock.MonotonicMs;
+        if (now - Interlocked.Read(ref _lastSummaryMs) < (long)SummaryInterval.TotalMilliseconds) return;
+        Interlocked.Exchange(ref _lastSummaryMs, now);
+        var allowed = Interlocked.Exchange(ref _allowedMinute, 0);
+        var blocked = Interlocked.Exchange(ref _blockedMinute, 0);
+        string top;
+        lock (_recent)
+        {
+            top = string.Join(", ", _blockedHostsMinute.OrderByDescending(kv => kv.Value).Take(5).Select(kv => $"{kv.Key} x{kv.Value}"));
+            _blockedHostsMinute.Clear();
+        }
+        if (allowed == 0 && blocked == 0) return;
+        _log.LogInformation("Proxy last minute: {Allowed} allowed, {Blocked} blocked, {Live} live connection(s); top blocked: {Top}",
+            allowed, blocked, Tunnels.Count, top.Length == 0 ? "-" : top);
     }
 
     /// <summary>Copies until EOF, then half-closes the destination. Returns bytes copied.</summary>

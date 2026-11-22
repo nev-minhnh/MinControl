@@ -27,6 +27,7 @@ public static class EventTypes
     public const string ScreenshotTaken = "screenshot.taken";
     public const string QuotaWarning = "quota.warning", QuotaExhausted = "quota.exhausted";
     public const string RequestExeApproval = "request.exe_approval";
+    public const string DiagReport = "diag.report";
     public const string TamperAgentKilled = "tamper.agent_killed", TamperServiceStopped = "tamper.service_stopped",
         TamperWfpFilterMissing = "tamper.wfp_filter_missing", TamperProxyBypassAttempt = "tamper.proxy_bypass_attempt",
         TamperTimezoneChanged = "tamper.timezone_changed", TamperClockJump = "tamper.clock_jump",

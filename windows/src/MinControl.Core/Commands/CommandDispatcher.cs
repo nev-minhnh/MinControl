@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using MinControl.Core.Abstractions;
 using MinControl.Core.Crypto;
+using MinControl.Core.Diagnostics;
 using MinControl.Core.Policies;
 using MinControl.Core.Protocol;
 using MinControl.Core.Storage;
@@ -26,17 +27,20 @@ public sealed class CommandDispatcher
     private readonly Func<IScreenshotUploader?> _uploader;
     private readonly Func<IUserDirectory?> _users;
     private readonly Func<IForegroundTracker?> _foreground;
+    private readonly Func<DiagnosticsCollector?> _diagnostics;
     private readonly ILogger _log;
 
     public CommandDispatcher(StateStore store, PolicyProvider policy, IClock clock, IApprovalStore approvals,
         Func<ISessionActions?>? session = null, Func<IScreenshotUploader?>? uploader = null,
-        Func<IUserDirectory?>? users = null, Func<IForegroundTracker?>? foreground = null, ILogger<CommandDispatcher>? log = null)
+        Func<IUserDirectory?>? users = null, Func<IForegroundTracker?>? foreground = null, ILogger<CommandDispatcher>? log = null,
+        Func<DiagnosticsCollector?>? diagnostics = null)
     {
         _store = store; _policy = policy; _clock = clock; _approvals = approvals;
         _session = session ?? (() => null);
         _uploader = uploader ?? (() => null);
         _users = users ?? (() => null);
         _foreground = foreground ?? (() => null);
+        _diagnostics = diagnostics ?? (() => null);
         _log = log ?? (ILogger)NullLogger.Instance;
     }
 
@@ -166,6 +170,14 @@ public sealed class CommandDispatcher
             case RefreshCommand c:
                 RefreshRequested?.Invoke();
                 return Applied(c.CommandId);
+
+            case DiagnoseCommand c:
+            {
+                if (_diagnostics() is not { } diag) return Reject(c.CommandId, "failed", VerifyErrors.Internal, "diagnostics unavailable");
+                await diag.ReportAsync(c.CommandId, ct).ConfigureAwait(false);
+                RefreshRequested?.Invoke();   // upload the report now
+                return Applied(c.CommandId);
+            }
 
             default:
                 return Reject(cmd.CommandId, "rejected", VerifyErrors.InvalidBody, "unsupported command");

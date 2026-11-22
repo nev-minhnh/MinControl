@@ -99,6 +99,34 @@ public class BypassDetectorTests
     }
 
     [Fact]
+    public void Bypass_found_while_filters_are_present_is_reset_and_reported()
+    {
+        var f = new Fixture();
+        f.Apply(Kid);
+        f.Clock.Advance(TimeSpan.FromSeconds(61));
+        // msedgewebview2 (here pid 100) talking straight to Cloudflare DoH after the lock was applied and verified
+        f.Table.Rows.Add(V4("162.159.61.3", 443, 100, f.Clock.UtcNow, 50300));
+        f.Table.Rows.Add(V6("2606:4700::6810:f9f9", 443, 100, f.Clock.UtcNow));
+        f.Table.Rows.Add(V4("4.150.223.99", 443, 300, f.Clock.UtcNow, 50310));   // other SID: never touched
+
+        f.Scan(_ => true);
+
+        var reset = Assert.Single(f.Table.Resets);
+        Assert.Equal("162.159.61.3", reset.RemoteAddress.ToString());
+        Assert.Equal(1, f.Detector.BypassResets);
+        Assert.Single(f.Sink.Events);
+
+        // filters not verified present → neither reported nor reset (that is the watchdog's job)
+        var g = new Fixture();
+        g.Apply(Kid);
+        g.Clock.Advance(TimeSpan.FromSeconds(61));
+        g.Table.Rows.Add(V4("162.159.61.3", 443, 100, g.Clock.UtcNow, 50300));
+        g.Scan(_ => false);
+        Assert.Empty(g.Table.Resets);
+        Assert.Empty(g.Sink.Events);
+    }
+
+    [Fact]
     public void ChangedRules_are_new_sids_or_changed_exempt_sets()
     {
         var prev = new List<WfpUserRule> { new(Kid, [Zalo]), new(Other, []) };
