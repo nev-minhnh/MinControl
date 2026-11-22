@@ -47,6 +47,8 @@ const exportsMap = {
   validateEnrollStartRequest: C + "enroll-start-request.schema.json",
   validateMasterRegister: C + "master-register.schema.json",
   validateMasterRegisterWithClaim: C + "master-register-with-claim.schema.json",
+  validateTransferClaim: C + "transfer-claim.schema.json",
+  validateTransferComplete: C + "transfer-complete.schema.json",
   validatePushSubscribe: C + "push-subscribe.schema.json",
   validateDeviceState: P + "device-state.schema.json",
   validateWsDeviceMessage: C + "ws-device-message.schema.json",

@@ -108,6 +108,9 @@ def body(kind, seq, b, exp="2026-11-22T09:50:00Z"):
     return {"deviceId": DEV, "kind": kind, "seq": seq, "issuedAt": "2026-11-22T08:50:00Z", "expiresAt": exp, "body": b}
 
 
+MK_KEY = {"keyId": "3f9a1c2b4d5e6f70", "alg": "ed25519", "publicKey": "A" * 43, "role": "sign"}
+MASTER_KEYS = {"keys": [MK_KEY], "sealPubKey": "B" * 43}
+
 INV = {"deviceId": DEV, "generatedAt": "2026-11-22T08:45:00Z", "users": {SID: {"apps": [
     {"id": "a" * 64, "name": "Minecraft Launcher", "kind": "win32", "publisher": "Mojang", "version": "2.3.1",
      "installDir": r"C:\Program Files (x86)\Minecraft Launcher", "exe": "MinecraftLauncher.exe",
@@ -227,10 +230,13 @@ FIXTURES = {
         "valid": {
             "command": body("command", 42, LOCK),
             "policy": body("policy", 7, POLICY, exp="2027-11-22T08:50:00Z"),
+            "master-keys": body("master_keys", 3, MASTER_KEYS, exp="2026-12-22T08:50:00Z"),
         },
         "invalid": {
             "kind-mismatch": body("policy", 8, LOCK),
             "seq-zero": body("command", 0, REFRESH),
+            "master-keys-role-read": body("master_keys", 4, dict(MASTER_KEYS, keys=[dict(MK_KEY, role="read")])),
+            "master-keys-missing-seal-key": body("master_keys", 4, {"keys": [MK_KEY]}),
             "invalid-inner-command": body("command", 43, {"commandId": REFRESH["commandId"], "type": "format_disk"}),
         },
     },

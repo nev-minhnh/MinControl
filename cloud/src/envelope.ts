@@ -18,7 +18,7 @@ export interface SignedEnvelope {
 
 export interface SignedBody<B = Record<string, unknown>> {
   deviceId: string;
-  kind: "policy" | "command";
+  kind: "policy" | "command" | "master_keys";
   seq: number;
   issuedAt: string;
   expiresAt: string;
@@ -40,7 +40,7 @@ const reject = (code: string, message: string, status = 400) => new HttpError(st
 
 export async function verifyEnvelope<B = Record<string, unknown>>(
   input: unknown,
-  expectedKind: "policy" | "command",
+  expectedKind: "policy" | "command" | "master_keys",
   deviceId: string,
   lookupSignKey: (keyId: string) => Promise<MasterKeyRow | null>,
   now: number = Date.now(),

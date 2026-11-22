@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/cloud/transfer-complete.schema.json",
+  "title": "POST /v1/master/transfers/:id/complete body (cloud-local; API.md section 13)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["envelopes", "sealedSealKey"],
+  "properties": {
+    "envelopes": {
+      "type": "object",
+      "maxProperties": 200,
+      "propertyNames": { "$ref": "https://mincontrol.local/protocol/common.schema.json#/$defs/ulid" },
+      "additionalProperties": { "$ref": "https://mincontrol.local/protocol/signed-envelope.schema.json" }
+    },
+    "sealedSealKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,512}$" }
+  }
+}
