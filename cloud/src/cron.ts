@@ -41,6 +41,8 @@ export async function runCron(env: Env, ctx: ExecutionContext, now: number = Dat
   await db.batch([
     db.prepare("UPDATE commands SET status = 'expired' WHERE status = 'queued' AND expires_at <= ?").bind(nowS),
     db.prepare("DELETE FROM pairing_codes WHERE expires_at < ?").bind(nowIso(now - DAY_MS)),
+    db.prepare("DELETE FROM claims WHERE created_at < ?").bind(nowIso(now - DAY_MS)),
+    db.prepare("DELETE FROM claim_rate WHERE bucket < ?").bind(nowIso(now - DAY_MS).slice(0, 13)),
   ]);
 
   const devices = (

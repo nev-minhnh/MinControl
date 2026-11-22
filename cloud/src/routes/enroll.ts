@@ -56,14 +56,7 @@ export async function enroll(c: Ctx): Promise<Response> {
     throw new HttpError(403, "invalid_code", "pairing code is invalid, expired or already used");
   }
 
-  const [keys, seal] = await Promise.all([
-    env.DB.prepare("SELECT key_id, alg, public_key FROM master_keys WHERE role = 'sign' AND revoked_at IS NULL ORDER BY created_at")
-      .all<{ key_id: string; alg: string; public_key: string }>(),
-    env.DB.prepare("SELECT v FROM config WHERE k = 'master_seal_pub_key'").first<{ v: string }>(),
-  ]);
-  if (keys.results.length === 0 || !seal) {
-    throw new HttpError(409, "no_master", "no master is registered");
-  }
+  const master = await loadMasterInfo(env);
 
   // Atomic single-use claim.
   const claimed = await env.DB.prepare(
@@ -75,27 +68,44 @@ export async function enroll(c: Ctx): Promise<Response> {
   }
 
   const deviceId = ulid(now);
-  const stmts = [
+  await insertDevice(env, deviceId, body, nowS, [env.DB.prepare("UPDATE pairing_codes SET device_id = ? WHERE code = ?").bind(deviceId, code)]);
+  return json({ deviceId, serverTime: nowS, ...master }, 201);
+}
+
+export interface EnrollDeviceFields {
+  devicePubKey: string;
+  hostname: string;
+  osVersion: string;
+  agentVersion: string;
+  localUsers: { sid: string; name: string; isAdmin: boolean }[];
+}
+
+/** Sign-role master keys + seal key (the enrolment response tail). 409 if no master is registered. */
+export async function loadMasterInfo(env: Env): Promise<{ masterKeys: { keyId: string; alg: string; publicKey: string }[]; masterSealPubKey: string }> {
+  const [keys, seal] = await Promise.all([
+    env.DB.prepare("SELECT key_id, alg, public_key FROM master_keys WHERE role = 'sign' AND revoked_at IS NULL ORDER BY created_at")
+      .all<{ key_id: string; alg: string; public_key: string }>(),
+    env.DB.prepare("SELECT v FROM config WHERE k = 'master_seal_pub_key'").first<{ v: string }>(),
+  ]);
+  if (keys.results.length === 0 || !seal) throw new HttpError(409, "no_master", "no master is registered");
+  return {
+    masterKeys: keys.results.map((k) => ({ keyId: k.key_id, alg: k.alg, publicKey: k.public_key })),
+    masterSealPubKey: seal.v,
+  };
+}
+
+/** Creates the device row + managed_users rows (shared by /v1/enroll and claim approval). */
+export async function insertDevice(env: Env, deviceId: string, f: EnrollDeviceFields, nowS: string, extra: D1PreparedStatement[] = []): Promise<void> {
+  await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO devices (id, hostname, os_version, agent_version, device_pub_key, enrolled_at, last_seen_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(deviceId, body.hostname, body.osVersion, body.agentVersion, body.devicePubKey, nowS, nowS),
-    ...body.localUsers.map((u) =>
+    ).bind(deviceId, f.hostname, f.osVersion, f.agentVersion, f.devicePubKey, nowS, nowS),
+    ...f.localUsers.map((u) =>
       env.DB.prepare(
         "INSERT INTO managed_users (device_id, user_sid, name, is_admin, managed, updated_at) VALUES (?, ?, ?, ?, 0, ?)",
       ).bind(deviceId, u.sid, u.name, u.isAdmin ? 1 : 0, nowS),
     ),
-    env.DB.prepare("UPDATE pairing_codes SET device_id = ? WHERE code = ?").bind(deviceId, code),
-  ];
-  await env.DB.batch(stmts);
-
-  return json(
-    {
-      deviceId,
-      serverTime: nowS,
-      masterKeys: keys.results.map((k) => ({ keyId: k.key_id, alg: k.alg, publicKey: k.public_key })),
-      masterSealPubKey: seal.v,
-    },
-    201,
-  );
+    ...extra,
+  ]);
 }
