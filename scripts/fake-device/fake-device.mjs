@@ -13,6 +13,7 @@ import { createHash, randomBytes, generateKeyPairSync, createPublicKey, diffieHe
 
 const STATE = process.env.MC_FAKE_STATE || 'D:/Coding_Project/MinControl/tools/fake-device/state.json';
 const TRIGGER = join(dirname(STATE), 'send-events');
+const TRIGGER_NEW = join(dirname(STATE), 'send-new'); // new exe approvals (signed + unsigned) + a device-level tamper event
 const LOGF = process.env.MC_FAKE_LOG || ''; // use a Windows path (D:/...) for node
 const SID_ADMIN = 'S-1-5-21-1000000001-1000000002-1000000003-500';
 const SID_BIN = 'S-1-5-21-1000000001-1000000002-1000000003-1001';
@@ -272,6 +273,7 @@ async function run() {
     if (!v.ok) { send({ t: 'ack', ack: { commandId, status: 'rejected', at: nowIso(), error: v.error, detail: v.detail } }); log('-> ack rejected', v.error); return; }
     st.lastSeq.command = body.seq;
     if (cmd.type === 'add_time') { st.extraMin += cmd.minutes || 0; log('add_time', cmd.minutes, 'min group', cmd.group); }
+    if (cmd.type === 'unlock') { st.lockedUntil = null; log('unlock'); }
     if (cmd.type === 'lock_now') { st.lockedUntil = cmd.until; log('lock_now until', cmd.until); }
     st.applied[commandId] = true; save(st);
     send({ t: 'ack', ack: { commandId, status: 'applied', at: nowIso() } });
@@ -296,6 +298,12 @@ async function run() {
         pingTimer = setInterval(() => send({ t: 'ping' }), 30000);
         trig = setInterval(async () => {
           tickN++;
+          if (existsSync(TRIGGER_NEW)) { try { unlinkSync(TRIGGER_NEW); } catch {} const t = Date.now().toString(36);
+            await upload([
+              ev('request.exe_approval', { exe: `Signed${t}.exe`, path: `C:\Users\Bin\Downloads\Signed${t}.exe`, pid: 6001, sha256: createHash('sha256').update('s' + t).digest('hex'), publisher: 'Epic Games, Inc.', signed: true, sizeBytes: 3145728 }),
+              ev('request.exe_approval', { exe: `Unsigned${t}.exe`, path: `C:\Users\Bin\Downloads\Unsigned${t}.exe`, pid: 6002, sha256: createHash('sha256').update('u' + t).digest('hex'), signed: false, sizeBytes: 912000 }),
+              ev('tamper.service_stopped', { detail: 'MinControl service stop requested (fake, device-level ' + t + ')' }, null),
+            ]); }
           if (existsSync(TRIGGER)) { try { unlinkSync(TRIGGER); } catch {} await upload(batch()); }
           if (tickN % 30 === 0) { const ms = new Date(); ms.setSeconds(0, 0); await upload([ev('usage.tick', { minuteStart: ms.toISOString().replace(/\.\d+Z$/, 'Z'), activeSec: 60, exe: fg.exe, title: fg.title, group: 'games' })]); }
         }, 2000);
