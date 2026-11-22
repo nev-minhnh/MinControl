@@ -1,0 +1,30 @@
+{
+  "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+  "generatedAt": "2026-11-22T08:45:00Z",
+  "users": {
+    "S-1-5-21-1111111111-2222222222-3333333333-1001": {
+      "apps": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Minecraft Launcher",
+          "kind": "win32",
+          "publisher": "Mojang",
+          "version": "2.3.1",
+          "installDir": "C:\\Program Files (x86)\\Minecraft Launcher",
+          "exe": "MinecraftLauncher.exe",
+          "exePath": "C:\\Program Files (x86)\\Minecraft Launcher\\MinecraftLauncher.exe",
+          "lastUsed": "2026-11-22T07:30:00Z",
+          "minutes7d": 310,
+          "category": "game"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "game.exe",
+          "kind": "seen",
+          "exe": "game.exe",
+          "minutes7d": 12
+        }
+      ]
+    }
+  }
+}

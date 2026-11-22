@@ -55,4 +55,16 @@ describe("router", () => {
   it("device events without upload token secret -> 503", async () => {
     expect((await call("POST", "/v1/device/events", { body: "{}" })).status).toBe(503);
   });
+
+  it("device inventory without upload token secret -> 503", async () => {
+    expect((await call("PUT", "/v1/device/inventory", { body: "{}" })).status).toBe(503);
+  });
+
+  it("master apps route without X-MC-Auth -> 401", async () => {
+    expect((await call("GET", "/v1/master/devices/01JDQ3Z8K4M2N6P8R0S2T4V6W8/apps?user=S-1-5-21-1-2-3-1001")).status).toBe(401);
+  });
+
+  it("device inventory route rejects GET -> 405", async () => {
+    expect((await call("GET", "/v1/device/inventory")).status).toBe(405);
+  });
 });

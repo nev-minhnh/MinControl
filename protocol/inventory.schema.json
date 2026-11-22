@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/protocol/inventory.schema.json",
+  "title": "App inventory upload (device → cloud), API.md section 11",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deviceId", "generatedAt", "users"],
+  "properties": {
+    "deviceId": { "$ref": "common.schema.json#/$defs/ulid" },
+    "generatedAt": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "users": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": { "$ref": "common.schema.json#/$defs/sid" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["apps"],
+        "properties": { "apps": { "type": "array", "maxItems": 2000, "items": { "$ref": "#/$defs/app" } } }
+      }
+    }
+  },
+  "$defs": {
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/sha256", "description": "sha256 hex of kind|key (unique per user, enforced by app logic)" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 260 },
+        "kind": { "enum": ["win32", "appx", "seen"] },
+        "publisher": { "type": "string", "maxLength": 260 },
+        "version": { "type": "string", "maxLength": 64 },
+        "installDir": { "type": "string", "maxLength": 520 },
+        "exe": { "type": "string", "maxLength": 260 },
+        "exePath": { "type": "string", "maxLength": 520 },
+        "lastUsed": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "minutes7d": { "type": "integer", "minimum": 0, "maximum": 10080 },
+        "category": { "enum": ["game", "browser", "social", "video", "study", "system", "other"] }
+      }
+    }
+  }
+}

@@ -16,6 +16,7 @@ export const validateCommand: ValidateFn;
 export const validateCommandAck: ValidateFn;
 export const validateEvent: ValidateFn;
 export const validateEventBatch: ValidateFn;
+export const validateInventory: ValidateFn;
 export const validateEnrollRequest: ValidateFn;
 export const validateEnrollStartRequest: ValidateFn;
 export const validateMasterRegister: ValidateFn;
