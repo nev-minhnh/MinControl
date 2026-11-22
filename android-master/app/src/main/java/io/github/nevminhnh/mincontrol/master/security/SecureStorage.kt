@@ -73,9 +73,31 @@ class SealKeyStore(private val prefs: SecurePrefs) {
 
     fun publicKey(): ByteArray = prefs.getBytes(PK) ?: ensureKey()
 
+    /** Opens a screenshot: tries the current key, then each older key imported by a phone transfer (API.md 13). */
     fun open(sealed: ByteArray): ByteArray {
-        val sk = prefs.getBytes(SK) ?: throw SealedBox.OpenException("no seal key on this phone")
-        return try { SealedBox.open(sealed, sk, publicKey()) } finally { sk.fill(0) }
+        val keys = listOfNotNull(prefs.getBytes(SK)) + oldKeys()
+        if (keys.isEmpty()) throw SealedBox.OpenException("no seal key on this phone")
+        return try { SealKeyRing.open(sealed, keys) } finally { keys.forEach { it.fill(0) } }
+    }
+
+    /** Current private key (for sealing it to a new phone during a transfer). Caller must zero it. */
+    fun privateKey(): ByteArray = prefs.getBytes(SK) ?: throw IllegalStateException("no seal key")
+
+    /** Older private keys (each 32 B) kept only for decrypting old screenshots. */
+    fun oldKeys(): List<ByteArray> = SealKeyRing.split(prefs.getBytes(OLD))
+
+    /** Adds an old private key (from a transfer) as an extra decryption key; duplicates are ignored. */
+    fun addOldKey(sk: ByteArray) {
+        require(sk.size == SealedBox.KEY_BYTES)
+        val current = prefs.getBytes(SK)
+        val existing = oldKeys()
+        if ((current != null && current.contentEquals(sk)) || existing.any { it.contentEquals(sk) }) return
+        prefs.putBytes(OLD, SealKeyRing.join(listOf(sk) + existing))
+    }
+
+    /** Removes every seal key (old phone after a transfer). */
+    fun clear() {
+        prefs.putBytes(SK, null); prefs.putBytes(PK, null); prefs.putBytes(OLD, null)
     }
 
     fun export(passphrase: CharArray): String {
@@ -96,5 +118,29 @@ class SealKeyStore(private val prefs: SecurePrefs) {
     private companion object {
         const val SK = "seal_sk"
         const val PK = "seal_pk"
+        const val OLD = "seal_old_sks"
+    }
+}
+
+/** Pure helpers for several seal private keys (newest first). */
+object SealKeyRing {
+    /** Tries each private key in order; throws [SealedBox.OpenException] when none opens the box. */
+    fun open(sealed: ByteArray, privateKeys: List<ByteArray>): ByteArray {
+        var last: Exception? = null
+        for (sk in privateKeys) {
+            try {
+                return SealedBox.open(sealed, sk, SealedBox.publicKey(sk))
+            } catch (e: SealedBox.OpenException) {
+                last = e
+            }
+        }
+        throw SealedBox.OpenException(if (privateKeys.isEmpty()) "no seal key" else "no seal key opens this screenshot (${last?.message})")
+    }
+
+    fun join(keys: List<ByteArray>): ByteArray = keys.fold(ByteArray(0)) { acc, k -> require(k.size == SealedBox.KEY_BYTES); acc + k }
+
+    fun split(blob: ByteArray?): List<ByteArray> {
+        if (blob == null || blob.isEmpty() || blob.size % SealedBox.KEY_BYTES != 0) return emptyList()
+        return (0 until blob.size / SealedBox.KEY_BYTES).map { blob.copyOfRange(it * SealedBox.KEY_BYTES, (it + 1) * SealedBox.KEY_BYTES) }
     }
 }

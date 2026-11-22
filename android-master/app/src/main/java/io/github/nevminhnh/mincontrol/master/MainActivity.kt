@@ -38,5 +38,7 @@ class MainActivity : FragmentActivity() {
     private fun handleSetupLink(i: Intent?) {
         SetupLink.parse(i?.dataString)?.let { SetupLink.pending.value = it }
         PairLink.parse(i?.dataString)?.let { PairLink.pending.value = it }
+        io.github.nevminhnh.mincontrol.master.transfer.TransferLink.parse(i?.dataString)
+            ?.let { io.github.nevminhnh.mincontrol.master.transfer.TransferLink.pending.value = it }
     }
 }

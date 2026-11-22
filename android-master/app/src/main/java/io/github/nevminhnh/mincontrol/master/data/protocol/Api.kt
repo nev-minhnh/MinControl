@@ -107,7 +107,13 @@ data class DeviceInfo(
 data class DeviceList(val items: List<DeviceInfo> = emptyList())
 
 @Serializable
-data class SeqResponse(val policy: Long = 0, val command: Long = 0)
+data class SeqResponse(
+    val policy: Long = 0,
+    val command: Long = 0,
+    /** Last `master_keys` seq (API.md 13); 0 when the server does not report it yet. */
+    @OptIn(ExperimentalSerializationApi::class)
+    @kotlinx.serialization.json.JsonNames("master_keys") val masterKeys: Long = 0,
+)
 
 @Serializable
 data class PolicyResponse(val version: Int, val seq: Long, val envelope: SignedEnvelope)
@@ -213,3 +219,49 @@ data class InventoryApp(
 
 @Serializable
 data class InventoryResponse(val generatedAt: String? = null, val apps: List<InventoryApp> = emptyList())
+
+// ---------- API.md 13: phone transfer ----------
+
+/** `POST /v1/master/transfers` (sign-key auth) -> 201. */
+@Serializable
+data class CreateTransferResponse(val transferId: String, val token: String, val expiresAt: String? = null)
+
+/** `POST /v1/master/transfers/claim` (no auth). [sig] = new sign key over `"transfer|"+token`. */
+@Serializable
+data class TransferClaimRequest(
+    val token: String,
+    val keys: List<RegisterKey>,
+    val sealPubKey: String,
+    val transportPubKey: String,
+    val sig: String,
+)
+
+@Serializable
+data class TransferClaimResponse(val transferId: String, val status: String = "pending")
+
+/** `GET /v1/master/transfers/<id>`: pending | claimed (old phone sees newKeys/transportPubKey/fp) | done (new phone sees sealedSealKey). */
+@Serializable
+data class TransferStatus(
+    val status: String,
+    val newKeys: List<RegisterKey> = emptyList(),
+    val transportPubKey: String? = null,
+    /** The new phone's seal public key (sent in its claim); goes into the `master_keys` body. */
+    @OptIn(ExperimentalSerializationApi::class)
+    @kotlinx.serialization.json.JsonNames("newSealPubKey") val sealPubKey: String? = null,
+    val fp: String? = null,
+    val sealedSealKey: String? = null,
+    val expiresAt: String? = null,
+)
+
+/** `POST /v1/master/transfers/<id>/complete` (sign-key auth). */
+@Serializable
+data class TransferCompleteRequest(val envelopes: Map<String, SignedEnvelope>, val sealedSealKey: String)
+
+/** Key entry of a `master_keys` signed body (role is always `sign`). */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class MasterKeyEntry(val keyId: String, val alg: SigAlg, val publicKey: String, @kotlinx.serialization.EncodeDefault val role: String = "sign")
+
+/** Body of a `kind: "master_keys"` envelope (signed-body.schema.json `$defs/masterKeys`). */
+@Serializable
+data class MasterKeysBody(val keys: List<MasterKeyEntry>, val sealPubKey: String)
