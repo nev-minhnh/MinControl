@@ -93,3 +93,21 @@ rendered by the app. Alert-worthy events: `quota.exhausted`, `request.exe_approv
 ## 7. Screenshot sealing
 libsodium `crypto_box_seal` (X25519 + XSalsa20-Poly1305) with `masterSealPubKey`; plaintext = JPEG bytes.
 Only the phone holds the private key.
+
+## 8. Clarifications decided at integration (binding)
+- **`ts`** in `X-MC-Auth` and in the WS `auth` frame = unix **seconds**, decimal integer; the signed text uses
+  that decimal string. WS frame: `"ts": <integer>`.
+- **Event batch response**: `200 {"accepted":n,"rejected":[{"id","error"}]}` (`rejected` only when non-empty).
+  Devices drop rejected events from the outbox (log locally) and never retry them.
+- **Register response**: `201 {"keys":[{"keyId","role"}]}`; wrong secret → `403 forbidden`.
+- **Error codes** for `PUT policy` / `POST commands`: 400 `invalid_body|wrong_device|expired`,
+  403 `unknown_key|bad_signature`, 409 `replayed` (with `details.lastSeq`) | `duplicate`, 404 unknown/revoked device.
+- **Expiry**: policy envelopes `expiresAt` = issuedAt + 365 days; command envelopes ≤ 24 h
+  (lock_now: until + 1 h). Expired queued envelopes are never delivered.
+- **WS**: auth timeout 30 s; close codes 4401 auth failed, 4403 revoked, 4000 replaced by a newer connection,
+  4400 bad frame. Unacked commands are re-sent on reconnect (devices must treat a replay of an already
+  applied commandId as `applied`, idempotently).
+- **Alerts** `type` = the event type or `blocked.burst` / `device.offline`; severity quota → info,
+  exe approval / burst / offline → warn, tamper → critical; `data` = `{title, body, eventId, ...}`.
+- **Event ownership on Windows**: `usage.tick`, `quota.*` and interval screenshots are emitted by the
+  Service enforcer (win-session); on-demand screenshots by the command dispatcher (win-core).
