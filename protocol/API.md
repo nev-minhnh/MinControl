@@ -138,3 +138,20 @@ Screenshots are **not stored in the cloud**. R2 is optional and unused by defaul
 - `PUT /v1/device/blobs/<key>` **without** `reqId` is no longer used (→ `400`).
 - Cloud retention cron no longer touches R2; screenshot metadata rows in D1 follow `retentionDays.screenshots`.
 - Master app: `409 device_offline` → "Máy đang tắt — mở lại khi máy online"; `504` → "Máy không phản hồi, thử lại".
+
+## 10. QR pairing initiated by the device (decided by Minh 2026-11-22; preferred over typed codes)
+The child's PC shows a QR; the parent scans and approves on the phone; nothing is typed and no secret is
+embedded in the installer. `/v1/enroll` with a pairing code (§1) stays for CLI/silent installs.
+1. Device `POST /v1/enroll/start` (unauthenticated) body
+   `{devicePubKey, hostname, osVersion, agentVersion, localUsers:[{sid,name,isAdmin}]}` →
+   `201 {"claimId":"<b64url 16 B>","code":"<8 Crockford>","expiresAt"}` (TTL 15 min; rate-limit 10/h per IP).
+2. QR payload: `mincontrol://pair?v=1&c=<claimId>&f=<fp>` where `fp` = first 12 hex chars of sha256(raw devicePubKey).
+   Both screens show `fp` as `XXXX-XXXX-XXXX` so the parent can compare; the fallback `code` is shown small.
+3. Device polls `GET /v1/enroll/claim/<claimId>?ts=<unix s>&sig=<b64url Ed25519(deviceKey, "poll|"+claimId+"|"+ts)>`
+   every 2 s (±300 s) → `202 {"status":"pending"}` | `200 {"status":"approved", deviceId, serverTime, masterKeys,
+   masterSealPubKey}` (same shape as §1 response) | `410 {"error":"expired"|"rejected"}`.
+4. Master (X-MC-Auth): `GET /v1/master/claims/<claimId>` → `{hostname, osVersion, localUsers, fp, expiresAt}`;
+   `GET /v1/master/claims/by-code/<code>` → same + `claimId` (manual fallback);
+   `POST /v1/master/claims/<claimId>/approve` → `201 {"deviceId"}` — **must be authenticated with a `sign`-role key**
+   (biometric on the phone); `POST /v1/master/claims/<claimId>/reject` → `204`. A claim is single use.
+5. After approval the app continues with the existing "choose managed users → policy v1" flow.
