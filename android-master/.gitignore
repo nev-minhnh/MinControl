@@ -3,3 +3,5 @@ build/
 local.properties
 *.iml
 .idea/
+*.log
+app/google-services.json
