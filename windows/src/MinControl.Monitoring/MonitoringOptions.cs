@@ -18,6 +18,10 @@ public sealed class MonitoringOptions
     /// <summary>Re-check of running managed processes against exhausted groups.</summary>
     public TimeSpan GroupSweepInterval { get; set; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>A managed user's msedge/chrome may run this long before it is blocked for a missing MinControl
+    /// extension (IExtensionHealth). Matches the browser stream's heartbeat timeout.</summary>
+    public TimeSpan ExtensionMissingGrace { get; set; } = TimeSpan.FromMinutes(3);
+
     /// <summary>Installs / AppX periodic rescan (registry notifications trigger earlier scans).</summary>
     public TimeSpan InstallRescanInterval { get; set; } = TimeSpan.FromMinutes(2);
 

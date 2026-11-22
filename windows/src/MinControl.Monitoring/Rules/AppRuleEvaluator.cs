@@ -28,6 +28,9 @@ public sealed class EvaluationContext
     public IReadOnlyList<string> ExtraUserWritableRoots { get; init; } = [];
     /// <summary>True when the path is on a removable (or network) drive.</summary>
     public Func<string, bool> IsRemovableOrNetwork { get; init; } = _ => false;
+    /// <summary>ACL check (ROUND2 B.1): true when the user or one of its token groups could write, replace or
+    /// re-ACL the exe or one of its parent directories. Null = no ACL check (tests, path heuristic only).</summary>
+    public Func<string, bool>? IsUserWritableByAcl { get; init; }
     /// <summary>Stored approval for a sha256: "allow" | "block" | null (IApprovalStore.DecisionFor).</summary>
     public Func<string, string?> ApprovalFor { get; init; } = _ => null;
     /// <summary>%windir%, used to protect critical shell processes. Null disables the protection.</summary>
@@ -44,7 +47,7 @@ public sealed class EvaluationContext
 ///   block wins immediately, allow exempts from the browser and newExecutable checks;</item>
 /// <item>app group currently exhausted → block (applies even to explicitly allowed apps: quota is time, not trust);</item>
 /// <item>a browser that is not a genuine member of <c>web.allowedBrowsers</c> → block;</item>
-/// <item>exe under a user-writable location → <c>newExecutable</c> (allow | block | ask + IApprovalStore).</item>
+/// <item>exe under a user-writable location (profile/temp fast path, removable/network, or writable per DACL) → <c>newExecutable</c> (allow | block | ask + IApprovalStore).</item>
 /// </list>
 /// All AppMatch fields present in one match object must match (AND). sha256/publisher are computed lazily.
 /// </summary>
@@ -178,8 +181,8 @@ public sealed class AppRuleEvaluator
         return any;
     }
 
-    /// <summary>Exe under the user's profile, a user-writable machine root (%TEMP%, Public...), or a
-    /// removable/network drive (SPEC §8.3).</summary>
+    /// <summary>Exe under the user's profile, a user-writable machine root (%TEMP%, Public...) (fast paths), a
+    /// removable/network drive, or anywhere the user's token could write per the real DACLs (SPEC §8.3, ROUND2 B.1).</summary>
     public static bool IsUnderUserWritable(string exePath, EvaluationContext ctx)
     {
         exePath = PathExpander.Normalize(exePath);
@@ -188,7 +191,8 @@ public sealed class AppRuleEvaluator
             if (IsUnder(exePath, root)) return true;
         if (exePath.StartsWith(@"\\", StringComparison.Ordinal) && !exePath.StartsWith(@"\\?\", StringComparison.Ordinal))
             return true; // UNC share
-        return ctx.IsRemovableOrNetwork(exePath);
+        if (ctx.IsRemovableOrNetwork(exePath)) return true;
+        return ctx.IsUserWritableByAcl?.Invoke(exePath) ?? false;
     }
 
     internal static bool IsUnder(string path, string root)
@@ -200,8 +204,20 @@ public sealed class AppRuleEvaluator
             && path.StartsWith(root, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsCriticalShell(string exePath, EvaluationContext ctx)
-        => ctx.WindowsDir is { Length: > 0 } win
-           && IsUnder(exePath, win)
-           && CriticalShellExes.Contains(Path.GetFileName(exePath));
+    /// <summary>A critical shell exe in one of the fixed, admin-only Windows folders: %windir%, System32, SysWOW64,
+    /// ImmersiveControlPanel, or a package folder directly under SystemApps. Not "anywhere under %windir%":
+    /// %windir%\Tasks, System32\spool\drivers\color, ... are user-writable, and a renamed game dropped there must not
+    /// inherit the protection.</summary>
+    internal static bool IsCriticalShell(string exePath, EvaluationContext ctx)
+    {
+        if (ctx.WindowsDir is not { Length: > 0 } win) return false;
+        if (!CriticalShellExes.Contains(Path.GetFileName(exePath))) return false;
+        var dir = Path.GetDirectoryName(exePath);
+        if (dir is null) return false;
+        win = PathExpander.Normalize(win).TrimEnd('\\');
+        foreach (var fixedDir in (ReadOnlySpan<string>)["", @"\System32", @"\SysWOW64", @"\ImmersiveControlPanel"])
+            if (string.Equals(dir, win + fixedDir, StringComparison.OrdinalIgnoreCase)) return true;
+        var parent = Path.GetDirectoryName(dir);
+        return parent is not null && string.Equals(parent, win + @"\SystemApps", StringComparison.OrdinalIgnoreCase);
+    }
 }

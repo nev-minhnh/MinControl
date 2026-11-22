@@ -25,6 +25,23 @@ internal static class NativeMethods
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern uint QueryDosDeviceW(string? deviceName, StringBuilder target, int max);
 
+    // ---- tokens
+    public const uint TOKEN_QUERY = 0x0008;
+    public const int TokenUser = 1, TokenGroups = 2;
+    public const uint SE_GROUP_ENABLED = 0x4, SE_GROUP_USE_FOR_DENY_ONLY = 0x10, SE_GROUP_LOGON_ID = 0xC0000000;
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool OpenProcessToken(SafeProcessHandle process, uint access, out SafeAccessTokenHandle token);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetTokenInformation(SafeAccessTokenHandle token, int infoClass, IntPtr info, int length, out int returnLength);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsTokenRestricted(SafeAccessTokenHandle token);
+
     // ---- registry change notification
     public const uint REG_NOTIFY_CHANGE_NAME = 0x1;
     public const uint REG_NOTIFY_CHANGE_LAST_SET = 0x4;
