@@ -6,6 +6,7 @@ using MinControl.Service.Ipc;
 using MinControl.Service.Sessions;
 using MinControl.Service.Tamper;
 using MinControl.Service.Users;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
@@ -14,6 +15,12 @@ using MinControl.Monitoring;
 using MinControl.NetGuard;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// Deployment config written by `MinControl.Setup install` (SYSTEM/Administrators-only ACL):
+// { "ServerUrl": "...", "Browser": { "ChromeExtensionId": "...", "EdgeExtensionId": "..." } }
+var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "MinControl");
+builder.Configuration.AddJsonFile(Path.Combine(dataDir, "config.json"), optional: true, reloadOnChange: false);
+
 builder.Services.AddWindowsService(o => o.ServiceName = ServiceInstaller.ServiceName);
 if (WindowsServiceHelpers.IsWindowsService())
 {
@@ -41,7 +48,7 @@ builder.Services.AddHostedService<CloudLinkHost>();
 // IBrowserPolicyWriter.ApplyAsync/RemoveAsync at start, on PolicyChanged and on managed-set changes.
 builder.Services.AddMinControlMonitoring();
 builder.Services.AddMinControlNetGuard();
-builder.Services.AddMinControlBrowser();
+builder.Services.AddMinControlBrowser(o => builder.Configuration.GetSection("Browser").Bind(o));
 builder.Services.AddHostedService<AppMonitorHost>();
 builder.Services.AddHostedService<PolicyApplier>();
 
