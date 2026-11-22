@@ -76,6 +76,11 @@ def user(p):
 
 LOCK = {"commandId": "01JDQ40000000000000000V0CK", "type": "lock_now", "userSid": SID, "until": "2026-11-23T00:00:00Z"}
 REFRESH = {"commandId": "01JDQ4000000000000000REFRS", "type": "refresh"}
+DIAGNOSE = {"commandId": "01JDQ4000000000000000D1AG0", "type": "diagnose"}
+DIAG = {"id": "01JDQ5000000000000000D1AGR", "deviceId": DEV, "ts": "2026-11-23T08:00:00Z", "monoMs": 99,
+        "type": "diag.report",
+        "data": {"commandId": DIAGNOSE["commandId"],
+                 "sections": {"service": {"version": "0.3.0", "uptimeSec": 1234}, "policy": {"version": 7, "seq": 42, "storedOk": True}}}}
 VISIT = {"id": "01JDQ50000000000000000V1ST", "deviceId": DEV, "userSid": SID, "ts": "2026-11-22T08:44:00Z",
          "monoMs": 3600000, "type": "web.visit",
          "data": {"url": "https://www.youtube.com/watch?v=abc", "title": "Huong dan xay nha Minecraft",
@@ -156,6 +161,7 @@ FIXTURES = {
             "lock-until": LOCK,
             "add-time-group": {"commandId": "01JDQ4000000000000000ADD15", "type": "add_time", "userSid": SID, "minutes": 15, "group": "games"},
             "refresh": REFRESH,
+            "diagnose": DIAGNOSE,
         },
         "invalid": {
             "add-time-zero": {"commandId": "01JDQ4000000000000000ADD00", "type": "add_time", "userSid": SID, "minutes": 0},
@@ -177,13 +183,14 @@ FIXTURES = {
     },
     "event": {
         "valid": {"web-visit": VISIT, "tamper-offline-gap-no-user": GAP, "process-blocked": BLOCKED,
-                  "tamper-state-tampered": STATE_TAMPERED, "web-blocked-doh": DOH_BLOCKED,
+                  "tamper-state-tampered": STATE_TAMPERED, "diag-report": DIAG, "web-blocked-doh": DOH_BLOCKED,
                   "web-blocked-port": mutate(DOH_BLOCKED, lambda e: e.update(id="01JDQ500000000000000000PRT", data={
                       "host": "203.0.113.7", "source": "proxy", "reason": "port", "exe": "game.exe"}))},
         "invalid": {
             "web-visit-missing-userSid": mutate(VISIT, lambda e: e.pop("userSid")),
             "web-visit-wrong-data": mutate(VISIT, lambda e: e.update(data=BLOCKED["data"])),
             "local-time-not-utc": mutate(GAP, lambda e: e.update(ts="2026-11-22T15:44:00+07:00")),
+            "diag-report-without-commandId": mutate(DIAG, lambda e: e["data"].pop("commandId")),
             "unknown-type": mutate(GAP, lambda e: e.update(type="tamper.something_new")),
             "web-blocked-unknown-reason": mutate(DOH_BLOCKED, lambda e: e["data"].update(reason="firewall")),
         },

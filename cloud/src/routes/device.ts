@@ -11,6 +11,9 @@ import { validateEvent, validateInventory } from "../generated/validators";
 
 export const MAX_BLOB_BYTES = 2 * 1024 * 1024;
 const MAX_BATCH_BYTES = 5 * 1024 * 1024;
+/** `diag.report` events may carry up to 256 KB of data (API.md section 14); every other type stays small. */
+export const MAX_DIAG_BYTES = 256 * 1024;
+const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_EVENTS = 500;
 
 interface DeviceRow {
@@ -83,6 +86,11 @@ export async function postEvents(c: Ctx): Promise<Response> {
     const e = raw as IngestEvent;
     if (e.deviceId !== device.id) {
       rejected.push({ id, error: "wrong_device" });
+      continue;
+    }
+    const size = new TextEncoder().encode(JSON.stringify(e.data)).length;
+    if (size > (e.type === "diag.report" ? MAX_DIAG_BYTES : MAX_EVENT_BYTES)) {
+      rejected.push({ id, error: "too_large" });
       continue;
     }
     if (ids.has(e.id)) continue;
