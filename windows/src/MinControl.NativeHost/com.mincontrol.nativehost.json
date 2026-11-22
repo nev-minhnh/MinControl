@@ -1,0 +1,10 @@
+{
+  "name": "com.mincontrol.nativehost",
+  "description": "MinControl browser bridge",
+  "path": "C:\Program Files\MinControl\MinControl.NativeHost.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://CHROME_WEB_STORE_EXTENSION_ID/",
+    "chrome-extension://EDGE_ADDONS_EXTENSION_ID/"
+  ]
+}
