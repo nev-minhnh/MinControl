@@ -5,12 +5,13 @@ namespace MinControl.NetGuard.Web;
 /// <summary>Reasons as defined by event.schema.json $defs/webBlocked.reason.</summary>
 public static class BlockReasons
 {
-    public const string Category = "category", Blocklist = "blocklist", AllowlistMiss = "allowlist_miss", Schedule = "schedule";
+    public const string Category = "category", Blocklist = "blocklist", AllowlistMiss = "allowlist_miss", Schedule = "schedule",
+        Doh = "doh", Port = "port";
 }
 
 /// <param name="Allowed">Connection may proceed.</param>
 /// <param name="Reason">One of <see cref="BlockReasons"/> when blocked, null when allowed.</param>
-/// <param name="Category">Category that caused the block (also "doh" / "ip" for built-in rules).</param>
+/// <param name="Category">Category that caused the block (also "ip" for the built-in IP-literal rule).</param>
 /// <param name="ConnectHost">Host to actually connect to (SafeSearch/YouTube rewrite); equals the request host otherwise.</param>
 public sealed record WebDecision(bool Allowed, string? Reason, string? Category, string ConnectHost)
 {
@@ -21,7 +22,7 @@ public sealed record WebDecision(bool Allowed, string? Reason, string? Category,
 /// Pure decision engine for the filtering proxy. Order of evaluation:
 /// <list type="number">
 /// <item>empty host → block (blocklist)</item>
-/// <item>built-in DoH/DoT endpoints → block (blocklist, category "doh") — not overridable, they would bypass all DNS-based filtering</item>
+/// <item>built-in DoH/DoT endpoints → block (reason doh) — not overridable, they would bypass all DNS-based filtering</item>
 /// <item><c>blockDomains</c> → block (blocklist)</item>
 /// <item><c>allowDomains</c> → allow (overrides categories and schedules)</item>
 /// <item>allowlist mode and not allowed above → block (allowlist_miss)</item>
@@ -47,7 +48,7 @@ public sealed class WebDecisionEngine
         var h = DomainPattern.NormalizeHost(host);
         if (h.Length == 0) return Block(BlockReasons.Blocklist, null, h);
 
-        if (DohHosts.IsDoh(h)) return Block(BlockReasons.Blocklist, "doh", h);
+        if (DohHosts.IsDoh(h)) return Block(BlockReasons.Doh, null, h);
 
         if (DomainPattern.MatchesAny(web.BlockDomains, h)) return Block(BlockReasons.Blocklist, null, h);
 

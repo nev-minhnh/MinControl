@@ -22,6 +22,8 @@ internal static class Responses
             "category" => $"Trang web thuộc nhóm bị chặn ({Enc(category)}).",
             "schedule" => $"Nhóm trang web này ({Enc(category)}) không được dùng vào giờ này.",
             "allowlist_miss" => "Trang web này không nằm trong danh sách được phép.",
+            "doh" => "Máy chủ DNS mã hoá (DoH/DoT) không được dùng trên máy này.",
+            "port" => "Kết nối tới cổng này không được phép.",
             _ => "Trang web này đã bị bố mẹ chặn.",
         };
         var html = $$"""
