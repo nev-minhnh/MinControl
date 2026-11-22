@@ -446,6 +446,9 @@ private fun ShotsTab(vm: ActivityViewModel) {
     val decrypted by vm.decrypted.collectAsState()
     val decrypting by vm.decrypting.collectAsState()
     var open by remember { mutableStateOf<ScreenshotItem?>(null) }
+    val auto by vm.autoOpen.collectAsState()
+    val child by vm.child.collectAsState()
+    LaunchedEffect(auto) { auto?.let { open = it; vm.clearAutoOpen() } }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -462,12 +465,21 @@ private fun ShotsTab(vm: ActivityViewModel) {
                 PrimaryButton("Chụp ngay", { vm.captureNow(activity) }, height = 44.dp, icon = Icons.Outlined.PhotoCamera)
             }
         }
+        if (child?.online == false) item(span = { GridItemSpan(2) }) {
+            Text("Máy đang tắt — chỉ xem được thông tin ảnh, mở ảnh khi máy online", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+        if (decrypting.isNotEmpty()) item(span = { GridItemSpan(2) }) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text(io.github.nevminhnh.mincontrol.master.data.api.BLOB_PROGRESS_TEXT, style = MaterialTheme.typography.bodySmall, color = TextBody)
+            }
+        }
         if (shots.isEmpty()) item(span = { GridItemSpan(2) }) { EmptyState("Chưa có ảnh màn hình") }
         items(shots, key = { it.eventId }) { s ->
             val bmp = decrypted[s.eventId]
             Column(
                 Modifier.clip(RoundedCornerShape(16.dp)).background(Surface)
-                    .clickable { if (bmp != null) open = s else vm.decrypt(s) },
+                    .clickable { if (bmp != null) open = s else vm.decrypt(s, openWhenDone = true) },
             ) {
                 Box(Modifier.fillMaxWidth().height(96.dp).background(shotTint(s.foregroundExe)), contentAlignment = Alignment.Center) {
                     if (bmp != null) {
