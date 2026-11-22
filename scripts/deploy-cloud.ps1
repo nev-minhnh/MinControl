@@ -30,7 +30,7 @@
   (printed once at the end).
 .PARAMETER RotateBootstrap
   Generate and set a NEW ADMIN_BOOTSTRAP_SECRET (the recovery code is single use: run this again after it was used)
-  and regenerate the recovery QR release\devecovery-qr.png (was setup-qr.png).
+  and regenerate the recovery QR release\dev\recovery-qr.png (was setup-qr.png).
 #>
 [CmdletBinding()]
 param(
@@ -169,7 +169,7 @@ try {
 
     # ---------------------------------------------------------------- 7b. recovery code QR
     if ($recoveryPlain) {
-        Write-Host "==> recovery code QR (release\devecovery-qr.png)" -ForegroundColor Cyan
+        Write-Host "==> recovery code QR (release\dev\recovery-qr.png)" -ForegroundColor Cyan
         $qrUrl = $url
         $secretsFile = Join-Path $root "tools\secrets\cloud-dev.txt"
         if (-not $qrUrl -and (Test-Path $secretsFile)) {
@@ -178,7 +178,7 @@ try {
         }
         if (-not $qrUrl) { Write-Warning "no server URL known; recovery QR not written" }
         else {
-            $qrOut = Join-Path $root "release\devecovery-qr.png"
+            $qrOut = Join-Path $root "release\dev\recovery-qr.png"
             $env:ADMIN_BOOTSTRAP_SECRET = $recoveryPlain
             $env:SERVER_URL = $qrUrl
             try {
