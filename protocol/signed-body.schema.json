@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/protocol/signed-body.schema.json",
+  "title": "Signed body (decoded envelope payload)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deviceId", "kind", "seq", "issuedAt", "expiresAt", "body"],
+  "properties": {
+    "deviceId": { "$ref": "common.schema.json#/$defs/ulid" },
+    "kind": { "enum": ["policy", "command"] },
+    "seq": { "type": "integer", "minimum": 1, "description": "strictly increasing per (deviceId, kind)" },
+    "issuedAt": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "expiresAt": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "body": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "policy" } } },
+      "then": { "properties": { "body": { "$ref": "policy.schema.json" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "command" } } },
+      "then": { "properties": { "body": { "$ref": "command.schema.json" } } }
+    }
+  ]
+}

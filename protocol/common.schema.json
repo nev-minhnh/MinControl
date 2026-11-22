@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/protocol/common.schema.json",
+  "title": "Common definitions",
+  "$defs": {
+    "ulid": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "sid": { "type": "string", "pattern": "^S-1-5-21(-[0-9]+){3,4}$", "description": "Windows SID of a local or Microsoft-account user" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "hhmm": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+    "window": {
+      "type": "string",
+      "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]-(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+      "description": "HH:MM-HH:MM local time; end may be 24:00; end <= start is invalid (split across days instead)"
+    },
+    "minutes": { "type": "integer", "minimum": 0, "maximum": 1440 },
+    "weekdayMinutes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+      "properties": {
+        "mon": { "$ref": "#/$defs/minutes" }, "tue": { "$ref": "#/$defs/minutes" },
+        "wed": { "$ref": "#/$defs/minutes" }, "thu": { "$ref": "#/$defs/minutes" },
+        "fri": { "$ref": "#/$defs/minutes" }, "sat": { "$ref": "#/$defs/minutes" },
+        "sun": { "$ref": "#/$defs/minutes" }
+      }
+    },
+    "weekdayWindows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+      "properties": {
+        "mon": { "$ref": "#/$defs/windowList" }, "tue": { "$ref": "#/$defs/windowList" },
+        "wed": { "$ref": "#/$defs/windowList" }, "thu": { "$ref": "#/$defs/windowList" },
+        "fri": { "$ref": "#/$defs/windowList" }, "sat": { "$ref": "#/$defs/windowList" },
+        "sun": { "$ref": "#/$defs/windowList" }
+      }
+    },
+    "windowList": { "type": "array", "items": { "$ref": "#/$defs/window" }, "maxItems": 8 },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "glob": { "type": "string", "minLength": 1, "maxLength": 260, "description": "case-insensitive, * and ? wildcards" },
+    "appMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "exe": { "$ref": "#/$defs/glob", "description": "file name only, e.g. Minecraft*.exe" },
+        "path": { "$ref": "#/$defs/glob", "description": "full path glob; %ProgramFiles% etc. expanded by the agent" },
+        "publisher": { "$ref": "#/$defs/glob", "description": "Authenticode subject CN" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "pathUnderUserWritable": { "const": true }
+      }
+    },
+    "domainPattern": {
+      "type": "string",
+      "pattern": "^(\\*\\.)?([a-z0-9-]+\\.)+[a-z0-9-]+$",
+      "description": "lower-case host or *.suffix"
+    }
+  }
+}

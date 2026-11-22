@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/protocol/event.schema.json",
+  "title": "Telemetry event (device → cloud)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "deviceId", "ts", "monoMs", "type", "data"],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/ulid" },
+    "deviceId": { "$ref": "common.schema.json#/$defs/ulid" },
+    "userSid": { "$ref": "common.schema.json#/$defs/sid" },
+    "ts": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "monoMs": { "type": "integer", "minimum": 0, "description": "monotonic ms since agent boot; detects clock jumps" },
+    "type": {
+      "enum": [
+        "session.logon", "session.logoff", "session.lock", "session.unlock",
+        "usage.tick",
+        "process.start", "process.stop", "process.blocked",
+        "web.visit", "web.search", "web.blocked",
+        "net.domain",
+        "install.detected", "download.completed",
+        "usb.attached", "usb.detached",
+        "screenshot.taken",
+        "quota.warning", "quota.exhausted",
+        "request.exe_approval",
+        "tamper.agent_killed", "tamper.service_stopped", "tamper.wfp_filter_missing", "tamper.proxy_bypass_attempt",
+        "tamper.timezone_changed", "tamper.clock_jump", "tamper.managed_user_is_admin", "tamper.extension_missing", "tamper.offline_gap"
+      ]
+    },
+    "data": { "type": "object" }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "pattern": "^session\\." } } }, "then": { "properties": { "data": { "$ref": "#/$defs/session" } } } },
+    { "if": { "properties": { "type": { "const": "usage.tick" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/usageTick" } } } },
+    { "if": { "properties": { "type": { "pattern": "^process\\." } } }, "then": { "properties": { "data": { "$ref": "#/$defs/process" } } } },
+    { "if": { "properties": { "type": { "const": "web.visit" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/webVisit" } } } },
+    { "if": { "properties": { "type": { "const": "web.search" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/webSearch" } } } },
+    { "if": { "properties": { "type": { "const": "web.blocked" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/webBlocked" } } } },
+    { "if": { "properties": { "type": { "const": "net.domain" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/netDomain" } } } },
+    { "if": { "properties": { "type": { "const": "install.detected" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/install" } } } },
+    { "if": { "properties": { "type": { "const": "download.completed" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/download" } } } },
+    { "if": { "properties": { "type": { "pattern": "^usb\\." } } }, "then": { "properties": { "data": { "$ref": "#/$defs/usb" } } } },
+    { "if": { "properties": { "type": { "const": "screenshot.taken" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/screenshot" } } } },
+    { "if": { "properties": { "type": { "pattern": "^quota\\." } } }, "then": { "properties": { "data": { "$ref": "#/$defs/quota" } } } },
+    { "if": { "properties": { "type": { "const": "request.exe_approval" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/process" } } } },
+    { "if": { "properties": { "type": { "pattern": "^tamper\\." } } }, "then": { "properties": { "data": { "$ref": "#/$defs/tamper" } } } },
+    {
+      "if": { "properties": { "type": { "pattern": "^(session|usage|process|web|net|download|screenshot|quota|request)\\." } } },
+      "then": { "required": ["userSid"] }
+    }
+  ],
+  "$defs": {
+    "str": { "type": "string", "maxLength": 2048 },
+    "session": {
+      "type": "object", "additionalProperties": false, "required": ["sessionId"],
+      "properties": { "sessionId": { "type": "integer", "minimum": 0 } }
+    },
+    "usageTick": {
+      "type": "object", "additionalProperties": false, "required": ["minuteStart", "activeSec", "exe"],
+      "properties": {
+        "minuteStart": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "activeSec": { "type": "integer", "minimum": 0, "maximum": 60 },
+        "exe": { "type": "string", "maxLength": 260 },
+        "title": { "type": "string", "maxLength": 512 },
+        "group": { "type": "string", "maxLength": 32 }
+      }
+    },
+    "process": {
+      "type": "object", "additionalProperties": false, "required": ["exe", "path", "pid"],
+      "properties": {
+        "exe": { "type": "string", "maxLength": 260 }, "path": { "type": "string", "maxLength": 1024 },
+        "pid": { "type": "integer", "minimum": 0 }, "parentPid": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "publisher": { "type": "string", "maxLength": 256 }, "signed": { "type": "boolean" },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "rule": { "type": "string", "maxLength": 128, "description": "which rule blocked it (process.blocked)" }
+      }
+    },
+    "webVisit": {
+      "type": "object", "additionalProperties": false, "required": ["url", "browser"],
+      "properties": {
+        "url": { "$ref": "#/$defs/str" }, "title": { "type": "string", "maxLength": 512 },
+        "browser": { "enum": ["msedge", "chrome"] },
+        "durationSec": { "type": "integer", "minimum": 0 },
+        "transition": { "type": "string", "maxLength": 32 }
+      }
+    },
+    "webSearch": {
+      "type": "object", "additionalProperties": false, "required": ["engine", "query"],
+      "properties": { "engine": { "enum": ["google", "bing", "youtube", "coccoc", "other"] }, "query": { "type": "string", "maxLength": 512 } }
+    },
+    "webBlocked": {
+      "type": "object", "additionalProperties": false, "required": ["host", "source", "reason"],
+      "properties": {
+        "host": { "type": "string", "maxLength": 253 }, "url": { "$ref": "#/$defs/str" },
+        "source": { "enum": ["proxy", "extension"] },
+        "reason": { "enum": ["category", "blocklist", "allowlist_miss", "schedule"] },
+        "category": { "type": "string", "maxLength": 32 }, "exe": { "type": "string", "maxLength": 260 }
+      }
+    },
+    "netDomain": {
+      "type": "object", "additionalProperties": false, "required": ["host", "exe", "windowStart", "connections", "allowed"],
+      "properties": {
+        "host": { "type": "string", "maxLength": 253 }, "exe": { "type": "string", "maxLength": 260 },
+        "windowStart": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "connections": { "type": "integer", "minimum": 1 }, "bytesOut": { "type": "integer", "minimum": 0 },
+        "bytesIn": { "type": "integer", "minimum": 0 }, "allowed": { "type": "boolean" }
+      }
+    },
+    "install": {
+      "type": "object", "additionalProperties": false, "required": ["product", "scope"],
+      "properties": {
+        "product": { "type": "string", "maxLength": 256 }, "version": { "type": "string", "maxLength": 64 },
+        "publisher": { "type": "string", "maxLength": 256 }, "scope": { "enum": ["machine", "user", "appx"] }
+      }
+    },
+    "download": {
+      "type": "object", "additionalProperties": false, "required": ["fileName"],
+      "properties": {
+        "url": { "$ref": "#/$defs/str" }, "fileName": { "type": "string", "maxLength": 260 },
+        "sizeBytes": { "type": "integer", "minimum": 0 }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "usb": {
+      "type": "object", "additionalProperties": false, "required": ["deviceName"],
+      "properties": {
+        "deviceName": { "type": "string", "maxLength": 256 }, "vendorId": { "type": "string", "pattern": "^[0-9A-F]{4}$" },
+        "productId": { "type": "string", "pattern": "^[0-9A-F]{4}$" }, "volumeLabel": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "screenshot": {
+      "type": "object", "additionalProperties": false, "required": ["blobKey", "width", "height", "reason"],
+      "properties": {
+        "blobKey": { "type": "string", "pattern": "^[A-Za-z0-9/_.-]{1,256}$" },
+        "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 },
+        "reason": { "enum": ["interval", "command"] }, "commandId": { "$ref": "common.schema.json#/$defs/ulid" },
+        "foregroundExe": { "type": "string", "maxLength": 260 }
+      }
+    },
+    "quota": {
+      "type": "object", "additionalProperties": false, "required": ["scope", "remainingMin"],
+      "properties": {
+        "scope": { "type": "string", "pattern": "^(total|group:[a-z][a-z0-9_-]{0,31})$" },
+        "remainingMin": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "tamper": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "detail": { "type": "string", "maxLength": 1024 },
+        "gapSec": { "type": "integer", "minimum": 0 },
+        "jumpSec": { "type": "integer" },
+        "exe": { "type": "string", "maxLength": 260 }
+      }
+    }
+  }
+}

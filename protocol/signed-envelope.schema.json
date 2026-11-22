@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/protocol/signed-envelope.schema.json",
+  "title": "Signed envelope (master → device)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "alg", "keyId", "payload", "sig"],
+  "properties": {
+    "v": { "const": 1 },
+    "alg": { "enum": ["ed25519", "es256"] },
+    "keyId": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "payload": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "maxLength": 1048576, "description": "base64url(UTF-8 JSON of signed-body), no padding" },
+    "sig": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$", "description": "base64url of a 64-byte signature, no padding" }
+  }
+}

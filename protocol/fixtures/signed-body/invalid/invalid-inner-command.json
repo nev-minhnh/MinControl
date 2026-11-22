@@ -1,0 +1,11 @@
+{
+  "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+  "kind": "command",
+  "seq": 43,
+  "issuedAt": "2026-11-22T08:50:00Z",
+  "expiresAt": "2026-11-22T09:50:00Z",
+  "body": {
+    "commandId": "01JDQ4000000000000000REFRS",
+    "type": "format_disk"
+  }
+}

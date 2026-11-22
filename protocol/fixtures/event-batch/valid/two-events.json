@@ -1,0 +1,30 @@
+{
+  "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+  "sentAt": "2026-11-22T08:45:00Z",
+  "events": [
+    {
+      "id": "01JDQ50000000000000000V1ST",
+      "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+      "userSid": "S-1-5-21-1111111111-2222222222-3333333333-1001",
+      "ts": "2026-11-22T08:44:00Z",
+      "monoMs": 3600000,
+      "type": "web.visit",
+      "data": {
+        "url": "https://www.youtube.com/watch?v=abc",
+        "title": "Huong dan xay nha Minecraft",
+        "browser": "msedge",
+        "durationSec": 360
+      }
+    },
+    {
+      "id": "01JDQ5000000000000000000GP",
+      "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+      "ts": "2026-11-22T08:44:00Z",
+      "monoMs": 12,
+      "type": "tamper.offline_gap",
+      "data": {
+        "gapSec": 7200
+      }
+    }
+  ]
+}

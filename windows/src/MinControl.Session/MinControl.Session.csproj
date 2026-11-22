@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>MinControl.Session</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MinControl.Core\MinControl.Core.csproj" />
+    <!-- IPC framing/message model is shared with the Service (single source of truth). -->
+    <Compile Include="..\MinControl.Service\Logic\IpcProtocol.cs" Link="Shared\IpcProtocol.cs" />
+  </ItemGroup>
+</Project>

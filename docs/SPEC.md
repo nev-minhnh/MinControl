@@ -35,7 +35,7 @@ Phase 1 may assume Windows-only concepts in the protocol or cloud layer.
 | # | Invariant |
 |---|---|
 | I1 | **Per-user scope.** Every enforcement and every log record is keyed by the Windows **SID** of a *managed* user. Processes, sessions, network flows and registry writes of any other SID are never touched. |
-| I2 | **Admins are never affected.** A SID that is a member of local Administrators can never be managed. If a managed SID becomes admin, enforcement for it continues where possible and a `tamper.managed_user_is_admin` alert is raised. |
+| I2 | **Admins are never affected.** A SID that is a member of local Administrators can never be managed. If a managed SID becomes admin, enforcement for it **stops** (an admin can undo anything) and a critical `tamper.managed_user_is_admin` alert is raised once per day until fixed (decided by Minh 2026-11-22). |
 | I3 | **Offline enforcement.** The device holds the full signed policy locally and enforces it with no network. Cloud is for sync, commands and logs only. |
 | I4 | **Fail closed for the managed user.** If the agent stack is broken, the managed user loses internet (persistent WFP filters) and the session is logged off after a grace period. The admin user is unaffected. |
 | I5 | **Commands and policies are signed by the master key.** The device verifies the Ed25519 signature against master public keys pinned at enrolment. A compromised Cloudflare account cannot command a device. |
@@ -158,6 +158,12 @@ Temporary overrides (from commands) are **not** policy edits; they are signed `o
 an expiry (e.g. `+30 min today`, `pause limits until 18:00`, `lock until 07:00`).
 
 ---
+
+### Screen-time semantics (decided by Minh 2026-11-22)
+- A weekday with an **empty `allowedWindows` list means no screen time that day** (fail closed).
+- Conflicting overrides (`lock_now` vs `pause_limits`/`unlock`): **the most recent command wins**.
+- `remainingMin` shown to the child and in the master app = **min(quota left, minutes until the current
+  allowed window ends)**.
 
 ## 6. Commands (master → device, signed)
 

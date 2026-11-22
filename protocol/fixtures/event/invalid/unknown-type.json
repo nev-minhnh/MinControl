@@ -1,0 +1,10 @@
+{
+  "id": "01JDQ5000000000000000000GP",
+  "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+  "ts": "2026-11-22T08:44:00Z",
+  "monoMs": 12,
+  "type": "tamper.something_new",
+  "data": {
+    "gapSec": 7200
+  }
+}

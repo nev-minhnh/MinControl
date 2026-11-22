@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="NSec.Cryptography" />
+    <PackageReference Include="Sodium.Core" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="JsonSchema.Net" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- protocol/*.schema.json are the source of truth; embedded so the device validates bodies offline -->
+    <EmbeddedResource Include="..\..\..\protocol\*.schema.json" LogicalName="MinControl.Schemas.%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="MinControl.Core.Tests" />
+  </ItemGroup>
+</Project>
