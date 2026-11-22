@@ -84,7 +84,7 @@ contract test that validates sample messages against the schemas on both sides).
 
 ### Enrolment flow
 1. Admin opens the master app → "Add device" → Worker creates a one-time **pairing code** (8 chars, 15 min TTL)
-   bound to the account. PWA shows the code + master public keys fingerprint.
+   bound to the account. The app shows the code + master public keys fingerprint.
 2. On the PC, admin runs `MinControl.Setup.exe enroll <code>` (elevated). Setup generates the device
    key, calls `POST /v1/enroll {code, devicePubKey, hostname, osVersion, localUsers[]}`.
 3. Worker returns `{deviceId, masterPubKeys[], masterSealPubKey, cloudUrl}`. Setup pins the master keys.
@@ -199,7 +199,7 @@ Common envelope: `{id (ULID), deviceId, userSid?, ts (UTC), monoMs, type, data}`
 | `request.exe_approval` | exe info |
 | `tamper.*` | `agent_killed`, `service_stopped`, `wfp_filter_missing`, `proxy_bypass_attempt`, `timezone_changed`, `clock_jump`, `managed_user_is_admin`, `extension_missing`, `offline_gap` |
 
-Alert-worthy events (`quota.exhausted`, `*.blocked` bursts, `request.*`, `tamper.*`) trigger Web Push.
+Alert-worthy events (`quota.exhausted`, `*.blocked` bursts, `request.*`, `tamper.*`) trigger an FCM push.
 
 ---
 
@@ -303,7 +303,7 @@ POST /v1/enroll                     (pairing code)
 GET  /v1/device/ws                  (device, WebSocket → DeviceHub)
 POST /v1/device/events              (device token, batch)
 PUT  /v1/device/blobs/:key          (device token, sealed screenshot)
-GET  /v1/master/devices             (Access)
+GET  /v1/master/devices             (master signature)
 GET  /v1/master/devices/:id/state
 GET  /v1/master/devices/:id/events?type=&user=&from=&to=&q=
 GET  /v1/master/devices/:id/web?user=&from=&to=&q=
@@ -336,9 +336,9 @@ FCM push, Room cache for offline views.
 | M0 | Repo skeleton, `protocol/` schemas, CI (build + tests) | schemas validated by contract tests |
 | M1 | Cloud: enrol, DeviceHub WS, commands, events → D1; master app: Keystore key + biometric, devices, quick commands, FCM | fake device script can enrol, receive `add_time`, upload events |
 | M2 | Windows Service core: enrol CLI, policy store + signature check, sessions, quota/schedule, overlay, logoff, commands | in a Hyper-V VM the managed user is logged off on time; admin unaffected |
-| M3 | App control + monitors (ETW, foreground, installs, USB, downloads) | blocked app dies < 1 s; timeline visible in PWA |
+| M3 | App control + monitors (ETW, foreground, installs, USB, downloads) | blocked app dies < 1 s; timeline visible in master app |
 | M4 | NetGuard: persistent WFP + proxy + SafeSearch + domain log | managed user: VPN/DoH/QUIC/portable browser all fail; admin browses normally |
-| M5 | Extension (unlisted in both stores) + browser policies + full history | URLs + searches visible in PWA; InPrivate disabled |
+| M5 | Extension (unlisted in both stores) + browser policies + full history | URLs + searches visible in master app; InPrivate disabled |
 | M6 | Sealed screenshots, alerts + FCM push, retention cron | screenshot round-trip decrypts only on phone |
 | M7 | MSI installer (WiX), hardening, tamper test pass, real-PC rollout | tamper checklist §8.8 passes in VM, then on the kids' PCs |
 
