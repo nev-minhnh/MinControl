@@ -69,6 +69,10 @@ public sealed class EnvelopeVerifier
 
         // 1. keyId pinned (and its algorithm matches)
         var key = _store.GetMasterKeys().FirstOrDefault(k => k.KeyId == env.KeyId);
+        long? retiredMaxSeq = null;
+        // retired keys (after a master_keys rotation) may only re-verify an already stored policy, never new envelopes
+        if (key is null && !checkFreshness && _store.GetRetiredKeys().FirstOrDefault(r => r.Key.KeyId == env.KeyId) is { Key: not null } ret)
+        { key = ret.Key; retiredMaxSeq = ret.MaxSeq; }
         if (key is null || key.Alg != env.Alg) return Fail(VerifyErrors.UnknownKey);
 
         // 2. signature over the raw payload bytes
@@ -91,6 +95,7 @@ public sealed class EnvelopeVerifier
             || !root.TryGetProperty("expiresAt", out var exEl) || !Time.TryParseUtc(exEl.ValueKind == JsonValueKind.String ? exEl.GetString() : null, out var expiresAt))
             return Fail(VerifyErrors.InvalidBody, "signed body misses deviceId/kind/seq/issuedAt/expiresAt");
         var kind = kindEl.GetString()!;
+        if (retiredMaxSeq is { } maxSeq && (kind != "policy" || seq > maxSeq)) return Fail(VerifyErrors.UnknownKey, "retired key");
         if (kind is not ("policy" or "command" or "master_keys")) return Fail(VerifyErrors.InvalidBody, "unknown kind");
 
         // 3. our device

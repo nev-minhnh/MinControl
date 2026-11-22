@@ -56,6 +56,7 @@ public sealed class StateStore : IDisposable
             CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, json TEXT NOT NULL, size INTEGER NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_outbox_type ON outbox(type, id);
             CREATE TABLE IF NOT EXISTS applied_commands (command_id TEXT PRIMARY KEY, at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS retired_keys (key_id TEXT PRIMARY KEY, alg TEXT NOT NULL, public_key BLOB NOT NULL, max_seq INTEGER NOT NULL);
             DROP TABLE IF EXISTS pending_blobs;
             """);
         _outboxBytes = Scalar<long>("SELECT COALESCE(SUM(size),0) FROM outbox");
@@ -116,9 +117,13 @@ public sealed class StateStore : IDisposable
         lock (_gate)
         {
             using var tx = Begin();
+            // keep the replaced keys as retired: they may only re-verify the already stored policy (seq <= its seq)
+            var maxSeq = Scalar<long?>("SELECT seq FROM policy WHERE id=1") ?? 0;
+            Exec("INSERT OR IGNORE INTO retired_keys(key_id,alg,public_key,max_seq) SELECT key_id,alg,public_key,$m FROM master_keys", ("$m", maxSeq));
             Exec("DELETE FROM master_keys");
             foreach (var k in keys)
                 Exec("INSERT INTO master_keys(key_id,alg,public_key) VALUES($i,$a,$p)", ("$i", k.KeyId), ("$a", k.Alg), ("$p", k.PublicKey));
+            Exec("DELETE FROM retired_keys WHERE key_id=$i", ("$i", keys.FirstOrDefault()?.KeyId ?? ""));
             Exec("INSERT INTO meta(k,v) VALUES($k,$v) ON CONFLICT(k) DO UPDATE SET v=excluded.v", ("$k", MetaKeys.MasterSealPubKey), ("$v", sealPubKeyB64Url));
             tx.Commit(); _tx = null;
         }
@@ -153,14 +158,31 @@ public sealed class StateStore : IDisposable
         }
     }
 
+    /// <summary>Retired master keys (from a master_keys rotation) with the highest policy seq they may still vouch for at startup.</summary>
+    public IReadOnlyList<(PinnedKey Key, long MaxSeq)> GetRetiredKeys()
+    {
+        lock (_gate)
+        {
+            using var cmd = Cmd("SELECT key_id, alg, public_key, max_seq FROM retired_keys ORDER BY key_id");
+            using var r = cmd.ExecuteReader();
+            var list = new List<(PinnedKey, long)>();
+            while (r.Read()) list.Add((new PinnedKey(r.GetString(0), r.GetString(1), (byte[])r[2]), r.GetInt64(3)));
+            return list;
+        }
+    }
+
+    /// <summary>Stores the policy (always one signed by an active key) and drops the retired keys.</summary>
     public void SavePolicy(StoredPolicy p)
     {
         lock (_gate)
+        {
+            Exec("DELETE FROM retired_keys");
             Exec("""
                 INSERT INTO policy(id,version,seq,envelope,body,stored_at) VALUES(1,$v,$s,$e,$b,$t)
                 ON CONFLICT(id) DO UPDATE SET version=excluded.version, seq=excluded.seq, envelope=excluded.envelope,
                     body=excluded.body, stored_at=excluded.stored_at
                 """, ("$v", p.Version), ("$s", p.Seq), ("$e", p.EnvelopeJson), ("$b", p.BodyJson), ("$t", p.StoredAt));
+        }
     }
 
     // ---------------------------------------------------------------- overrides
@@ -344,7 +366,7 @@ public sealed class StateStore : IDisposable
     {
         lock (_gate)
         {
-            Exec("DELETE FROM meta; DELETE FROM master_keys; DELETE FROM seq; DELETE FROM policy; DELETE FROM overrides; " +
+            Exec("DELETE FROM meta; DELETE FROM master_keys; DELETE FROM retired_keys; DELETE FROM seq; DELETE FROM policy; DELETE FROM overrides; " +
                  "DELETE FROM ledger; DELETE FROM approvals; DELETE FROM approval_requests; DELETE FROM applied_commands; DELETE FROM outbox;");
             _outboxBytes = 0;
         }

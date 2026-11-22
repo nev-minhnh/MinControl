@@ -85,4 +85,40 @@ public class MasterKeysRotationTests : IDisposable
         Assert.Equal(VerifyErrors.InvalidBody, (string?)r["error"]);
         Assert.Equal([_h.Master.KeyId], Pinned());
     }
+
+    [Fact]
+    public async Task Rotate_then_restart_keeps_enforcing_stored_old_key_policy()
+    {
+        Assert.Equal("policy_applied", (string?)(await Send(_h.Master, 1, TestData.BasicPolicy(), "policy"))!["t"]);
+        await Send(_h.Master, 1, Body(_new));
+        var restarted = new MinControl.Core.Policies.PolicyProvider(_h.Store, new EnvelopeVerifier(_h.Store, _h.Clock), _h.Clock);
+        Assert.NotNull(restarted.Current);
+        Assert.False(restarted.StoredPolicyRejected);
+        Assert.Single(_h.Store.GetRetiredKeys());
+    }
+
+    [Fact]
+    public async Task New_envelope_signed_by_retired_key_is_rejected_unknown_key()
+    {
+        await Send(_h.Master, 1, TestData.BasicPolicy(), "policy");
+        await Send(_h.Master, 1, Body(_new));
+        var r = await Send(_h.Master, 2, TestData.BasicPolicy(), "policy");
+        Assert.Equal(VerifyErrors.UnknownKey, (string?)r!["error"]);
+        var c = await Send(_h.Master, 1, new JsonObject { ["commandId"] = "01JDQ40000000000000000V0CK", ["type"] = "refresh" }, "command");
+        Assert.Equal(VerifyErrors.UnknownKey, (string?)c!["ack"]!["error"]);
+        var k = await Send(_h.Master, 2, Body(_h.Master), "master_keys");
+        Assert.Equal(VerifyErrors.UnknownKey, (string?)k!["error"]);
+    }
+
+    [Fact]
+    public async Task Retired_keys_are_dropped_once_a_new_policy_is_stored()
+    {
+        await Send(_h.Master, 1, TestData.BasicPolicy(), "policy");
+        await Send(_h.Master, 1, Body(_new));
+        Assert.Single(_h.Store.GetRetiredKeys());
+        Assert.Equal("policy_applied", (string?)(await Send(_new, 2, TestData.BasicPolicy(), "policy"))!["t"]);
+        Assert.Empty(_h.Store.GetRetiredKeys());
+        var restarted = new MinControl.Core.Policies.PolicyProvider(_h.Store, new EnvelopeVerifier(_h.Store, _h.Clock), _h.Clock);
+        Assert.NotNull(restarted.Current);
+    }
 }
