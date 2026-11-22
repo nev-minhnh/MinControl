@@ -1,3 +1,7 @@
-# Copy to .dev.vars (git-ignored). Placeholders only.
-ADMIN_BOOTSTRAP_SECRET=<one-time-random-string>
+# Copy to .dev.vars (git-ignored) for `wrangler dev`. Placeholders only - never commit real values.
+# One-time secret that allows POST /v1/master/register (long random string; rotate after registering).
+ADMIN_BOOTSTRAP_SECRET=<long-random-string>
+# HMAC-SHA256 key for device upload tokens (>= 32 random bytes, e.g. base64).
+UPLOAD_TOKEN_SECRET=<long-random-string>
+# Firebase service-account JSON on ONE line (FCM HTTP v1). Leave empty to skip pushes locally.
 FCM_SERVICE_ACCOUNT_JSON=<firebase-service-account-json-on-one-line>

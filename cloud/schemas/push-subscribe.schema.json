@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/cloud/push-subscribe.schema.json",
+  "title": "POST /v1/master/push/subscribe body (cloud-local)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fcmToken"],
+  "properties": { "fcmToken": { "type": "string", "minLength": 16, "maxLength": 4096 } }
+}
