@@ -37,6 +37,9 @@ enum class ActivityTab(val label: String) { Timeline("Dòng TG"), Web("Web"), Ap
 
 enum class WebFilter(val label: String, val kind: String?) { ALL("Tất cả", null), BLOCKED("Bị chặn", "blocked"), SEARCH("Tìm kiếm", "search") }
 
+/** Server-side noise filter for the timeline (API round 2: comma list / `prefix.*`). */
+const val TIMELINE_EXCLUDE = "usage.tick,net.domain"
+
 class ActivityViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = app.graph
     private val repo = graph.repo
@@ -99,7 +102,7 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
             val all = mutableListOf<EventItem>()
             var cursor: String? = null
             for (i in 0 until 5) {
-                val page = repo.events(c.deviceId, c.sid, Fmt.dayStart(d), Fmt.dayEnd(d), cursor)
+                val page = repo.events(c.deviceId, c.sid, Fmt.dayStart(d), Fmt.dayEnd(d), cursor, exclude = TIMELINE_EXCLUDE)
                 all += page.items
                 cursor = page.next ?: break
             }

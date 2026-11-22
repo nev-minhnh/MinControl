@@ -40,6 +40,8 @@ data class WebRow(
     val title: String?,
     val durationSec: Int?,
     val category: String?,
+    val query: String? = null,
+    val engine: String? = null,
 )
 
 @Entity(tableName = "policies")
@@ -73,7 +75,7 @@ interface CacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putPolicy(row: PolicyRow)
 }
 
-@Database(entities = [DeviceRow::class, AlertRow::class, WebRow::class, PolicyRow::class], version = 1, exportSchema = false)
+@Database(entities = [DeviceRow::class, AlertRow::class, WebRow::class, PolicyRow::class], version = 2, exportSchema = false)
 abstract class CacheDb : RoomDatabase() {
     abstract fun dao(): CacheDao
 

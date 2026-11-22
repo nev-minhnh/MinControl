@@ -82,7 +82,5 @@ object TimelineBuilder {
         else -> null
     }
 
-    private fun engineLabel(e: String?) = when (e) {
-        "google" -> "Google"; "bing" -> "Bing"; "youtube" -> "YouTube"; "coccoc" -> "Cốc Cốc"; else -> ""
-    }.trim()
+    private fun engineLabel(e: String?) = Fmt.engineLabel(e)
 }

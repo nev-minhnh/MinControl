@@ -1,9 +1,11 @@
 package io.github.nevminhnh.mincontrol.master.policy
 
+import io.github.nevminhnh.mincontrol.master.data.protocol.AppMatch
 import io.github.nevminhnh.mincontrol.master.data.protocol.Policy
 import io.github.nevminhnh.mincontrol.master.data.protocol.PolicyJson
 import io.github.nevminhnh.mincontrol.master.data.protocol.ProtocolSchemas
 import io.github.nevminhnh.mincontrol.master.data.protocol.WebCategory
+import io.github.nevminhnh.mincontrol.master.data.protocol.WebMode
 import io.github.nevminhnh.mincontrol.master.data.protocol.Weekday
 import io.github.nevminhnh.mincontrol.master.data.protocol.WeekdayWindows
 import kotlinx.serialization.json.Json
@@ -98,5 +100,37 @@ class PolicyDiffTest {
         assertNotNull(PolicyValidation.windowsError(listOf("21:00-02:00")))
         assertNotNull(PolicyValidation.windowsError(listOf("08:00-12:00", "11:00-13:00")))
         assertNotNull(PolicyValidation.windowsError(listOf("8:00-12:00")))
+    }
+
+    @Test
+    fun allDayAndNoUseWindows() {
+        assertNull(PolicyValidation.windowsError(listOf(ALL_DAY_WINDOW)))
+        assertNull(PolicyValidation.windowsError(emptyList()))
+        assertEquals("Cả ngày", formatWindows(listOf("00:00-24:00")))
+        assertEquals("Không dùng", formatWindows(emptyList()))
+        val next = edit(base) { u -> u.copy(screenTime = u.screenTime.copy(allowedWindows = u.screenTime.allowedWindows.with(Weekday.SAT, emptyList()))) }
+        val change = PolicyDiff.diff(base, next).first()
+        assertEquals("Không dùng", change.to)
+        assertTrue(PolicyValidation.errors(next).isEmpty())
+    }
+
+    @Test
+    fun netExemptRequiresFullPath() {
+        assertNull(PolicyValidation.pathError("C:\\Program Files\\App\\app.exe"))
+        assertNull(PolicyValidation.pathError("\\\\srv\\share\\app.exe"))
+        assertNotNull(PolicyValidation.pathError("app.exe"))
+        val bad = edit(base) { u -> u.copy(web = u.web.copy(netExemptApps = listOf(AppMatch(exe = "app.exe")))) }
+        assertTrue(PolicyValidation.errors(bad).isNotEmpty())
+        val ok = edit(base) { u -> u.copy(web = u.web.copy(netExemptApps = listOf(AppMatch(path = "C:\\Tools\\vpn.exe")))) }
+        assertTrue(PolicyValidation.errors(ok).isEmpty())
+    }
+
+    @Test
+    fun semanticChecks() {
+        assertTrue(PolicyValidation.errors(base.copy(timezone = "Mars/Olympus")).isNotEmpty())
+        val warn = edit(base) { u -> u.copy(screenTime = u.screenTime.copy(warnAtMin = listOf(500))) }
+        assertTrue(PolicyValidation.errors(warn).isNotEmpty())
+        val allow = edit(base) { u -> u.copy(web = u.web.copy(mode = WebMode.ALLOWLIST, allowDomains = emptyList())) }
+        assertTrue(PolicyValidation.errors(allow).isNotEmpty())
     }
 }
