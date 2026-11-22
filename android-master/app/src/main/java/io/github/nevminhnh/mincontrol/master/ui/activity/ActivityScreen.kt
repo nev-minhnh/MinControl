@@ -153,7 +153,7 @@ fun ActivityScreen(vm: ActivityViewModel = viewModel()) {
                 EmptyState("Chưa có máy tính nào được quản lý")
             } else when (tab) {
                 ActivityTab.Timeline -> TimelineTab(vm, c)
-                ActivityTab.Web -> WebTab(vm)
+                ActivityTab.Web -> if (vm.webView.collectAsState().value == WebView.Domains) DomainsTab(vm) else WebTab(vm)
                 ActivityTab.Apps -> AppsTab(vm, c)
                 ActivityTab.Shots -> ShotsTab(vm)
             }
@@ -274,9 +274,11 @@ private fun TimelineRowView(r: TimelineRow, last: Boolean, onApprove: () -> Unit
 
 @Composable
 private fun WebSearchHeader(vm: ActivityViewModel) {
-    val q by vm.webQuery.collectAsState()
+    val view by vm.webView.collectAsState()
+    val q by (if (view == WebView.Domains) vm.domainQuery else vm.webQuery).collectAsState()
     val filter by vm.webFilter.collectAsState()
     val items by vm.webItems.collectAsState()
+    SegmentedTabs(WebView.entries.map { it.label }, view.ordinal, { vm.webView.value = WebView.entries[it] })
     Row(
         Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(14.dp)).background(Surface)
             .border(1.dp, ChipBorder, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp),
@@ -284,15 +286,15 @@ private fun WebSearchHeader(vm: ActivityViewModel) {
     ) {
         Icon(Icons.Outlined.Search, null, tint = TextSecondary, modifier = Modifier.size(20.dp))
         Box(Modifier.weight(1f)) {
-            if (q.isEmpty()) Text("Tìm trong lịch sử web", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+            if (q.isEmpty()) Text(if (view == WebView.Domains) "Tìm tên miền hoặc ứng dụng" else "Tìm trong lịch sử web", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
             BasicTextField(
-                value = q, onValueChange = vm::setWebQuery, singleLine = true,
+                value = q, onValueChange = { if (view == WebView.Domains) vm.domainQuery.value = it else vm.setWebQuery(it) }, singleLine = true,
                 textStyle = TextStyle(fontFamily = BeVietnamPro, fontSize = MaterialTheme.typography.bodyMedium.fontSize, color = TextPrimary),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
     }
-    ChipRow {
+    if (view == WebView.Pages) ChipRow {
         WebFilter.entries.forEach { f ->
             val n = when (f) {
                 WebFilter.ALL -> items.size
@@ -305,11 +307,103 @@ private fun WebSearchHeader(vm: ActivityViewModel) {
 }
 
 @Composable
+private fun DomainsTab(vm: ActivityViewModel) {
+    val rows by vm.domains.collectAsState()
+    val loading by vm.domainsLoading.collectAsState()
+    var selected by remember { mutableStateOf<DomainRow?>(null) }
+    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+        if (rows.isEmpty()) item { McCard { EmptyState(if (loading) "Đang tải…" else "Chưa có tên miền nào trong ngày này") } }
+        items(rows.size) { i ->
+            val r = rows[i]
+            val shape = when {
+                rows.size == 1 -> RoundedCornerShape(24.dp)
+                i == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                i == rows.lastIndex -> RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+                else -> RoundedCornerShape(0.dp)
+            }
+            Box(Modifier.fillMaxWidth().clip(shape).background(Surface).clickable { selected = r }
+                .padding(horizontal = 16.dp, vertical = if (i == 0 || i == rows.lastIndex) 4.dp else 0.dp)) {
+                DomainRowView(r, divider = i != rows.lastIndex)
+            }
+        }
+    }
+    selected?.let { r ->
+        DomainActionDialog(vm, r.host, null, "${r.connections} kết nối · ${Fmt.time(r.firstTs)} – ${Fmt.time(r.lastTs)}") { selected = null }
+    }
+}
+
+/** Quick actions for a host (from the domain list or a web history row). */
+@Composable
+private fun DomainActionDialog(vm: ActivityViewModel, host: String, url: String?, info: String?, onDismiss: () -> Unit) {
+    val activity = rememberActivity()
+    val applying by vm.domainApplying.collectAsState()
+    val policy by vm.policy.collectAsState()
+    val child by vm.child.collectAsState()
+    val web = child?.let { policy?.users?.get(it.sid)?.web }
+    val blocked = web?.let { DomainPolicy.isBlocked(it, host) } == true
+    val reg = DomainPolicy.registrable(host)
+    fun run(a: DomainAction) { vm.applyDomain(activity, host, a); onDismiss() }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(host, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                url?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                info?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextSecondary) }
+                if (blocked) {
+                    Text("Đã chặn", style = MaterialTheme.typography.titleSmall, color = DangerText)
+                    TextButton(enabled = !applying, onClick = { run(DomainAction.UNBLOCK) }) { Text("Bỏ chặn") }
+                } else {
+                    TextButton(enabled = !applying, onClick = { run(DomainAction.BLOCK_HOST) }) { Text("Chặn tên miền $host", color = DangerText) }
+                    if (reg != host) TextButton(enabled = !applying, onClick = { run(DomainAction.BLOCK_REGISTRABLE) }) { Text("Chặn cả $reg và tên miền con", color = DangerText) }
+                }
+                TextButton(enabled = !applying, onClick = { run(DomainAction.ALLOW) }) { Text("Luôn cho phép") }
+                Text("Chặn theo tên miền — không chặn riêng một trang", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Đóng") } },
+        containerColor = Surface,
+    )
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun DomainRowView(r: DomainRow, divider: Boolean) {
+    Column(
+        Modifier.fillMaxWidth().then(if (divider) Modifier.drawDivider() else Modifier).padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(r.host, style = MaterialTheme.typography.titleMedium, color = if (r.blocked) DangerText else TextPrimary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    (if (r.blocked) "Bị chặn · " else "") + "${Fmt.time(r.firstTs)} – ${Fmt.time(r.lastTs)}",
+                    style = MaterialTheme.typography.bodySmall, color = if (r.blocked) DangerText else TextSecondary,
+                )
+            }
+            Text("${r.connections}", style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"), color = if (r.blocked) DangerText else TextPrimary)
+        }
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            r.apps.forEach { exe ->
+                Text(Fmt.appName(exe), style = MaterialTheme.typography.labelSmall, color = if (r.blocked) DangerText else Primary,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (r.blocked) DangerContainer else PrimaryContainer).padding(horizontal = 8.dp, vertical = 3.dp))
+            }
+        }
+    }
+}
+
+@Composable
 private fun WebTab(vm: ActivityViewModel) {
     val items by vm.webItems.collectAsState()
     val hasMore by vm.webHasMore.collectAsState()
+    var picked by remember { mutableStateOf<WebItem?>(null) }
+    picked?.let { p ->
+        val h = DomainPolicy.hostOf(p.url, p.host)
+        if (h != null) DomainActionDialog(vm, h, p.url, null) { picked = null } else picked = null
+    }
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
-        if (items.isEmpty()) item { McCard { EmptyState("Không có lịch sử web") } }
+        if (items.isEmpty()) item { McCard { EmptyState(WebLabels.WEB_EMPTY) } }
         items(items.size) { i ->
             val it = items[i]
             val shape = when {
@@ -318,7 +412,7 @@ private fun WebTab(vm: ActivityViewModel) {
                 i == items.lastIndex -> RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
                 else -> RoundedCornerShape(0.dp)
             }
-            Box(Modifier.fillMaxWidth().clip(shape).background(Surface).padding(horizontal = 16.dp, vertical = if (i == 0 || i == items.lastIndex) 4.dp else 0.dp)) {
+            Box(Modifier.fillMaxWidth().clip(shape).background(Surface).clickable { picked = it }.padding(horizontal = 16.dp, vertical = if (i == 0 || i == items.lastIndex) 4.dp else 0.dp)) {
                 WebRow(it, divider = i != items.lastIndex)
             }
             if (i == items.lastIndex && hasMore) LaunchedEffect(items.size) { vm.loadWeb() }
@@ -340,7 +434,7 @@ private fun WebRow(it: WebItem, divider: Boolean) {
         else -> it.title?.ifBlank { null } ?: host
     }
     val sub = when (it.kind) {
-        "blocked" -> it.category?.let { "Danh mục $it" } ?: "Bị chặn"
+        "blocked" -> WebLabels.blockedSubtitle(it.category, it.reason) ?: "Bị chặn"
         "search" -> ("Tìm kiếm " + Fmt.engineLabel(it.engine, host)).trim()
         else -> host + (it.durationSec?.takeIf { s -> s >= 60 }?.let { s -> " · ${s / 60} phút" } ?: "")
     }

@@ -119,7 +119,7 @@ enum class YouTubeMode { @SerialName("off") OFF, @SerialName("moderate") MODERAT
 enum class WebCategory(val label: String) {
     @SerialName("adult") ADULT("Người lớn"),
     @SerialName("gambling") GAMBLING("Cờ bạc"),
-    @SerialName("proxy-vpn") PROXY_VPN("VPN"),
+    @SerialName("proxy-vpn") PROXY_VPN("VPN/Proxy"),
     @SerialName("games") GAMES("Trò chơi"),
     @SerialName("social") SOCIAL("Mạng xã hội"),
     @SerialName("video") VIDEO("Video"),

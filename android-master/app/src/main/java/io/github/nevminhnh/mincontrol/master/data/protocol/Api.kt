@@ -140,6 +140,8 @@ data class WebItem(
     /** `kind=search` only. */
     val query: String? = null,
     val engine: String? = null,
+    /** `kind=blocked` only: doh, port, blocklist, allowlist_miss, schedule. */
+    val reason: String? = null,
 )
 
 @Serializable

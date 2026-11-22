@@ -19,6 +19,7 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.ScreenshotItem
 import io.github.nevminhnh.mincontrol.master.data.protocol.UsageResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.WebItem
 import io.github.nevminhnh.mincontrol.master.graph
+import io.github.nevminhnh.mincontrol.master.policy.PolicyValidation
 import io.github.nevminhnh.mincontrol.master.security.BiometricCancelledException
 import io.github.nevminhnh.mincontrol.master.ui.Fmt
 import io.github.nevminhnh.mincontrol.master.ui.alerts.AlertCard
@@ -37,6 +38,8 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 enum class ActivityTab(val label: String) { Timeline("Dòng TG"), Web("Web"), Apps("Ứng dụng"), Shots("Ảnh") }
+
+enum class WebView(val label: String) { Pages("Trang web"), Domains("Tên miền") }
 
 enum class WebFilter(val label: String, val kind: String?) { ALL("Tất cả", null), BLOCKED("Bị chặn", "blocked"), SEARCH("Tìm kiếm", "search") }
 
@@ -68,6 +71,15 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
     val webHasMore = MutableStateFlow(false)
     private var webJob: Job? = null
 
+    // web: domains (net.domain)
+    val webView = MutableStateFlow(WebView.Pages)
+    val domainQuery = MutableStateFlow("")
+    private val domainEvents = MutableStateFlow<List<EventItem>>(emptyList())
+    val domainsLoading = MutableStateFlow(false)
+    val domains: StateFlow<List<DomainRow>> = combine(domainEvents, domainQuery) { e, q -> DomainAggregator.aggregate(e, q) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val domainApplying = MutableStateFlow(false)
+
     // apps
     val pendingApprovals: StateFlow<List<AlertCard>> = combine(repo.alerts, repo.children, child, repo.localDecisions) { alerts, kids, c, local ->
         Approvals.pending(alerts, local, c?.deviceId, c?.sid).map { AlertsViewModel.toCard(it, kids) }
@@ -93,8 +105,8 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
     fun select(c: Child) { graph.selectedChild.value = c.key }
 
     fun reloadAll() {
-        events.value = emptyList(); usage.value = null; webItems.value = emptyList(); shots.value = emptyList()
-        loadTimeline(); loadWeb(reset = true); loadShots(reset = true)
+        events.value = emptyList(); usage.value = null; webItems.value = emptyList(); shots.value = emptyList(); domainEvents.value = emptyList()
+        loadTimeline(); loadWeb(reset = true); loadDomains(); loadShots(reset = true)
     }
 
     fun loadTimeline() = viewModelScope.launch {
@@ -127,6 +139,50 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         webQuery.value = q
         webJob?.cancel()
         webJob = viewModelScope.launch { delay(350); loadWebNow(reset = true) }
+    }
+
+    fun loadDomains() = viewModelScope.launch {
+        val c = child.value ?: return@launch
+        val d = date.value
+        domainsLoading.value = true
+        try {
+            val all = mutableListOf<EventItem>()
+            var cursor: String? = null
+            for (i in 0 until 40) {
+                val page = repo.events(c.deviceId, c.sid, Fmt.dayStart(d), Fmt.dayEnd(d), cursor, type = "net.domain")
+                all += page.items
+                cursor = page.next ?: break
+            }
+            domainEvents.value = all
+        } catch (e: Exception) {
+            message.value = e.userMessage()
+        } finally {
+            domainsLoading.value = false
+        }
+    }
+
+    /** Quick action from the domain list: edits blockDomains/allowDomains and runs the normal sign and apply flow. */
+    fun applyDomain(activity: FragmentActivity, host: String, action: DomainAction) = viewModelScope.launch {
+        if (domainApplying.value) return@launch
+        val c = child.value ?: return@launch
+        domainApplying.value = true
+        try {
+            val loaded = repo.loadPolicy(c.deviceId)
+            val cur = loaded.policy ?: run { message.value = "Chưa có chính sách cho máy này. Hãy tạo ở tab Quy tắc."; return@launch }
+            val up = cur.users[c.sid] ?: run { message.value = "Không tìm thấy người dùng trong chính sách."; return@launch }
+            val web = DomainPolicy.apply(up.web, host, action)
+            val next = cur.copy(version = maxOf(cur.version, loaded.response?.version ?: 0) + 1, users = cur.users + (c.sid to up.copy(web = web)))
+            val errs = PolicyValidation.errors(next)
+            if (errs.isNotEmpty()) { message.value = errs.first(); return@launch }
+            repo.applyPolicy(activity, c.deviceId, next, when (action) { DomainAction.BLOCK_HOST -> "Chặn tên miền "; DomainAction.BLOCK_REGISTRABLE -> "Chặn cả tên miền và tên miền con "; DomainAction.ALLOW -> "Luôn cho phép tên miền "; DomainAction.UNBLOCK -> "Bỏ chặn tên miền " } + host)
+            policy.value = next
+            message.value = when (action) { DomainAction.UNBLOCK -> "Đã bỏ chặn $host."; DomainAction.ALLOW -> "Đã cho phép $host."; else -> "Đã chặn $host." }
+        } catch (e: BiometricCancelledException) {
+        } catch (e: Exception) {
+            message.value = e.userMessage()
+        } finally {
+            domainApplying.value = false
+        }
     }
 
     fun setWebFilter(f: WebFilter) { webFilter.value = f; loadWeb(reset = true) }
