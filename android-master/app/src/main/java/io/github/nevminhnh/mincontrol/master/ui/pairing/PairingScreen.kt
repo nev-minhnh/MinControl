@@ -255,7 +255,10 @@ fun PairingScreen(onBack: () -> Unit, vm: PairingViewModel = viewModel()) {
         GmsBarcodeScanning.getClient(ctx, opts).startScan()
             .addOnSuccessListener { c ->
                 val p = PairLink.parse(c.rawValue)
-                if (p != null) vm.openLink(p) else vm.message.value = "Mã QR không phải mã ghép nối MinControl."
+                if (p != null) vm.openLink(p)
+                else if (io.github.nevminhnh.mincontrol.master.ui.setup.SetupLink.parse(c.rawValue) != null)
+                    vm.message.value = "Đây là mã thiết lập app (đã dùng rồi). Hãy quét mã QR đang hiện trên màn hình máy tính của con."
+                else vm.message.value = "Mã QR không phải mã ghép nối MinControl."
             }
             .addOnFailureListener { e ->
                 if (e !is com.google.android.gms.common.api.ApiException || e.statusCode != 16) {

@@ -81,7 +81,7 @@ object TimelineBuilder {
                 else TimelineRow(e.ts, DotKind.INFO, "Chờ duyệt: $exe", newAppSub(d), approve = true)
             }
             "web.blocked" -> TimelineRow(e.ts, DotKind.BLOCK, "Chặn web: ${d.str("host") ?: ""}",
-                listOfNotNull(d.str("category")?.let { "Danh mục $it" }, reasonLabel(d.str("reason"))).joinToString(" · "), red = true)
+                WebLabels.blockedSubtitle(d.str("category"), d.str("reason")) ?: "", red = true)
             "web.search" -> TimelineRow(e.ts, DotKind.INFO, "Tìm kiếm ${engineLabel(d.str("engine"))}", "“${d.str("query") ?: ""}”")
             "quota.warning" -> TimelineRow(e.ts, DotKind.INFO, "Sắp hết giờ", "Còn ${d["remainingMin"] ?: "?"} phút")
             "quota.exhausted" -> TimelineRow(e.ts, DotKind.BLOCK, "Hết giờ", "Đã đăng xuất tự động", red = true)
@@ -92,14 +92,6 @@ object TimelineBuilder {
             "screenshot.taken" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Ảnh màn hình", Fmt.appName(d.str("foregroundExe")))
             else -> if (e.type.startsWith("tamper.")) TimelineRow(e.ts, DotKind.BLOCK, "Phát hiện can thiệp", d.str("detail") ?: e.type, red = true, device = e.userSid == null) else null
         }
-    }
-
-    private fun reasonLabel(r: String?) = when (r) {
-        "category" -> "theo danh mục"
-        "blocklist" -> "trong danh sách chặn"
-        "allowlist_miss" -> "ngoài danh sách cho phép"
-        "schedule" -> "đang trong giờ học"
-        else -> null
     }
 
     private fun engineLabel(e: String?) = Fmt.engineLabel(e)

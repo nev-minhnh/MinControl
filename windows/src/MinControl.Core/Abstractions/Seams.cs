@@ -125,6 +125,10 @@ public interface ISessionActions
     Task ShowWarningAsync(string sid, int remainingMin, CancellationToken ct);
     Task ShowLockOverlayAsync(string sid, string reason, int graceSec, CancellationToken ct);
     Task ShowMessageAsync(string sid, string text, CancellationToken ct);
+    /// <summary>Non-activating corner toast "<paramref name="title"/>" + "<paramref name="reason"/>" in the user's
+    /// session(s) when something was blocked (web host or app). Rate limited by the implementation
+    /// (same title once per 60 s, at most 3 per minute per user); excess notices are dropped silently.</summary>
+    Task ShowBlockedNoticeAsync(string sid, string title, string reason, CancellationToken ct);
     Task<bool> KillProcessAsync(string sid, int pid, string? expectedExe, CancellationToken ct);
     /// <summary>Capture the screen of the user's session; null if no session.</summary>
     Task<ScreenCapture?> CaptureScreenAsync(string? sid, int maxWidth, int jpegQuality, CancellationToken ct);

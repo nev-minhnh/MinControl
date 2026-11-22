@@ -10,14 +10,14 @@ namespace MinControl.Service.Logic;
 // Wire format on \\.\pipe\MinControl.Session.<sessionId>:
 //   [uint32 little-endian payload length][UTF-8 JSON {"type":"...","data":{...}}]
 // service -> helper: warning {remainingMin} | lock_overlay {reason, graceSec} | clear_overlay {} |
-//                    message {text} | capture {requestId, maxWidth, jpegQuality}
+//                    message {text} | capture {requestId, maxWidth, jpegQuality} | blocked_notice {title, reason}
 // helper -> service: hello {pid} | foreground {exe, title?, pid} | idle {idleMs} |
 //                    capture_result {requestId, jpeg(base64)?, width, height, error?} | heartbeat {}
 
 public static class IpcTypes
 {
     public const string Warning = "warning", LockOverlay = "lock_overlay", ClearOverlay = "clear_overlay",
-        Message = "message", Capture = "capture";
+        Message = "message", Capture = "capture", BlockedNotice = "blocked_notice";
     public const string Hello = "hello", Foreground = "foreground", Idle = "idle",
         CaptureResult = "capture_result", Heartbeat = "heartbeat";
 }

@@ -126,7 +126,13 @@ fun SetupScreen() {
         GmsBarcodeScanning.getClient(context, opts).startScan()
             .addOnSuccessListener { code ->
                 val p = SetupLink.parse(code.rawValue)
-                if (p != null) apply(p) else error = "Mã QR không phải mã thiết lập MinControl."
+                error = when {
+                    p != null -> { apply(p); null }
+                    io.github.nevminhnh.mincontrol.master.ui.pairing.PairLink.parse(code.rawValue) != null ->
+                        "Đây là mã ghép MÁY TÍNH. Trước hết hãy quét mã THIẾT LẬP (file setup-qr.png trên máy tính của anh); " +
+                            "sau khi thiết lập xong, vào \"Thêm máy tính\" để quét mã này."
+                    else -> "Mã QR không phải mã thiết lập MinControl. Hãy mở file setup-qr.png trên máy tính rồi quét lại."
+                }
             }
             .addOnFailureListener { e ->
                 // Cancel is silent; anything else (e.g. Play services missing) points to manual entry.
