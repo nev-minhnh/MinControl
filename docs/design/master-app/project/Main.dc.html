@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Tổng quan</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2F54EB;text-decoration:none}a:hover{color:#1D3BC2}
+.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.nav{position:absolute;left:0;right:0;bottom:0;height:80px;background:#FFFFFF;border-top:1px solid #E3E8F0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.nav a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:13px;color:#5B6577}
+.nav a.on{color:#2F54EB;font-weight:600}
+.num{font-variant-numeric:tabular-nums}
+.qa{height:48px;border-radius:14px;border:1px solid #DCE3F5;background:#F1F4FE;color:#2F54EB;font:600 15px 'Be Vietnam Pro',sans-serif;display:flex;align-items:center;justify-content:center;gap:4px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; background: #F4F6FA; font-family: 'Be Vietnam Pro', sans-serif; color: #0E1726; position: relative; overflow: hidden; display: flex; flex-direction: column">
+  <header style="padding: 24px 16px 16px; display: flex; align-items: center; justify-content: space-between">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <span style="font-size: 13px; color: #5B6577">Chủ nhật, 22/11 · 15:50</span>
+      <h1 style="margin: 0; font-size: 20px; font-weight: 600">Xin chào, Minh</h1>
+    </div>
+    <a href="Pairing.dc.html" aria-label="Thêm máy tính" style="width: 44px; height: 44px; border-radius: 22px; background: #FFFFFF; border: 1px solid #E3E8F0; display: flex; align-items: center; justify-content: center; color: #0E1726">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    </a>
+  </header>
+
+  <main style="padding: 0 16px; display: flex; flex-direction: column; gap: 16px">
+    <a href="Alerts.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 16px; background: #FFF3DC; color: #7A4700">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17v.5"/></svg>
+      <span style="flex: 1; font-size: 15px"><b style="font-weight: 600">3 cảnh báo</b> cần anh xem</span>
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </a>
+
+    <section aria-label="Bin" style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 20px; box-shadow: 0 8px 24px rgba(47, 84, 235, 0.08)">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <div aria-hidden="true" style="width: 48px; height: 48px; border-radius: 24px; background: #E8EDFF; color: #2F54EB; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 600">B</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 20px; font-weight: 600">Bin</span>
+          <span style="font-size: 13px; color: #5B6577; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #17A673"></span>PC-Bin · Đang online</span>
+        </div>
+        <span style="font-size: 13px; padding: 4px 10px; border-radius: 12px; background: #E6F4EE; color: #13795B; font-weight: 600">Đang dùng</span>
+      </div>
+
+      <div style="display: flex; align-items: flex-end; justify-content: space-between">
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <span class="num" style="font-size: 32px; font-weight: 600; letter-spacing: -0.5px">1:12</span>
+          <span style="font-size: 13px; color: #5B6577">còn lại hôm nay</span>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px">
+          <span style="font-size: 15px; font-weight: 600">Minecraft</span>
+          <span style="font-size: 13px; color: #5B6577">đang mở · 23 phút</span>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="height: 8px; border-radius: 4px; background: #EDF0F5; overflow: hidden"><div style="width: 40%; height: 8px; border-radius: 4px; background: #2F54EB"></div></div>
+        <span class="num" style="font-size: 13px; color: #5B6577">Đã dùng 48 phút / 2 giờ · Giờ ngủ lúc 21:00</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+        <a href="Confirm.dc.html" class="qa" style="background: #FDECEC; border-color: #F6CFD1; color: #B3232A">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Khóa
+        </a>
+        <button class="qa" type="button">+15</button>
+        <button class="qa" type="button">+30</button>
+        <button class="qa" type="button">+60</button>
+      </div>
+      <a href="Timeline.dc.html" style="font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 4px">Xem hoạt động hôm nay
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </a>
+    </section>
+
+    <section aria-label="Na" style="background: #FFFFFF; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 16px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <div aria-hidden="true" style="width: 48px; height: 48px; border-radius: 24px; background: #FCEBDD; color: #A04A0C; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 600">N</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 20px; font-weight: 600">Na</span>
+          <span style="font-size: 13px; color: #5B6577; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #A3ACBA"></span>PC-Na · Offline từ hôm qua 18:40</span>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px">
+          <span class="num" style="font-size: 20px; font-weight: 600">2:00</span>
+          <span style="font-size: 13px; color: #5B6577">chưa dùng</span>
+        </div>
+      </div>
+      <span style="font-size: 13px; color: #5B6577; background: #F4F6FA; border-radius: 12px; padding: 8px 12px">Lệnh gửi lúc này sẽ được thực hiện khi máy online lại.</span>
+    </section>
+  </main>
+
+  <nav class="nav" aria-label="Điều hướng chính">
+    <a href="Main.dc.html" class="on"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Tổng quan</a>
+    <a href="Timeline.dc.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Hoạt động</a>
+    <a href="Alerts.dc.html"><span style="position: relative; display: flex"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg><span style="position: absolute; top: -4px; right: -8px; min-width: 16px; height: 16px; border-radius: 8px; background: #C0262D; color: #FFFFFF; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center">3</span></span>Cảnh báo</a>
+    <a href="Policy.dc.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Quy tắc</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

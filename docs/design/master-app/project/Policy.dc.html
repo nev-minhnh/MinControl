@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Quy tắc</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2F54EB;text-decoration:none}a:hover{color:#1D3BC2}
+.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.nav{position:absolute;left:0;right:0;bottom:0;height:80px;background:#FFFFFF;border-top:1px solid #E3E8F0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.nav a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:13px;color:#5B6577}
+.nav a.on{color:#2F54EB;font-weight:600}
+.card{background:#FFFFFF;border-radius:20px;padding:4px 16px}
+.r{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #EEF1F5;font-size:15px}
+.r:last-child{border-bottom:0}
+.sub{font-size:13px;color:#5B6577}
+.h{font-size:13px;font-weight:600;color:#5B6577;margin:0 4px}
+.step{display:flex;align-items:center;gap:4px}
+.sb{width:36px;height:36px;border-radius:18px;border:1px solid #DCE3EE;background:#FFFFFF;font:600 15px 'Be Vietnam Pro',sans-serif;color:#0E1726}
+.val{min-width:56px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums}
+.sw{width:48px;height:28px;border-radius:14px;border:0;padding:3px;display:flex;background:#D5DBE5}
+.sw span{width:22px;height:22px;border-radius:11px;background:#FFFFFF;box-shadow:0 1px 3px rgba(14,23,38,0.2)}
+.sw.on{background:#2F54EB;justify-content:flex-end}
+.chg{box-shadow:inset 3px 0 0 #2F54EB}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; background: #F4F6FA; font-family: 'Be Vietnam Pro', sans-serif; color: #0E1726; position: relative; overflow: hidden">
+  <header style="padding: 24px 16px 12px; display: flex; align-items: center; justify-content: space-between">
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600">Quy tắc</h1>
+    <div style="display: flex; background: #E9ECF2; border-radius: 14px; padding: 4px">
+      <button type="button" aria-pressed="true" style="height: 36px; padding: 0 16px; border-radius: 10px; border: 0; background: #FFFFFF; font: 600 13px 'Be Vietnam Pro', sans-serif; color: #0E1726">Bin</button>
+      <button type="button" aria-pressed="false" style="height: 36px; padding: 0 16px; border-radius: 10px; border: 0; background: transparent; font: 400 13px 'Be Vietnam Pro', sans-serif; color: #4A5568">Na</button>
+    </div>
+  </header>
+
+  <main style="padding: 0 16px; display: flex; flex-direction: column; gap: 8px">
+    <span class="h">Thời gian sử dụng</span>
+    <div class="card">
+      <div class="r chg" style="margin-left: -16px; padding-left: 16px"><span>Ngày thường</span><div class="step"><button type="button" class="sb" aria-label="Giảm">−</button><span class="val">2 giờ</span><button type="button" class="sb" aria-label="Tăng">+</button></div></div>
+      <div class="r"><span>Cuối tuần</span><div class="step"><button type="button" class="sb" aria-label="Giảm">−</button><span class="val">3 giờ</span><button type="button" class="sb" aria-label="Tăng">+</button></div></div>
+      <div class="r chg" style="margin-left: -16px; padding-left: 16px"><div style="display: flex; flex-direction: column; gap: 2px"><span>Khung giờ được dùng</span><span class="sub">Thứ 2 – Thứ 6</span></div><span style="font-weight: 600; font-variant-numeric: tabular-nums">15:00 – 21:00</span></div>
+    </div>
+
+    <span class="h" style="margin-top: 8px">Ứng dụng</span>
+    <div class="card">
+      <div class="r"><span>Game</span><span style="font-weight: 600">1 giờ / ngày</span></div>
+      <div class="r"><div style="display: flex; flex-direction: column; gap: 2px"><span>Ứng dụng lạ</span><span class="sub">Chặn và hỏi anh trước</span></div><span style="font-weight: 600; color: #2F54EB">Hỏi tôi ▾</span></div>
+    </div>
+
+    <span class="h" style="margin-top: 8px">Web</span>
+    <div class="card">
+      <div class="r"><span>SafeSearch</span><button type="button" class="sw on" aria-pressed="true" aria-label="SafeSearch"><span></span></button></div>
+      <div class="r"><span>YouTube</span><span style="font-weight: 600">Hạn chế nghiêm ngặt</span></div>
+      <div class="r chg" style="margin-left: -16px; padding-left: 16px"><div style="display: flex; flex-direction: column; gap: 2px"><span>Danh mục chặn</span><span class="sub">Người lớn, Cờ bạc, VPN, Trò chơi (giờ học)</span></div><svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="color: #5B6577"><path d="M9 6l6 6-6 6"/></svg></div>
+    </div>
+  </main>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 80px; padding: 12px 16px; background: #FFFFFF; border-top: 1px solid #E3E8F0; display: flex; align-items: center; gap: 12px">
+    <span style="flex: 1; font-size: 13px; color: #4A5568"><b style="font-weight: 600; color: #0E1726">3 thay đổi</b> chưa áp dụng</span>
+    <button type="button" style="height: 48px; padding: 0 16px; border-radius: 14px; border: 0; background: #2F54EB; color: #FFFFFF; font: 600 15px 'Be Vietnam Pro', sans-serif; display: flex; align-items: center; gap: 8px">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 11v3a8 8 0 0 1-2 5"/><path d="M8.5 8a5 5 0 0 1 8.5 3.5V13a12 12 0 0 1-1 5"/><path d="M6 10.5a7 7 0 0 1 12.5-4"/></svg>Xem &amp; áp dụng
+    </button>
+  </div>
+
+  <nav class="nav" aria-label="Điều hướng chính">
+    <a href="Main.dc.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Tổng quan</a>
+    <a href="Timeline.dc.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Hoạt động</a>
+    <a href="Alerts.dc.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>Cảnh báo</a>
+    <a href="Policy.dc.html" class="on"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Quy tắc</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

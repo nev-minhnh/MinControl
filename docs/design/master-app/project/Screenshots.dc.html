@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Ảnh màn hình</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2F54EB;text-decoration:none}a:hover{color:#1D3BC2}
+.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.nav{position:absolute;left:0;right:0;bottom:0;height:80px;background:#FFFFFF;border-top:1px solid #E3E8F0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.nav a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:13px;color:#5B6577}
+.nav a.on{color:#2F54EB;font-weight:600}
+.tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#E9ECF2;border-radius:14px;padding:4px}
+.tabs a{height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#4A5568}
+.tabs a.on{background:#FFFFFF;color:#0E1726;font-weight:600;box-shadow:0 2px 6px rgba(14,23,38,0.08)}
+.shot{border-radius:16px;overflow:hidden;background:#FFFFFF;display:flex;flex-direction:column}
+.scr{height:96px;padding:8px;display:flex;flex-direction:column;gap:4px}
+.bar{height:6px;border-radius:3px;background:rgba(255,255,255,0.55)}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; background: #F4F6FA; font-family: 'Be Vietnam Pro', sans-serif; color: #0E1726; position: relative; overflow: hidden">
+  <header style="padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; align-items: center; gap: 4px; margin-left: -8px">
+      <a href="Main.dc.html" aria-label="Quay lại" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #0E1726"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+      <h1 style="margin: 0; font-size: 20px; font-weight: 600">Bin · Hôm nay</h1>
+    </div>
+    <nav class="tabs" aria-label="Loại hoạt động">
+      <a href="Timeline.dc.html">Dòng TG</a><a href="Web.dc.html">Web</a><a href="Apps.dc.html">Ứng dụng</a><a href="Screenshots.dc.html" class="on">Ảnh</a>
+    </nav>
+  </header>
+
+  <main style="padding: 0 16px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <span style="flex: 1; font-size: 13px; line-height: 1.5; color: #4A5568; display: flex; gap: 8px; align-items: flex-start">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; margin-top: 2px; color: #13795B"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        Mã hóa đầu cuối · chỉ điện thoại này giải mã được
+      </span>
+      <button type="button" style="height: 44px; padding: 0 16px; border-radius: 14px; border: 0; background: #2F54EB; color: #FFFFFF; font: 600 15px 'Be Vietnam Pro', sans-serif; display: flex; align-items: center; gap: 6px">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Chụp ngay
+      </button>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+      <sc-for list="{{ shots }}" as="s" hint-placeholder-count="6">
+        <button type="button" class="shot" aria-label="{{ s.label }}" style="border: 0; padding: 0; text-align: left; font-family: inherit; color: inherit">
+          <div class="scr" aria-hidden="true" style="background: {{ s.bg }}">
+            <div class="bar" style="width: 60%"></div><div class="bar" style="width: 85%"></div><div class="bar" style="width: 40%"></div>
+          </div>
+          <div style="padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 2px">
+            <span style="font-size: 13px; font-weight: 600">{{ s.app }}</span>
+            <span style="font-size: 13px; color: #5B6577; font-variant-numeric: tabular-nums">{{ s.time }}</span>
+          </div>
+        </button>
+      </sc-for>
+    </div>
+  </main>
+
+  <nav class="nav" aria-label="Điều hướng chính">
+    <a href="Main.dc.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Tổng quan</a>
+    <a href="Timeline.dc.html" class="on"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Hoạt động</a>
+    <a href="Alerts.dc.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>Cảnh báo</a>
+    <a href="Policy.dc.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Quy tắc</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const game = '#6E8B3D', web = '#5B7BE0', chat = '#3A8FB7';
+    return { shots: [
+      { app: 'Minecraft', time: '15:50', bg: game, label: 'Ảnh 15:50, Minecraft' },
+      { app: 'Minecraft', time: '15:45', bg: game, label: 'Ảnh 15:45, Minecraft' },
+      { app: 'Edge · YouTube', time: '15:40', bg: web, label: 'Ảnh 15:40, Edge' },
+      { app: 'Minecraft', time: '15:35', bg: game, label: 'Ảnh 15:35, Minecraft' },
+      { app: 'Zalo', time: '15:15', bg: chat, label: 'Ảnh 15:15, Zalo' },
+      { app: 'Edge · olm.vn', time: '15:10', bg: web, label: 'Ảnh 15:10, Edge' }
+    ] };
+  }
+}
+</script>
+</body>
+</html>
