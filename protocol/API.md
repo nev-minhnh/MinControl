@@ -120,3 +120,21 @@ Only the phone holds the private key.
   `{title, body, eventId:null, lastSeen}`. `ackedAt` is a top-level item field (not inside `data`).
 - **Event ownership on Windows**: `usage.tick`, `quota.*` and interval screenshots are emitted by the
   Service enforcer (win-session); on-demand screenshots by the command dispatcher (win-core).
+
+## 9. Screenshot storage on the device (decided by Minh 2026-11-22 — replaces R2 storage)
+Screenshots are **not stored in the cloud**. R2 is optional and unused by default.
+- **Device**: every capture (interval or command) is sealed (§7) and written to
+  `%ProgramData%\MinControl\screens\<yyyy-mm-dd>\<eventId>.bin` (ACL I7), then `screenshot.taken` is emitted with
+  `blobKey = screens/<deviceId>/<yyyy-mm-dd>/<eventId>.bin` (unchanged format). The device deletes files older than
+  `retentionDays.screenshots` (daily) and caps the folder at 2 GB (oldest first).
+- **On-demand relay**: `GET /v1/master/blobs/<key>` → Worker → the device's `DeviceHub`.
+  - Device offline → `409 {"error":"device_offline"}`.
+  - Online → DO sends WS `{"t":"blob_request","reqId":"<ULID>","key":"<blobKey>"}` and holds the master request
+    (timeout 25 s → `504 {"error":"device_timeout"}`).
+  - Device answers by `PUT /v1/device/blobs/<key>?reqId=<reqId>` (Bearer upload token, ≤ 2 MB, prefix check as §3);
+    the Worker forwards the bytes to the DO, which completes the waiting master request with
+    `200 application/octet-stream` and **does not persist** them. Unknown/expired reqId → `410`.
+  - File missing on device → device sends WS `{"t":"blob_missing","reqId"}` → master gets `404 {"error":"not_found"}`.
+- `PUT /v1/device/blobs/<key>` **without** `reqId` is no longer used (→ `400`).
+- Cloud retention cron no longer touches R2; screenshot metadata rows in D1 follow `retentionDays.screenshots`.
+- Master app: `409 device_offline` → "Máy đang tắt — mở lại khi máy online"; `504` → "Máy không phản hồi, thử lại".
