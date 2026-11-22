@@ -27,6 +27,10 @@
     }
   },
   "$defs": {
+    "netExemptMatch": {
+      "description": "appMatch that must include a full `path` (an exe name alone is too easy to spoof)",
+      "allOf": [{ "$ref": "common.schema.json#/$defs/appMatch" }, { "required": ["path"] }]
+    },
     "userPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -39,7 +43,10 @@
           "required": ["dailyQuotaMin", "allowedWindows", "warnAtMin", "graceSec", "countIdle", "idleThresholdSec"],
           "properties": {
             "dailyQuotaMin": { "$ref": "common.schema.json#/$defs/weekdayMinutes" },
-            "allowedWindows": { "$ref": "common.schema.json#/$defs/weekdayWindows" },
+            "allowedWindows": {
+              "$ref": "common.schema.json#/$defs/weekdayWindows",
+              "description": "per weekday, the local time windows in which screen time may be used; an empty list = no screen time that day (use [\"00:00-24:00\"] for any time)"
+            },
             "warnAtMin": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 60 }, "maxItems": 4, "uniqueItems": true },
             "graceSec": { "type": "integer", "minimum": 0, "maximum": 600 },
             "countIdle": { "type": "boolean" },
@@ -93,7 +100,7 @@
             "safeSearch": { "type": "boolean" },
             "youtube": { "enum": ["off", "moderate", "strict"] },
             "allowedBrowsers": { "type": "array", "minItems": 1, "items": { "enum": ["msedge.exe", "chrome.exe"] }, "uniqueItems": true },
-            "netExemptApps": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/appMatch" } }
+            "netExemptApps": { "type": "array", "items": { "$ref": "#/$defs/netExemptMatch" }, "description": "apps whose traffic bypasses the web filter; each entry must pin a full path" }
           }
         },
         "monitoring": {

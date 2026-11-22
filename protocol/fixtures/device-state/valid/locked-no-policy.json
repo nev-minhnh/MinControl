@@ -1,0 +1,19 @@
+{
+  "ts": "2026-11-22T08:50:00Z",
+  "agentVersion": "0.2.0",
+  "policyVersion": null,
+  "users": [
+    {
+      "sid": "S-1-5-21-1111111111-2222222222-3333333333-1001",
+      "loggedOn": false,
+      "active": false,
+      "locked": true,
+      "lockedUntil": "2026-11-23T00:00:00Z",
+      "remainingMin": null,
+      "usedMin": null,
+      "foregroundExe": null,
+      "foregroundTitle": null,
+      "foregroundStartedAt": null
+    }
+  ]
+}

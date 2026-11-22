@@ -6,16 +6,21 @@ using MinControl.Service.Ipc;
 using MinControl.Service.Sessions;
 using MinControl.Service.Tamper;
 using MinControl.Service.Users;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
-#if MERGED
 using MinControl.Browser;
 using MinControl.Monitoring;
 using MinControl.NetGuard;
-#endif
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// Deployment config written by `MinControl.Setup install` (SYSTEM/Administrators-only ACL):
+// { "ServerUrl": "...", "Browser": { "ChromeExtensionId": "...", "EdgeExtensionId": "..." } }
+var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "MinControl");
+builder.Configuration.AddJsonFile(Path.Combine(dataDir, "config.json"), optional: true, reloadOnChange: false);
+
 builder.Services.AddWindowsService(o => o.ServiceName = ServiceInstaller.ServiceName);
 if (WindowsServiceHelpers.IsWindowsService())
 {
@@ -39,13 +44,12 @@ builder.Services.AddHostedService<Enforcer>();
 builder.Services.AddHostedService<TamperWatch>();
 builder.Services.AddHostedService<CloudLinkHost>();
 
-#if MERGED
-// ---- Monitoring / NetGuard / Browser (lead removes the guard at merge).
+// ---- Monitoring / NetGuard / Browser. AppMonitorHost starts IAppMonitor; PolicyApplier calls INetGuard.ApplyAsync and
+// IBrowserPolicyWriter.ApplyAsync/RemoveAsync at start, on PolicyChanged and on managed-set changes.
 builder.Services.AddMinControlMonitoring();
 builder.Services.AddMinControlNetGuard();
-builder.Services.AddMinControlBrowser();
+builder.Services.AddMinControlBrowser(o => builder.Configuration.GetSection("Browser").Bind(o));
 builder.Services.AddHostedService<AppMonitorHost>();
 builder.Services.AddHostedService<PolicyApplier>();
-#endif
 
 await builder.Build().RunAsync();

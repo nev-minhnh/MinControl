@@ -196,7 +196,7 @@ public sealed class FilteringProxy : IAsyncDisposable
                 if (policy is null || user is null)
                     decision = new WebDecision(false, BlockReasons.Blocklist, null, host);   // fail closed
                 else if (_options.AllowedPorts.Count > 0 && !_options.AllowedPorts.Contains(head.Port))
-                    decision = new WebDecision(false, BlockReasons.Blocklist, "port", host);
+                    decision = new WebDecision(false, BlockReasons.Port, null, host);
                 else
                     decision = _engine.Decide(user.Web, host, _clock.UtcNow, policy.Timezone);
 

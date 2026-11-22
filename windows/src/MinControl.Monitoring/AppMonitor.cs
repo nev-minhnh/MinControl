@@ -25,7 +25,7 @@ internal interface IMonitorComponent
 /// </summary>
 internal sealed class AppMonitor : IAppMonitor, IDisposable
 {
-    private sealed record Tracked(int Pid, int ParentPid, string Sid, string Path, bool Emitted);
+    private sealed record Tracked(int Pid, int ParentPid, string Sid, string Path, bool Emitted, long SeenAtMs);
 
     private readonly IUserDirectory _users;
     private readonly IPolicyProvider _policy;
@@ -43,7 +43,6 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
 
     private readonly ConcurrentDictionary<int, Tracked> _tracked = new();
     private readonly ConcurrentDictionary<(string Sid, string Path), string?> _groupCache = new();
-    private readonly ConcurrentDictionary<(string Sid, string Sha), byte> _approvalRequested = new();
     private readonly ConcurrentDictionary<char, (bool Removable, long At)> _driveTypes = new();
 
     private IProcessEventSource? _source;
@@ -51,6 +50,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private int _started;
     private readonly string? _windowsDir = NullIfEmpty(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
     private readonly string[] _extraWritableRoots;
+    private readonly UserWritableProbe _writable;
 
     public AppMonitor(IUserDirectory users, IPolicyProvider policy, IEventSink sink, IApprovalStore approvals,
         IClock clock, IServiceProvider services, IFileFacts facts, IProcessControl control, MonitoringOptions options,
@@ -68,6 +68,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         _loggerFactory = loggerFactory;
         _log = loggerFactory.CreateLogger<AppMonitor>();
         _evaluator = new AppRuleEvaluator(facts);
+        _writable = new UserWritableProbe(_log);
 
         var roots = new List<string>();
         if (_windowsDir is not null) roots.Add(Path.Combine(_windowsDir, "Temp"));
@@ -98,7 +99,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         // Processes that were already running (service restart, user logged on before us).
         ThreadPool.UnsafeQueueUserWorkItem(_ => RescanAll(), null);
 
-        _sweep = new Timer(_ => SweepExhaustedGroups(), null, _options.GroupSweepInterval, _options.GroupSweepInterval);
+        _sweep = new Timer(_ => Sweep(), null, _options.GroupSweepInterval, _options.GroupSweepInterval);
 
         foreach (var c in _components)
         {
@@ -151,7 +152,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         if (up is null || up.AppGroups.Count == 0) return null;
         if (_groupCache.Count > 4096) _groupCache.Clear();
         return _groupCache.GetOrAdd((sid, exePath.ToUpperInvariant()),
-            _ => _evaluator.GroupOf(up, exePath, Context(sid, withExhausted: false)));
+            _ => _evaluator.GroupOf(up, exePath, Context(sid, withExhausted: false, pidHint: 0)));
     }
 
     // ------------------------------------------------------------------ process handling
@@ -173,7 +174,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         var path = s.ImagePath ?? _control.ImagePath(s.Pid);
         if (string.IsNullOrEmpty(path)) return;
 
-        var decision = _evaluator.Evaluate(up, path, Context(sid, withExhausted: true));
+        var decision = _evaluator.Evaluate(up, path, Context(sid, withExhausted: true, pidHint: s.Pid));
         if (decision.IsBlock)
         {
             Block(s.Pid, s.ParentPid, sid, path, decision);
@@ -181,7 +182,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         }
 
         bool emit = !initial && ShouldEmit(s.ParentPid, path);
-        if (_tracked.TryAdd(s.Pid, new Tracked(s.Pid, s.ParentPid, sid, path, emit)) && emit)
+        if (_tracked.TryAdd(s.Pid, new Tracked(s.Pid, s.ParentPid, sid, path, emit, _clock.MonotonicMs)) && emit)
             EmitProcess(EventTypes.ProcessStart, sid, path, s.Pid, s.ParentPid, rule: null, enrich: true);
     }
 
@@ -216,10 +217,21 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
 
         EmitProcess(EventTypes.ProcessBlocked, sid, path, pid, parentPid, decision.Rule ?? "unknown", enrich: true);
 
-        if (decision.RequestApproval && decision.Sha256 is { } sha && _approvalRequested.TryAdd((sid, sha), 0))
+        if (decision.RequestApproval && decision.Sha256 is { } sha && MarkRequested(sid, sha))
             EmitProcess(EventTypes.RequestExeApproval, sid, path, pid, parentPid, rule: null, enrich: true);
 
-        NotifyUser(sid, Path.GetFileName(path));
+        var exe = Path.GetFileName(path);
+        NotifyUser(sid, decision.Rule == ExtensionMissingRule
+            ? $"\"{exe}\" bị chặn vì tiện ích MinControl trong trình duyệt không hoạt động. Hãy mở lại trình duyệt; nếu vẫn bị chặn, hãy báo bố mẹ."
+            : $"\"{exe}\" bị chặn bởi MinControl.");
+    }
+
+    /// <summary>Persisted "request once per (sid, sha256)" (IApprovalStore.MarkRequested). On a store failure the
+    /// request is sent anyway (a lost request would strand the child; the master de-duplicates alerts).</summary>
+    private bool MarkRequested(string sid, string sha)
+    {
+        try { return _approvals.MarkRequested(sid, sha); }
+        catch (Exception ex) { _log.LogWarning(ex, "MarkRequested failed"); return true; }
     }
 
     private void EmitProcess(string type, string sid, string path, int pid, int parentPid, string? rule, bool enrich)
@@ -245,18 +257,81 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         }
     }
 
-    private void NotifyUser(string sid, string exe)
+    private void NotifyUser(string sid, string text)
     {
         var actions = _services.GetService<ISessionActions>();
         if (actions is null) return;
         _ = Task.Run(async () =>
         {
-            try { await actions.ShowMessageAsync(sid, $"\"{exe}\" bị chặn bởi MinControl.", CancellationToken.None); }
+            try { await actions.ShowMessageAsync(sid, text, CancellationToken.None); }
             catch { /* best effort */ }
         });
     }
 
     // ------------------------------------------------------------------ periodic / policy re-evaluation
+
+    private void Sweep()
+    {
+        SweepExhaustedGroups();
+        SweepMissingExtension();
+    }
+
+    internal const string ExtensionMissingRule = "extensionMissing";
+
+    /// <summary>SPEC §8.5 / ROUND2 B.3: while the MinControl extension is missing in a managed user's msedge/chrome
+    /// (no heartbeat, <see cref="IExtensionHealth"/>), that browser is blocked for the user. Grace: the browser may run
+    /// <see cref="MonitoringOptions.ExtensionMissingGrace"/> after its oldest tracked process appeared, so every fresh
+    /// start gets time for the extension to load.</summary>
+    private void SweepMissingExtension()
+    {
+        try
+        {
+            var health = _services.GetService<IExtensionHealth>();
+            if (health is null) return;
+            long now = _clock.MonotonicMs;
+            long graceMs = (long)_options.ExtensionMissingGrace.TotalMilliseconds;
+            var groups = _tracked.Values
+                .Select(t => (Tracked: t, Browser: BrowserKey(t.Path)))
+                .Where(x => x.Browser is not null)
+                .GroupBy(x => (x.Tracked.Sid, Browser: x.Browser!))
+                .ToList();
+            foreach (var group in groups)
+            {
+                var (sid, browser) = group.Key;
+                if (!_users.IsManaged(sid)) continue;
+                if (now - group.Min(x => x.Tracked.SeenAtMs) < graceMs) continue;
+                if (!health.IsExtensionMissing(sid, browser)) continue;
+                var decision = new RuleDecision(Verdict.Block, ExtensionMissingRule);
+                bool notified = false;
+                // oldest (the browser main process) first: killing it takes its children with it
+                foreach (var x in group.OrderBy(x => x.Tracked.SeenAtMs))
+                {
+                    if (!_tracked.ContainsKey(x.Tracked.Pid)) continue;
+                    BlockQuiet(x.Tracked, decision, notify: !notified);
+                    notified = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Extension sweep failed");
+        }
+    }
+
+    private void BlockQuiet(Tracked t, RuleDecision decision, bool notify)
+    {
+        if (notify) { Block(t.Pid, t.ParentPid, t.Sid, t.Path, decision); return; }
+        _control.Terminate(t.Pid, t.Path);
+        _tracked.TryRemove(t.Pid, out _);
+    }
+
+    /// <summary>"msedge" / "chrome" for those images, else null (browser names used by IExtensionHealth).</summary>
+    internal static string? BrowserKey(string path) => Path.GetFileName(path).ToLowerInvariant() switch
+    {
+        "msedge.exe" => "msedge",
+        "chrome.exe" => "chrome",
+        _ => null,
+    };
 
     private void SweepExhaustedGroups()
     {
@@ -287,6 +362,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private void OnPolicyChanged(object? sender, DevicePolicy policy)
     {
         _groupCache.Clear();
+        _writable.Invalidate();
         ThreadPool.UnsafeQueueUserWorkItem(_ => RescanAll(), null);
     }
 
@@ -307,7 +383,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
                 if (!_users.IsManaged(t.Sid)) { _tracked.TryRemove(pid, out _); continue; }
                 var up = UserPolicyFor(t.Sid);
                 if (up is null) continue;
-                var d = _evaluator.Evaluate(up, t.Path, Context(t.Sid, withExhausted: true));
+                var d = _evaluator.Evaluate(up, t.Path, Context(t.Sid, withExhausted: true, pidHint: t.Pid));
                 if (d.IsBlock) Block(t.Pid, t.ParentPid, t.Sid, t.Path, d);
                 continue;
             }
@@ -320,7 +396,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private UserPolicy? UserPolicyFor(string sid)
         => _policy.Current?.Users is { } users && users.TryGetValue(sid, out var up) ? up : null;
 
-    private EvaluationContext Context(string sid, bool withExhausted)
+    private EvaluationContext Context(string sid, bool withExhausted, int pidHint)
     {
         IReadOnlyCollection<string> exhausted = [];
         if (withExhausted)
@@ -335,6 +411,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
             ExhaustedGroups = exhausted,
             ExtraUserWritableRoots = _extraWritableRoots,
             IsRemovableOrNetwork = IsRemovableOrNetwork,
+            IsUserWritableByAcl = path => _writable.IsUserWritable(sid, path, pidHint),
             ApprovalFor = sha => _approvals.DecisionFor(sid, sha),
             WindowsDir = _windowsDir,
         };

@@ -9,14 +9,6 @@ using Microsoft.Extensions.Options;
 
 namespace MinControl.Browser.Events;
 
-/// <summary>Whether the MinControl extension is alive in a managed user's browser. App control may block a
-/// browser whose extension is missing (SPEC §8.5); see docs/contract-requests/browser.md.</summary>
-public interface IExtensionHealth
-{
-    /// <summary>False when the browser runs for the user and no heartbeat arrived within the timeout.</summary>
-    bool IsExtensionMissing(string sid, string browser);
-}
-
 /// <summary>Last heartbeat per (SID, browser), monotonic clock.</summary>
 public sealed class ExtensionHeartbeatTracker
 {

@@ -234,17 +234,59 @@ export async function getCommand(c: Ctx): Promise<Response> {
 
 // ------------------------------------------------------------------ history
 
+const TYPE_ITEM_RE = /^[a-z_]+(\.[a-z_]+|\.\*)?$/;
+const MAX_TYPE_ITEMS = 20;
+
+/**
+ * Parses an event-type filter (API.md section 5, `type` / `exclude`): comma list of exact types and/or
+ * `prefix.*` entries. Returns null for an absent/empty value; throws 400 on a malformed entry.
+ */
+export function parseTypeFilter(raw: string | null, name: string): { exact: string[]; prefixes: string[] } | null {
+  if (raw === null) return null;
+  const items = raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  if (items.length === 0) return null;
+  if (items.length > MAX_TYPE_ITEMS) throw new HttpError(400, "invalid_query", `${name}: at most ${MAX_TYPE_ITEMS} entries`);
+  const exact: string[] = [];
+  const prefixes: string[] = [];
+  for (const it of items) {
+    if (!TYPE_ITEM_RE.test(it)) throw new HttpError(400, "invalid_query", `${name} entries must be event types or prefix.*`);
+    if (it.endsWith(".*")) prefixes.push(it.slice(0, -1)); // keeps the trailing dot: "web."
+    else exact.push(it);
+  }
+  return { exact: [...new Set(exact)], prefixes: [...new Set(prefixes)] };
+}
+
+/** SQL condition matching a parsed type filter (`negate` for `exclude`). Prefixes contain only [a-z_.]. */
+export function typeFilterSql(f: { exact: string[]; prefixes: string[] }, negate: boolean, col = "type"): [string, unknown[]] {
+  const parts: string[] = [];
+  const params: unknown[] = [];
+  if (f.exact.length) {
+    parts.push(`${col} IN (${f.exact.map(() => "?").join(", ")})`);
+    params.push(...f.exact);
+  }
+  for (const p of f.prefixes) {
+    // `_` is a LIKE wildcard; escape it so e.g. `request.*` can never match more than its literal prefix.
+    parts.push(`${col} LIKE ? ESCAPE '\\'`);
+    params.push(p.replace(/_/g, "\\_") + "%");
+  }
+  const any = `(${parts.join(" OR ")})`;
+  return [negate ? `NOT ${any}` : any, params];
+}
+
 export async function listEvents(c: Ctx): Promise<Response> {
   const d = await requireDevice(c.env, c.params.id, true);
   const limit = parseLimit(c.url.searchParams.get("limit"), 50, 200);
-  const type = c.url.searchParams.get("type");
-  let typeCond: [string, unknown[]] | null = null;
-  if (type) {
-    if (!/^[a-z_]+(\.[a-z_]+|\.\*)?$/.test(type)) throw new HttpError(400, "invalid_query", "type must be an event type or prefix.*");
-    typeCond = type.endsWith(".*") ? ["type LIKE ?", [type.slice(0, -1) + "%"]] : ["type = ?", [type]];
-  }
+  const include = parseTypeFilter(c.url.searchParams.get("type"), "type");
+  const exclude = parseTypeFilter(c.url.searchParams.get("exclude"), "exclude");
   const sid = qSid(c);
-  const w = where([["device_id = ?", [d.id]], sid ? ["user_sid = ?", [sid]] : null, typeCond, ...timeRange(c), cursorCond(c)]);
+  const w = where([
+    ["device_id = ?", [d.id]],
+    sid ? ["user_sid = ?", [sid]] : null,
+    include ? typeFilterSql(include, false) : null,
+    exclude ? typeFilterSql(exclude, true) : null,
+    ...timeRange(c),
+    cursorCond(c),
+  ]);
   const rows = (
     await c.env.DB.prepare(
       `SELECT id, device_id, user_sid, ts, mono_ms, type, data_json FROM events ${w.sql} ORDER BY ts DESC, id DESC LIMIT ?`,
@@ -289,17 +331,25 @@ export async function listWeb(c: Ctx): Promise<Response> {
   ).results;
   const page = paginate(rows, limit, (r) => ({ ts: r.ts, id: r.id }));
   return json({
-    items: page.items.map((r) => ({
-      ts: r.ts,
-      kind: r.kind,
-      url: r.url,
-      host: r.host,
-      title: r.title,
-      durationSec: r.duration_sec,
-      category: r.category,
-    })),
+    items: page.items.map((r) => webItem(r)),
     next: page.next,
   });
+}
+
+/** web_visits row -> API item. Search rows store the query in `title` and the engine in `category`/`host`. */
+export function webItem(r: { ts: string; kind: string; url: string | null; host: string | null; title: string | null; duration_sec: number | null; category: string | null }) {
+  const search = r.kind === "search";
+  return {
+    ts: r.ts,
+    kind: r.kind,
+    url: r.url,
+    host: r.host,
+    title: r.title,
+    durationSec: r.duration_sec,
+    category: r.category,
+    query: search ? r.title : null,
+    engine: search ? r.category : null,
+  };
 }
 
 export async function getUsage(c: Ctx): Promise<Response> {
@@ -358,7 +408,17 @@ export async function getBlob(c: Ctx): Promise<Response> {
 
 export async function listAlerts(c: Ctx): Promise<Response> {
   const limit = parseLimit(c.url.searchParams.get("limit"), 50, 200);
-  const w = where([cursorCond(c)]);
+  const unacked = c.url.searchParams.get("unacked");
+  if (unacked !== null && unacked !== "" && unacked !== "0" && unacked !== "1") {
+    throw new HttpError(400, "invalid_query", "unacked must be 0 or 1");
+  }
+  const deviceId = c.url.searchParams.get("deviceId");
+  if (deviceId && !ULID_RE.test(deviceId)) throw new HttpError(400, "invalid_query", "deviceId must be a ULID");
+  const w = where([
+    unacked === "1" ? ["acked_at IS NULL", []] : null,
+    deviceId ? ["device_id = ?", [deviceId]] : null,
+    cursorCond(c),
+  ]);
   const rows = (
     await c.env.DB.prepare(
       `SELECT id, device_id, user_sid, ts, type, severity, data_json, acked_at FROM alerts ${w.sql} ORDER BY ts DESC, id DESC LIMIT ?`,
@@ -373,7 +433,8 @@ export async function listAlerts(c: Ctx): Promise<Response> {
       ts: r.ts,
       type: r.type,
       severity: r.severity,
-      data: { ...JSON.parse(r.data_json), ackedAt: r.acked_at },
+      ackedAt: r.acked_at,
+      data: JSON.parse(r.data_json),
     })),
     next: page.next,
   });

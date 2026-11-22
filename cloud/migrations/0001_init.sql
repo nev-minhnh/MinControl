@@ -168,12 +168,14 @@ CREATE TABLE alerts (
   type TEXT NOT NULL,               -- event type, 'blocked.burst' or 'device.offline'
   severity TEXT NOT NULL,           -- info|warn|critical
   event_id TEXT UNIQUE,
-  data_json TEXT NOT NULL,          -- {title, body, ...}
+  data_json TEXT NOT NULL,          -- event data + {title, body, eventId}; burst {count, hosts?, exes?, category?}
   pushed_at TEXT,
   acked_at TEXT
 );
 CREATE INDEX idx_alerts_ts ON alerts (ts, id);
 CREATE INDEX idx_alerts_device_user_type_ts ON alerts (device_id, user_sid, type, ts);
+CREATE INDEX idx_alerts_device_ts ON alerts (device_id, ts, id);
+CREATE INDEX idx_alerts_unacked_ts ON alerts (ts, id) WHERE acked_at IS NULL;
 
 -- FCM tokens of the master app (push targets).
 CREATE TABLE push_subscriptions (

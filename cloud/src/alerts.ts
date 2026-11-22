@@ -15,7 +15,15 @@ export interface AlertDraft {
   eventId: string | null;
   title: string;
   body: string;
+  /** merged into the stored `data` (API.md section 8: event data for single-event alerts, burst/offline details) */
   extra?: Record<string, unknown>;
+}
+
+/** Details of a blocked burst (API.md section 8): distinct hosts / exes and the shared web category. */
+export interface BurstDetails {
+  hosts?: string[];
+  exes?: string[];
+  category?: string;
 }
 
 export interface AlertRow {
@@ -59,18 +67,25 @@ const TAMPER_TEXT: Record<string, string> = {
   "tamper.managed_user_is_admin": "Tài khoản được quản lý đang có quyền quản trị",
   "tamper.extension_missing": "Tiện ích trình duyệt đã bị gỡ hoặc tắt",
   "tamper.offline_gap": "Máy đã ngắt giám sát một khoảng thời gian",
+  "tamper.state_tampered": "Dữ liệu chính sách trên máy đã bị sửa",
 };
+
+/** Max distinct hosts / exes listed in a burst alert. */
+export const BURST_DETAIL_MAX = 10;
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
 
-/** Single-event rules: quota.exhausted, request.exe_approval, tamper.*. */
+/**
+ * Single-event rules: quota.exhausted, request.exe_approval, tamper.*.
+ * The alert's `data` = the event's `data` plus {title, body, eventId} (API.md section 8).
+ */
 export function alertForEvent(ev: RuleEvent, ctx: RuleContext): AlertDraft | null {
   const base = { deviceId: ev.deviceId, userSid: ev.userSid ?? null, ts: ev.ts, eventId: ev.id, type: ev.type };
   const who = ctx.userName(ev.userSid);
   if (ev.type === "quota.exhausted") {
     const scope = str(ev.data.scope) ?? "total";
     const what = scope.startsWith("group:") ? `thời gian nhóm "${scope.slice(6)}"` : "thời gian dùng máy hôm nay";
-    return { ...base, severity: "info", title: "Đã hết giờ", body: `${who} trên ${ctx.hostname} đã dùng hết ${what}.`, extra: { scope } };
+    return { ...base, severity: "info", title: "Đã hết giờ", body: `${who} trên ${ctx.hostname} đã dùng hết ${what}.`, extra: { ...ev.data } };
   }
   if (ev.type === "request.exe_approval") {
     const exe = str(ev.data.exe) ?? "một ứng dụng";
@@ -79,19 +94,18 @@ export function alertForEvent(ev: RuleEvent, ctx: RuleContext): AlertDraft | nul
       severity: "warn",
       title: "Yêu cầu cho phép ứng dụng",
       body: `${who} trên ${ctx.hostname} muốn chạy ${exe}.`,
-      extra: { exe, sha256: str(ev.data.sha256), path: str(ev.data.path) },
+      extra: { ...ev.data }, // exe, path, pid, sha256, publisher, signed, sizeBytes as sent by the device
     };
   }
   if (ev.type.startsWith("tamper.")) {
     const what = TAMPER_TEXT[ev.type] ?? "Phát hiện hành vi can thiệp";
-    const detail = str(ev.data.detail);
     const userPart = ev.userSid ? ` (${who})` : "";
     return {
       ...base,
       severity: "critical",
       title: "Cảnh báo can thiệp",
       body: `${ctx.hostname}${userPart}: ${what}.`,
-      extra: detail ? { detail } : undefined,
+      extra: { ...ev.data },
     };
   }
   return null;
@@ -110,7 +124,41 @@ export function detectBurst(times: readonly number[], threshold = BURST_THRESHOL
   return -1;
 }
 
-export function burstAlert(deviceId: string, userSid: string, triggerEventId: string, ts: string, count: number, ctx: RuleContext): AlertDraft {
+/**
+ * Summarises the blocked events of one burst: distinct `web.blocked` hosts, distinct `process.blocked`
+ * exes (first BURST_DETAIL_MAX each, in order) and `category` when every web block carries the same one.
+ */
+export function burstDetails(events: ReadonlyArray<{ type: string; data: Record<string, unknown> }>): BurstDetails {
+  const hosts: string[] = [];
+  const exes: string[] = [];
+  const cats = new Set<string | null>();
+  for (const e of events) {
+    if (e.type === "web.blocked") {
+      const h = str(e.data.host);
+      if (h && !hosts.includes(h) && hosts.length < BURST_DETAIL_MAX) hosts.push(h);
+      cats.add(str(e.data.category));
+    } else if (e.type === "process.blocked") {
+      const x = str(e.data.exe);
+      if (x && !exes.includes(x) && exes.length < BURST_DETAIL_MAX) exes.push(x);
+    }
+  }
+  const out: BurstDetails = {};
+  if (hosts.length) out.hosts = hosts;
+  if (exes.length) out.exes = exes;
+  const [onlyCat] = cats;
+  if (cats.size === 1 && onlyCat) out.category = onlyCat;
+  return out;
+}
+
+export function burstAlert(
+  deviceId: string,
+  userSid: string,
+  triggerEventId: string,
+  ts: string,
+  count: number,
+  ctx: RuleContext,
+  details: BurstDetails = {},
+): AlertDraft {
   return {
     type: "blocked.burst",
     severity: "warn",
@@ -120,7 +168,7 @@ export function burstAlert(deviceId: string, userSid: string, triggerEventId: st
     eventId: triggerEventId,
     title: "Truy cập bị chặn liên tục",
     body: `${ctx.userName(userSid)} trên ${ctx.hostname} đã bị chặn ${count} lần trong 10 phút.`,
-    extra: { count },
+    extra: { count, ...details },
   };
 }
 
@@ -152,7 +200,7 @@ export async function saveAndPushAlerts(env: Env, drafts: AlertDraft[], waitUnti
       env.DB.prepare(
         `INSERT OR IGNORE INTO alerts (id, device_id, user_sid, ts, type, severity, event_id, data_json)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(id, d.deviceId, d.userSid, d.ts, d.type, d.severity, d.eventId, JSON.stringify({ title: d.title, body: d.body, eventId: d.eventId, ...d.extra })),
+      ).bind(id, d.deviceId, d.userSid, d.ts, d.type, d.severity, d.eventId, JSON.stringify({ ...d.extra, title: d.title, body: d.body, eventId: d.eventId })),
     ),
   );
   const created: AlertRow[] = [];

@@ -55,7 +55,7 @@ export type EnqueueResult =
   | { ok: false; code: "replayed" | "duplicate" | "revoked"; lastSeq: number };
 
 type Msg =
-  | { t: "auth"; deviceId: string; ts: string; sig: string }
+  | { t: "auth"; deviceId: string; ts: number; sig: string } // ts = unix seconds
   | { t: "ack"; ack: { commandId: string; status: "applied" | "rejected" | "failed"; at: string; error?: string; detail?: string } }
   | { t: "policy_applied"; version: number; seq: number }
   | { t: "policy_rejected"; seq: number; error: string }
@@ -290,7 +290,8 @@ export class DeviceHub extends DurableObject<Env> {
   // ---------------------------------------------------------------- internals
   private async handleAuth(ws: WebSocket, att: Attachment, m: Extract<Msg, { t: "auth" }>): Promise<void> {
     const now = Date.now();
-    const tsMs = parseAuthTs(m.ts);
+    const tsText = String(m.ts); // decimal string, as signed by the device
+    const tsMs = parseAuthTs(tsText);
     if (m.deviceId !== att.deviceId || !Number.isFinite(tsMs) || Math.abs(now - tsMs) > AUTH_SKEW_MS) {
       return this.closeWs(ws, CLOSE_AUTH_FAILED, "auth failed");
     }
@@ -301,7 +302,7 @@ export class DeviceHub extends DurableObject<Env> {
       if (row?.revoked_at) this.setMeta("revoked", "1");
       return this.closeWs(ws, row?.revoked_at ? CLOSE_REVOKED : CLOSE_AUTH_FAILED, "auth failed");
     }
-    const signed = utf8(`${att.nonce}|${att.deviceId}|${m.ts}`);
+    const signed = utf8(`${att.nonce}|${att.deviceId}|${tsText}`);
     if (!(await verifySignatureB64("ed25519", row.device_pub_key, m.sig, signed))) {
       return this.closeWs(ws, CLOSE_AUTH_FAILED, "auth failed");
     }

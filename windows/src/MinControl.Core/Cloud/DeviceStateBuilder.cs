@@ -16,6 +16,16 @@ public interface IUserSessionStatus
     (bool Active, bool WorkstationLocked)? Status(string sid);
 }
 
+/// <summary>
+/// Optional seam (win-session implements it on its foreground tracker): when the user's current foreground app got
+/// the focus. Feeds <c>users[].foregroundStartedAt</c> of device-state.schema.json.
+/// </summary>
+public interface IForegroundSince
+{
+    /// <returns>null when unknown / no foreground app.</returns>
+    DateTimeOffset? ForegroundStartedAt(string sid);
+}
+
 /// <summary>Builds the <c>DeviceState</c> object of API.md §2 from the engine and the foreground tracker.</summary>
 public sealed class DeviceStateBuilder
 {
@@ -62,6 +72,9 @@ public sealed class DeviceStateBuilder
                     ["foregroundExe"] = fg is { } f ? Path.GetFileName(f.ExePath) : null,
                     ["foregroundTitle"] = fg is { } f2 && up.Monitoring.ForegroundTitles ? f2.Title : null,
                 };
+                // optional property: present only when known (RFC 3339 Z)
+                if (fg is not null && (_foreground() as IForegroundSince)?.ForegroundStartedAt(sid) is { } since)
+                    u["foregroundStartedAt"] = Time.Utc(since <= now ? since : now);
                 users.Add(u);
             }
         return new JsonObject

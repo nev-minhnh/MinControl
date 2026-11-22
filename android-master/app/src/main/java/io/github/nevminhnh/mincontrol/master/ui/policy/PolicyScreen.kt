@@ -72,6 +72,7 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.YouTubeMode
 import io.github.nevminhnh.mincontrol.master.policy.PolicyDiff
 import io.github.nevminhnh.mincontrol.master.policy.PolicyValidation
 import io.github.nevminhnh.mincontrol.master.policy.formatMinutes
+import io.github.nevminhnh.mincontrol.master.policy.formatWindows
 import io.github.nevminhnh.mincontrol.master.ui.ChildSwitcher
 import io.github.nevminhnh.mincontrol.master.ui.components.EmptyState
 import io.github.nevminhnh.mincontrol.master.ui.components.McCard
@@ -99,6 +100,7 @@ private sealed interface PolicyDialog {
     data class Group(val id: String?) : PolicyDialog
     data object Categories : PolicyDialog
     data class Domains(val block: Boolean) : PolicyDialog
+    data object NetExempt : PolicyDialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -179,6 +181,10 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
             vm.edit { u -> u.copy(web = if (d.block) u.web.copy(blockDomains = list) else u.web.copy(allowDomains = list)) }
             dialog = null
         }
+        PolicyDialog.NetExempt -> NetExemptDialog(up.web.netExemptApps, { dialog = null }) { list ->
+            vm.edit { u -> u.copy(web = u.web.copy(netExemptApps = list)) }
+            dialog = null
+        }
         null -> {}
     }
 
@@ -228,8 +234,7 @@ private fun Editor(
     fun windowsText(days: List<Weekday>, w: WeekdayWindows): String {
         val distinct = days.map { w.get(it) }.distinct()
         return if (distinct.size == 1) {
-            val l = distinct.first()
-            if (l.isEmpty()) "Không cho dùng" else l.joinToString(", ") { it.replace("-", " – ") }
+            formatWindows(distinct.first())
         } else "Khác nhau"
     }
 
@@ -305,8 +310,10 @@ private fun Editor(
             onClick = { open(PolicyDialog.Categories) }) { Icon(Icons.Outlined.ChevronRight, null, tint = TextSecondary) }
         SettingRow("Trang bị chặn", subtitle = "${w.blockDomains.size} tên miền", changed = ow != null && ow.blockDomains != w.blockDomains,
             onClick = { open(PolicyDialog.Domains(true)) }) { Icon(Icons.Outlined.ChevronRight, null, tint = TextSecondary) }
-        SettingRow("Trang luôn cho phép", subtitle = "${w.allowDomains.size} tên miền", changed = ow != null && ow.allowDomains != w.allowDomains, last = true,
+        SettingRow("Trang luôn cho phép", subtitle = "${w.allowDomains.size} tên miền", changed = ow != null && ow.allowDomains != w.allowDomains,
             onClick = { open(PolicyDialog.Domains(false)) }) { Icon(Icons.Outlined.ChevronRight, null, tint = TextSecondary) }
+        SettingRow("Ứng dụng miễn lọc mạng", subtitle = "${w.netExemptApps.size} ứng dụng", changed = ow != null && ow.netExemptApps != w.netExemptApps, last = true,
+            onClick = { open(PolicyDialog.NetExempt) }) { Icon(Icons.Outlined.ChevronRight, null, tint = TextSecondary) }
     }
 
     val m = up.monitoring
@@ -384,7 +391,11 @@ private fun WindowsDialog(title: String, initial: List<String>, onDismiss: () ->
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (rows.isEmpty()) Text("Không cho dùng máy trong ngày này.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { rows.clear(); rows.add("00:00" to "24:00") }) { Text("Cả ngày") }
+                    TextButton(onClick = { rows.clear() }) { Text("Không dùng") }
+                }
+                if (rows.isEmpty()) Text("Không dùng máy trong ngày này.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 rows.forEachIndexed { i, (a, b) ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(a, { rows[i] = it.take(5) to b }, Modifier.weight(1f), singleLine = true, label = { Text("Từ") })
@@ -519,12 +530,33 @@ private fun DomainsDialog(block: Boolean, initial: List<String>, onDismiss: () -
         title = { Text(if (block) "Trang bị chặn" else "Trang luôn cho phép") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Mỗi dòng một tên miền, vd: poki.com hoặc *.edu.vn", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Text("Mỗi dòng một tên miền. poki.com chỉ khớp đúng tên này; *.poki.com khớp poki.com và mọi tên miền con", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 OutlinedTextField(text, { text = it }, minLines = 5, isError = err != null, modifier = Modifier.fillMaxWidth())
                 err?.let { Text(it, color = DangerText, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = { TextButton(enabled = err == null, onClick = { onSave(list) }) { Text("Lưu") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
+        containerColor = Surface,
+    )
+}
+
+@Composable
+private fun NetExemptDialog(initial: List<AppMatch>, onDismiss: () -> Unit, onSave: (List<AppMatch>) -> Unit) {
+    var text by remember { mutableStateOf(initial.mapNotNull { it.path }.joinToString("\n")) }
+    val list = text.lines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    val err = list.firstNotNullOfOrNull { PolicyValidation.pathError(it) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ứng dụng miễn lọc mạng") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Mỗi dòng một đường dẫn đầy đủ, vd: C:\\Program Files\\App\\app.exe", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                OutlinedTextField(text, { text = it }, minLines = 4, isError = err != null, modifier = Modifier.fillMaxWidth())
+                err?.let { Text(it, color = DangerText, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = { TextButton(enabled = err == null, onClick = { onSave(list.map { AppMatch(path = it) }) }) { Text("Lưu") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
         containerColor = Surface,
     )
