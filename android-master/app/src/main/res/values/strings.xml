@@ -5,5 +5,7 @@
     <string name="tab_activity">Hoạt động</string>
     <string name="tab_alerts">Cảnh báo</string>
     <string name="tab_rules">Quy tắc</string>
-    <string name="placeholder_coming_soon">Sắp có</string>
+    <string name="tile_lock_all">Khóa tất cả</string>
+    <string name="widget_time_left">Thời gian còn lại</string>
+    <string name="widget_description">Thời gian sử dụng còn lại hôm nay của từng con</string>
 </resources>
