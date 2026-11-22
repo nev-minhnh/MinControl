@@ -71,4 +71,7 @@ public sealed class ApprovalStore : IApprovalStore
         if (decision is not ("allow" or "block")) throw new ArgumentException("decision must be allow or block", nameof(decision));
         _store.SetApproval(sid, sha256.ToLowerInvariant(), decision, Time.Utc(_clock.UtcNow));
     }
+
+    public bool MarkRequested(string sid, string sha256)
+        => _store.MarkApprovalRequested(sid, sha256.ToLowerInvariant(), Time.Utc(_clock.UtcNow));
 }

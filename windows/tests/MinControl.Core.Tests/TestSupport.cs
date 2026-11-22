@@ -176,7 +176,8 @@ internal sealed class FakeSessionActions : ISessionActions
     public Task ShowLockOverlayAsync(string sid, string reason, int graceSec, CancellationToken ct) { Calls.Add($"lock {sid} {graceSec}"); return Task.CompletedTask; }
     public Task ShowMessageAsync(string sid, string text, CancellationToken ct) { Calls.Add($"message {sid} {text}"); return Task.CompletedTask; }
     public Task<bool> KillProcessAsync(string sid, int pid, string? expectedExe, CancellationToken ct) { Calls.Add($"kill {sid} {pid}"); return Task.FromResult(KillResult); }
-    public Task<byte[]?> CaptureScreenAsync(string? sid, int maxWidth, int jpegQuality, CancellationToken ct) => Task.FromResult<byte[]?>(null);
+    public ScreenCapture? Capture { get; set; }
+    public Task<ScreenCapture?> CaptureScreenAsync(string? sid, int maxWidth, int jpegQuality, CancellationToken ct) => Task.FromResult(Capture);
 }
 
 internal sealed class FakeUserDirectory : IUserDirectory

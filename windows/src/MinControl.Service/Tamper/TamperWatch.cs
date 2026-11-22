@@ -1,20 +1,31 @@
 using System.Text.Json.Nodes;
 using MinControl.Core.Abstractions;
 using MinControl.Core.Events;
+using MinControl.Core.Policies;
 using MinControl.Service.Logic;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace MinControl.Service.Tamper;
 
-/// <summary>Clock-jump (wall vs monotonic &gt; 2 min) and system-timezone change detection (spec 8.8, I6).
+/// <summary>Clock-jump (wall vs monotonic &gt; 2 min) and system-timezone change detection (spec 8.8, I6), and
+/// <c>tamper.state_tampered</c> once at start when the policy stored in state.db failed re-verification.
 /// Device-level events: userSid is null.</summary>
-internal sealed class TamperWatch(IEventSink events, IClock clock, ILogger<TamperWatch> log) : BackgroundService
+internal sealed class TamperWatch(IEventSink events, IClock clock, PolicyProvider policy, ILogger<TamperWatch> log) : BackgroundService
 {
     private static readonly TimeSpan Period = TimeSpan.FromSeconds(5);
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
+        if (policy.StoredPolicyRejected)
+        {
+            log.LogWarning("stored policy failed re-verification at startup; reporting tamper.state_tampered");
+            events.Emit(EventTypes.TamperStateTampered, null, new JsonObject
+            {
+                ["detail"] = "policy stored in state.db failed signature re-verification at service start; it was discarded",
+            });
+        }
+
         // Environment.TickCount64 keeps counting across sleep/hibernate, so resume does not look like a jump.
         var jumps = new ClockJumpDetector();
         jumps.Check(clock.UtcNow.ToUnixTimeMilliseconds(), Environment.TickCount64);

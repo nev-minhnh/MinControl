@@ -188,46 +188,10 @@ public sealed class CommandDispatcher
         return Applied(c.CommandId);
     }
 
-    /// <summary>
-    /// MERGE NOTE: the lead is changing ISessionActions.CaptureScreenAsync to return
-    /// <c>ScreenCapture? (byte[] Jpeg, int Width, int Height)</c>. When that lands replace the body with:
-    /// <c>var c = await s.CaptureScreenAsync(...); return c is null || c.Jpeg.Length == 0 ? null : (c.Jpeg, c.Width, c.Height);</c>
-    /// Until then the size is read from the JPEG header.
-    /// </summary>
     private static async Task<(byte[] Jpeg, int Width, int Height)?> CaptureAsync(ISessionActions s, string sid, int maxWidth, int quality, CancellationToken ct)
     {
-        var jpeg = await s.CaptureScreenAsync(sid, maxWidth, quality, ct).ConfigureAwait(false);
-        if (jpeg is null || jpeg.Length == 0 || !JpegInfo.TryGetSize(jpeg, out var w, out var h)) return null;
-        return (jpeg, w, h);
+        var c = await s.CaptureScreenAsync(sid, maxWidth, quality, ct).ConfigureAwait(false);
+        return c is null || c.Jpeg.Length == 0 || c.Width <= 0 || c.Height <= 0 ? null : (c.Jpeg, c.Width, c.Height);
     }
 }
 
-/// <summary>Reads width/height from a baseline or progressive JPEG (SOFn marker).</summary>
-public static class JpegInfo
-{
-    public static bool TryGetSize(ReadOnlySpan<byte> jpg, out int width, out int height)
-    {
-        width = height = 0;
-        if (jpg.Length < 4 || jpg[0] != 0xFF || jpg[1] != 0xD8) return false;
-        int i = 2;
-        while (i + 4 <= jpg.Length)
-        {
-            if (jpg[i] != 0xFF) { i++; continue; }
-            var marker = jpg[i + 1];
-            if (marker == 0xFF) { i++; continue; }
-            if (marker is 0xD8 or 0x01 or (>= 0xD0 and <= 0xD7)) { i += 2; continue; }
-            if (marker == 0xD9) return false;
-            var len = (jpg[i + 2] << 8) | jpg[i + 3];
-            if (len < 2) return false;
-            if (marker is >= 0xC0 and <= 0xCF and not 0xC4 and not 0xC8 and not 0xCC)
-            {
-                if (i + 9 > jpg.Length) return false;
-                height = (jpg[i + 5] << 8) | jpg[i + 6];
-                width = (jpg[i + 7] << 8) | jpg[i + 8];
-                return width > 0 && height > 0;
-            }
-            i += 2 + len;
-        }
-        return false;
-    }
-}
