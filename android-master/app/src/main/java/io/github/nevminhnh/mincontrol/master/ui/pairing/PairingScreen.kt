@@ -122,7 +122,27 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
     private var poll: Job? = null
 
     init {
-        PairLink.pending.value?.let { PairLink.pending.value = null; openLink(it) }
+        val after = PairLink.afterRegister.value
+        if (after != null) { PairLink.afterRegister.value = null; resumeAfterRegister(after) }
+        else PairLink.pending.value?.let { PairLink.pending.value = null; openLink(it) }
+    }
+
+    /** First run finished register-with-claim: load the (now authenticated) claim and go to "choose users". */
+    private fun resumeAfterRegister(a: AfterRegister) {
+        stage.value = PairStage.Loading
+        viewModelScope.launch {
+            try {
+                val c = graph.repo.claim(a.claimId)
+                val fromList = runCatching { graph.repo.refreshDevices() }.getOrNull()?.firstOrNull { it.deviceId == a.deviceId }
+                deviceFp.value = Fingerprint.format(c.fp)
+                newDevice.value = fromList ?: DeviceInfo(
+                    deviceId = a.deviceId, hostname = c.hostname,
+                    users = c.localUsers.map { DeviceUser(sid = it.sid, name = it.name, isAdmin = it.isAdmin) },
+                )
+            } catch (e: Exception) {
+                message.value = e.userMessage(); stage.value = PairStage.Home
+            }
+        }
     }
 
     fun openLink(p: PairPayload) {

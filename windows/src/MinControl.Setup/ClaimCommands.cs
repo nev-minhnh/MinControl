@@ -89,7 +89,7 @@ internal static partial class Cli
                 ["code"] = code is { Length: 8 } ? code[..4] + "-" + code[4..] : code,
                 ["expiresAt"] = expiresAt,
                 ["fingerprint"] = fp,
-                ["qr"] = $"mincontrol://pair?v=1&c={claimId}&f={fp}",
+                ["qr"] = PairingQr.Build(baseUri.GetLeftPart(UriPartial.Authority), claimId, fp),
             }, 0);
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException)

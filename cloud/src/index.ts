@@ -6,7 +6,7 @@ import type { Env } from "./env";
 import { json } from "./lib/http";
 import { Router } from "./router";
 import { deviceWs, postEvents, putBlob, putInventory } from "./routes/device";
-import { approveClaim, enrollStart, getClaim, getClaimByCode, pollClaim, rejectClaim } from "./routes/claims";
+import { approveClaim, enrollStart, getClaim, getClaimByCode, pollClaim, registerWithClaim, rejectClaim } from "./routes/claims";
 import { createPairingCode, enroll } from "./routes/enroll";
 import * as m from "./routes/master";
 
@@ -25,6 +25,7 @@ export const router = new Router()
   .add("PUT", "/v1/device/inventory", "none", putInventory) // upload token checked in the handler
   // master
   .add("POST", "/v1/master/register", "none", m.register) // bootstrap secret checked in the handler
+  .add("POST", "/v1/master/register-with-claim", "none", registerWithClaim) // TOFU; sig checked in the handler
   .add("POST", "/v1/master/pairing-codes", "master", createPairingCode)
   .add("GET", "/v1/master/claims/by-code/:code", "master", getClaimByCode)
   .add("GET", "/v1/master/claims/:claimId", "master", getClaim)

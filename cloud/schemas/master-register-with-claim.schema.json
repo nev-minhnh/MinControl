@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mincontrol.local/cloud/master-register-with-claim.schema.json",
+  "title": "POST /v1/master/register-with-claim body (cloud-local; API.md section 12)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claimId", "keys", "sealPubKey", "sig"],
+  "properties": {
+    "claimId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$" },
+    "keys": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keyId", "alg", "publicKey", "role"],
+        "properties": {
+          "keyId": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+          "alg": { "enum": ["ed25519", "es256"] },
+          "publicKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43,88}$" },
+          "role": { "enum": ["sign", "read"] }
+        }
+      }
+    },
+    "sealPubKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+    "sig": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" }
+  }
+}

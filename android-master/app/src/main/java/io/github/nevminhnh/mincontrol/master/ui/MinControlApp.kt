@@ -91,6 +91,12 @@ fun MinControlApp(openTab: String? = null) {
         if (pendingPair != null && nav.currentDestination?.route != Routes.PAIRING) nav.navigate(Routes.PAIRING)
     }
 
+    // First run just finished register-with-claim -> continue with "choose users" for that PC.
+    val afterRegister by io.github.nevminhnh.mincontrol.master.ui.pairing.PairLink.afterRegister.collectAsState()
+    LaunchedEffect(afterRegister) {
+        if (afterRegister != null && nav.currentDestination?.route != Routes.PAIRING) nav.navigate(Routes.PAIRING)
+    }
+
     LaunchedEffect(openTab) {
         if (openTab != null && Destination.entries.any { it.route == openTab }) nav.switchTab(openTab)
     }

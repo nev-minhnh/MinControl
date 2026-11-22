@@ -17,6 +17,8 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.ProtocolJson
 import io.github.nevminhnh.mincontrol.master.data.protocol.PushSubscribe
 import io.github.nevminhnh.mincontrol.master.data.protocol.PutPolicyResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.RegisterRequest
+import io.github.nevminhnh.mincontrol.master.data.protocol.RegisterWithClaimRequest
+import io.github.nevminhnh.mincontrol.master.data.protocol.RegisterWithClaimResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.ScreenshotItem
 import io.github.nevminhnh.mincontrol.master.data.protocol.SeqResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.SignedEnvelope
@@ -46,12 +48,16 @@ sealed class ApiException(message: String, cause: Throwable? = null) : Exception
     class NotConfigured : ApiException("server not configured")
 }
 
+const val MASTER_EXISTS_MESSAGE =
+    "Máy chủ đã có điện thoại quản lý. Dùng điện thoại cũ để quét mã này, hoặc chọn Đổi điện thoại / khôi phục."
+
 /** Vietnamese text for a server error code; null when not specifically mapped. */
 fun serverErrorMessage(code: String): String? = when (code) {
     "already_approved" -> "Máy này đã được duyệt rồi"
     "expired" -> "Mã đã hết hạn, hãy tạo mã mới trên máy tính"
     "rejected" -> "Máy này đã bị từ chối"
     "sign_key_required" -> "Điện thoại chưa có khóa ký, hãy thiết lập lại"
+    "master_exists" -> MASTER_EXISTS_MESSAGE
     "not_found" -> "Không tìm thấy mã này"
     "invalid_code" -> "Mã không đúng, hãy kiểm tra lại"
     else -> null
@@ -118,6 +124,13 @@ class MasterApi(
     suspend fun register(server: String, req: RegisterRequest): Unit = withContext(Dispatchers.IO) {
         val body = ApiJson.encodeToString(RegisterRequest.serializer(), req).toByteArray()
         exec(build(server.trimEnd('/').toHttpUrl().newBuilder().addPathSegments("v1/master/register").build(), "POST", body, auth = false))
+    }
+
+    /** 12: first phone registers and approves the PC claim in one call (no X-MC-Auth). */
+    suspend fun registerWithClaim(server: String, req: RegisterWithClaimRequest): RegisterWithClaimResponse = withContext(Dispatchers.IO) {
+        val body = ApiJson.encodeToString(RegisterWithClaimRequest.serializer(), req).toByteArray()
+        val url = server.trimEnd('/').toHttpUrl().newBuilder().addPathSegments("v1/master/register-with-claim").build()
+        ApiJson.decodeFromString(RegisterWithClaimResponse.serializer(), exec(build(url, "POST", body, auth = false)).toString(Charsets.UTF_8))
     }
 
     // --- §5 endpoints ---
