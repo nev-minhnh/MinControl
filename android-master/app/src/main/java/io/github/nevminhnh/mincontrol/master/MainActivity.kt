@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.fragment.app.FragmentActivity
 import io.github.nevminhnh.mincontrol.master.push.Notifications
 import io.github.nevminhnh.mincontrol.master.ui.MinControlApp
+import io.github.nevminhnh.mincontrol.master.ui.pairing.PairLink
 import io.github.nevminhnh.mincontrol.master.ui.setup.SetupLink
 import io.github.nevminhnh.mincontrol.master.ui.theme.MinControlTheme
 
@@ -36,5 +37,6 @@ class MainActivity : FragmentActivity() {
 
     private fun handleSetupLink(i: Intent?) {
         SetupLink.parse(i?.dataString)?.let { SetupLink.pending.value = it }
+        PairLink.parse(i?.dataString)?.let { PairLink.pending.value = it }
     }
 }

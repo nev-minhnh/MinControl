@@ -85,6 +85,12 @@ fun MinControlApp(openTab: String? = null) {
         if (!any) nav.navigate(Routes.PAIRING)
     }
 
+    // Deep link mincontrol://pair?... -> open the confirmation flow.
+    val pendingPair by io.github.nevminhnh.mincontrol.master.ui.pairing.PairLink.pending.collectAsState()
+    LaunchedEffect(pendingPair) {
+        if (pendingPair != null && nav.currentDestination?.route != Routes.PAIRING) nav.navigate(Routes.PAIRING)
+    }
+
     LaunchedEffect(openTab) {
         if (openTab != null && Destination.entries.any { it.route == openTab }) nav.switchTab(openTab)
     }
