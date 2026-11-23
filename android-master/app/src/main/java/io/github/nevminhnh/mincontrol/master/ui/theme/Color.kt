@@ -85,6 +85,7 @@ object Contrast {
         Triple(Primary, Background, "primary link/background"),
         Triple(Primary, PrimaryContainer, "primary chip"),
         Triple(Primary, QuickActionBg, "quick action"),
+        Triple(TextBody, QuickActionBg, "info note"),
         Triple(Surface, Primary, "button text"),
         Triple(Surface, TextPrimary, "selected chip"),
         Triple(Surface, Danger, "badge text"),

@@ -90,7 +90,7 @@ fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: 
         val prev = ms
         ms = next
         scope.launch {
-            try { ms = graph.repo.saveMasterSettings(next) } catch (e: Exception) { ms = prev; msg = e.userMessage() }
+            try { ms = AlertSettingsLogic.merged(next, graph.repo.saveMasterSettings(next)) } catch (e: Exception) { ms = prev; msg = e.userMessage() }
         }
     }
     LaunchedEffect(msg) { msg?.let { snackbar.showSnackbar(it); msg = null } }
@@ -112,14 +112,11 @@ fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: 
                     SettingRow("Thông báo đẩy", subtitle = if (graph.push.available()) "Đã bật (Firebase)" else "Chưa cấu hình Firebase", last = true)
                 }
 
-                SectionLabel("Thông báo", Modifier.padding(top = 8.dp))
+                SectionLabel("Cảnh báo", Modifier.padding(top = 8.dp))
                 Card {
-                    SettingRow("Báo khi con đăng nhập máy", subtitle = "Gửi thông báo mỗi khi tài khoản được quản lý đăng nhập") {
-                        Switch(ms.notifyLogon, { saveMs(ms.copy(notifyLogon = it)) }, enabled = msLoaded)
-                    }
-                    SettingRow("Báo khi con đăng xuất", last = true) {
-                        Switch(ms.notifyLogoff, { saveMs(ms.copy(notifyLogoff = it)) }, enabled = msLoaded)
-                    }
+                    AlertSettingsList(ms, msLoaded) { saveMs(it) }
+                    if (!msLoaded) Text("Đang tải cài đặt cảnh báo…", style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+                        modifier = Modifier.padding(bottom = 12.dp))
                 }
 
                 SectionLabel("Hạn mức Cloudflare hôm nay", Modifier.padding(top = 8.dp))

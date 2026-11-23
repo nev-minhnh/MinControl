@@ -9,7 +9,22 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import io.github.nevminhnh.mincontrol.master.ui.components.DropdownField
+import io.github.nevminhnh.mincontrol.master.ui.components.DropdownOption
+import io.github.nevminhnh.mincontrol.master.ui.theme.Divider
+import io.github.nevminhnh.mincontrol.master.ui.theme.QuickActionBg
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -97,31 +112,54 @@ private val categoryLabels = mapOf(
 
 fun serviceCategoryLabel(c: String): String = categoryLabels[c.lowercase()] ?: c.replaceFirstChar { it.uppercase() }
 
-/** Grid of service tiles; tap toggles blocked (and allowed when an allowlist mode is active). */
+/** Small explanation block (info icon + body text) used under SafeSearch, YouTube, categories… */
 @Composable
-internal fun ServicesGrid(up: UserPolicy, orig: UserPolicy?, catalog: ServiceCatalog, onToggle: (String) -> Unit) {
+internal fun InfoNote(text: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(QuickActionBg).padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top,
+    ) {
+        Icon(Icons.Outlined.Info, contentDescription = null, tint = Primary, modifier = Modifier.size(18.dp).padding(top = 1.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = TextBody, modifier = Modifier.weight(1f))
+    }
+}
+
+/**
+ * "Dịch vụ": full-height bottom sheet, services grouped by category, each with a dropdown
+ * "Không áp dụng / Chặn / Cho phép". Narrow screens stack name and dropdown; wider ones put them side by side.
+ */
+@Composable
+internal fun ServicesSheet(up: UserPolicy, orig: UserPolicy?, catalog: ServiceCatalog, onDismiss: () -> Unit, onSet: (String, ServiceState) -> Unit) {
     val allowlist = BlockingV2.allowlistActive(up)
-    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            if (allowlist) "Chạm để chặn hoặc cho phép cả ứng dụng lẫn trang web của dịch vụ: lần 1 = Cho phép, lần 2 = Chặn, lần 3 = Bỏ."
-            else "Chạm để chặn cả ứng dụng lẫn trang web của dịch vụ.",
-            style = MaterialTheme.typography.bodySmall, color = TextSecondary,
-        )
-        if (catalog.services.isEmpty()) {
-            Text("Danh mục dịch vụ chưa có trong bản cài này.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-            return@Column
-        }
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val cols = (maxWidth / 104.dp).toInt().coerceIn(2, 4)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                catalog.services.chunked(cols).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { s ->
-                            val st = BlockingV2.serviceState(up.web, s.id)
-                            val changed = orig != null && BlockingV2.serviceState(orig.web, s.id) != st
-                            ServiceTile(s, st, changed, Modifier.weight(1f)) { onToggle(s.id) }
-                        }
-                        repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+    val options = BlockingV2.serviceOptions(allowlist).map { DropdownOption(it.state, it.label, it.note) }
+    val groups = remember(catalog) { BlockingV2.groupedServices(catalog) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = Surface) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight().navigationBarsPadding()) {
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Dịch vụ", style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+                    Text(BlockingV2.servicesSummary(up.web), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                TextButton(onClick = onDismiss) { Text("Xong", style = MaterialTheme.typography.labelLarge, color = Primary) }
+            }
+            LazyColumn(
+                Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
+            ) {
+                item { InfoNote(BlockingV2.SERVICES_HELP, Modifier.padding(bottom = 8.dp)) }
+                if (catalog.services.isEmpty()) item {
+                    Text("Danh mục dịch vụ chưa có trong bản cài này.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                groups.forEach { (cat, list) ->
+                    item(key = "h-$cat") {
+                        Text(serviceCategoryLabel(cat), style = MaterialTheme.typography.titleSmall, color = TextSecondary,
+                            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
+                    }
+                    items(list, key = { it.id }) { s ->
+                        val st = BlockingV2.serviceState(up.web, s.id)
+                        val changed = orig != null && BlockingV2.serviceState(orig.web, s.id) != st
+                        ServiceLine(s, st, changed, options) { onSet(s.id, it) }
+                        HorizontalDivider(color = Divider)
                     }
                 }
             }
@@ -130,31 +168,34 @@ internal fun ServicesGrid(up: UserPolicy, orig: UserPolicy?, catalog: ServiceCat
 }
 
 @Composable
-private fun ServiceTile(s: Service, st: ServiceState, changed: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
-    val (bg, border, stateText, stateColor) = when (st) {
-        ServiceState.BLOCKED -> Quad(DangerContainer, DangerText, "Đã chặn", DangerText)
-        ServiceState.ALLOWED -> Quad(SuccessContainer, Success, "Cho phép", Success)
-        ServiceState.NONE -> Quad(Surface, ChipBorder, "Không áp dụng", TextSecondary)
-    }
-    val avatar = AvatarColors[(s.id.hashCode() and 0x7fffffff) % AvatarColors.size]
-    Column(
-        modifier.heightIn(min = 104.dp).clip(shape).background(bg).border(if (changed) 2.dp else 1.dp, if (changed) Primary else border, shape)
-            .clickable(onClickLabel = "Đổi trạng thái ${s.name}", onClick = onClick)
-            .semantics { contentDescription = "${s.name}, ${serviceCategoryLabel(s.category)}, $stateText" }
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Box(Modifier.size(32.dp).clip(CircleShape).background(avatar.first), contentAlignment = Alignment.Center) {
-            Text(s.name.take(1).uppercase(), style = MaterialTheme.typography.titleSmall, color = avatar.second)
+private fun ServiceLine(s: Service, st: ServiceState, changed: Boolean, options: List<DropdownOption<ServiceState>>, onPick: (ServiceState) -> Unit) {
+    val color = when (st) { ServiceState.BLOCKED -> DangerText; ServiceState.ALLOWED -> Success; ServiceState.NONE -> TextPrimary }
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        val name = @Composable { m: Modifier ->
+            Row(m, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                val avatar = AvatarColors[(s.id.hashCode() and 0x7fffffff) % AvatarColors.size]
+                Box(Modifier.size(32.dp).clip(CircleShape).background(avatar.first), contentAlignment = Alignment.Center) {
+                    Text(s.name.take(1).uppercase(), style = MaterialTheme.typography.titleSmall, color = avatar.second)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(s.name, style = MaterialTheme.typography.bodyMedium, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (changed) Text("Đã đổi — chưa áp dụng", style = MaterialTheme.typography.labelSmall, color = Primary)
+                }
+            }
         }
-        Text(s.name, style = MaterialTheme.typography.titleSmall, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(serviceCategoryLabel(s.category), style = MaterialTheme.typography.labelSmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(stateText, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = stateColor, maxLines = 1)
+        if (maxWidth < 400.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                name(Modifier.fillMaxWidth())
+                DropdownField(st, options, onPick, Modifier.fillMaxWidth().semantics { contentDescription = "${s.name}: ${BlockingV2.stateLabel(st)}" }, valueColor = color)
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                name(Modifier.weight(1f))
+                DropdownField(st, options, onPick, Modifier.width(220.dp).semantics { contentDescription = "${s.name}: ${BlockingV2.stateLabel(st)}" }, valueColor = color)
+            }
+        }
     }
 }
-
-private data class Quad(val a: Color, val b: Color, val c: String, val d: Color)
 
 /** "Từ khóa bị cấm": chips + add field (paste many, separated by comma / newline) + the two match toggles. */
 @Composable

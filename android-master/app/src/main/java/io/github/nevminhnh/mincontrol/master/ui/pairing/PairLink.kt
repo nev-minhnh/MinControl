@@ -64,7 +64,26 @@ object ClaimCode {
 }
 
 /** First-run registration finished: continue with the approved claim's device. */
-data class AfterRegister(val claimId: String, val deviceId: String)
+data class AfterRegister(val claimId: String, val deviceId: String, val fp: String? = null)
+
+/** Where the first run goes after register-with-claim (which already approved the claim: no second scan, ever). */
+sealed interface ResumeStep {
+    data class ChooseUsers(val device: io.github.nevminhnh.mincontrol.master.data.protocol.DeviceInfo) : ResumeStep
+    /** The device row is not visible yet (or the network failed): show "Thử lại", never the scan screen. */
+    data class Retry(val message: String) : ResumeStep
+}
+
+/**
+ * Root cause of the old double scan: after register-with-claim the claim is already approved, so
+ * `GET /v1/master/claims/<id>` answers `410 already_approved`; the old code treated that as an error and fell back
+ * to the "Thêm máy tính" home stage, which asks to scan again. The device list is the source of truth instead.
+ */
+object FirstRunResume {
+    const val RETRY_MESSAGE = "Máy tính đã được ghép nối. Chưa tải được danh sách tài khoản của máy — kiểm tra mạng rồi bấm Thử lại."
+
+    fun step(a: AfterRegister, devices: List<io.github.nevminhnh.mincontrol.master.data.protocol.DeviceInfo>?): ResumeStep =
+        devices?.firstOrNull { it.deviceId == a.deviceId }?.let { ResumeStep.ChooseUsers(it) } ?: ResumeStep.Retry(RETRY_MESSAGE)
+}
 
 /** What the app does with a scanned/opened `mincontrol://pair` link (API.md 12). */
 sealed interface PairRoute {
