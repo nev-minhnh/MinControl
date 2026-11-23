@@ -162,7 +162,7 @@ internal sealed class UserDirectory : IUserDirectory
             if (!fire) continue;
             _log.LogWarning("policy-managed SID {Sid} is an administrator; not enforcing (I2)", sid);
             _events.Emit(EventTypes.TamperManagedUserIsAdmin, sid,
-                new JsonObject { ["detail"] = "managed user is a member of Administrators; enforcement suspended" });
+                new JsonObject { ["detail"] = TamperText.ManagedUserIsAdmin });
         }
     }
 

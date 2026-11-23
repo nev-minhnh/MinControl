@@ -90,7 +90,7 @@ public sealed class ExtensionHeartbeatMonitor : BackgroundService, IExtensionHea
             _log.LogWarning("no extension heartbeat from {Browser} of {Sid} for {Sec}s", key.Browser, key.Sid, silentSec);
             _sink.Emit(EventTypes.TamperExtensionMissing, key.Sid, new JsonObject
             {
-                ["detail"] = $"{key.Browser}: no MinControl extension heartbeat for {silentSec} s",
+                ["detail"] = TamperText.ExtensionMissing(key.Browser, silentSec),
                 ["exe"] = key.Browser + ".exe",
             });
         }
