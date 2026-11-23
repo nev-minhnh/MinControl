@@ -8,6 +8,7 @@ import { issueUploadToken } from "./auth/upload-token";
 import { type BlobResult, BlobRelay } from "./blob-relay";
 import type { Env } from "./env";
 import { randomBytes, verifySignatureB64 } from "./lib/crypto";
+import { meteredEnv } from "./meter";
 import { type DeviceInfo, intakeEvents, screenEvents } from "./ingest";
 import { b64urlEncode, utf8 } from "./lib/encoding";
 import { nowIso, parseAuthTs } from "./lib/time";
@@ -101,7 +102,7 @@ export class DeviceHub extends DurableObject<Env> {
   private readonly blobs = new BlobRelay();
 
   constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
+    super(ctx, meteredEnv(env, (p) => ctx.waitUntil(p)));
     this.sql = ctx.storage.sql;
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
