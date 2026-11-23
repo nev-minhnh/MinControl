@@ -12,6 +12,9 @@ public sealed class NetGuardOptions
     /// <summary>Base URL of the UT1 per-category archives (<c>&lt;base&gt;&lt;list&gt;.tar.gz</c>).</summary>
     public string CategorySourceBaseUrl { get; set; } = Categories.Ut1Catalog.DefaultBaseUrl;
 
+    /// <summary>Base URL of the GitHub mirror raw files (<c>&lt;base&gt;&lt;list&gt;/domains[.N]</c>); empty = tarballs only.</summary>
+    public string CategoryGitHubBaseUrl { get; set; } = Categories.Ut1Catalog.DefaultGitHubBaseUrl;
+
     /// <summary>First category download after service start (lets the machine settle after boot).</summary>
     public TimeSpan CategoryUpdateInitialDelay { get; set; } = TimeSpan.FromMinutes(2);
 
@@ -36,8 +39,9 @@ public sealed class NetGuardOptions
     /// <summary>Best-effort bypass scan (listeners on proxy-like ports, VPN adapters, direct connections).</summary>
     public TimeSpan BypassScanInterval { get; set; } = TimeSpan.FromSeconds(15);
 
-    /// <summary>Same (sid, host) web.blocked is emitted at most once per this period (browsers retry a lot).</summary>
-    public TimeSpan BlockedEventDedup { get; set; } = TimeSpan.FromSeconds(60);
+    /// <summary>Same (sid, host) web.blocked is emitted at most once per this period (API.md §17: 10 s); repeats inside the
+    /// window are folded into the pending event's <c>count</c>.</summary>
+    public TimeSpan BlockedEventDedup { get; set; } = TimeSpan.FromSeconds(10);
 
     /// <summary>In blocklist mode, refuse CONNECT/HTTP to raw IP addresses (no host name to judge). Allowlist mode always refuses.</summary>
     public bool BlockIpLiteralsInBlocklistMode { get; set; }

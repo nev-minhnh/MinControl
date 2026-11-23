@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using MinControl.Core.Catalog;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -127,19 +128,26 @@ public sealed class CategorySnapshot : ICategoryStore
 /// <summary>
 /// Loads <c>%ProgramData%\MinControl\categories\</c>: <c>*.bin</c> hashed sets (category = file name up to the first
 /// dot, so <c>proxy-vpn.vpn.bin</c> and <c>proxy-vpn.redirector.bin</c> both feed "proxy-vpn") and <c>*.txt</c>
-/// lists (one domain per line, suffix match). Swaps the snapshot atomically on <see cref="Reload"/>.
+/// lists (one domain per line, suffix match). The curated service domains of <c>protocol/services.json</c> are part of
+/// their category at all times (service category → policy category, <see cref="ServiceCatalog.PolicyCategoryOf"/>), so
+/// popular sites (YouTube incl. googlevideo/ytimg, TikTok, Facebook, Roblox…) are covered even before any UT1 list exists.
+/// Swaps the snapshot atomically on <see cref="Reload"/>.
 /// </summary>
 public sealed class CategoryStore : ICategoryStore
 {
     private readonly string _directory;
+    private readonly ServiceCatalog _catalog;
     private readonly ILogger _log;
     private volatile CategorySnapshot _snapshot = CategorySnapshot.Empty;
     private string? _fingerprint;
     private readonly object _reloadGate = new();
 
-    public CategoryStore(NetGuardOptions options, ILogger<CategoryStore>? log = null)
+    public CategoryStore(NetGuardOptions options, ILogger<CategoryStore>? log = null) : this(options, ServiceCatalog.Shared, log) { }
+
+    public CategoryStore(NetGuardOptions options, ServiceCatalog catalog, ILogger<CategoryStore>? log = null)
     {
         _directory = options.CategoriesDirectory;
+        _catalog = catalog;
         _log = (ILogger?)log ?? NullLogger.Instance;
         Reload();
     }
@@ -165,19 +173,23 @@ public sealed class CategoryStore : ICategoryStore
         {
             try
             {
-                if (!System.IO.Directory.Exists(_directory))
-                {
-                    _log.LogWarning("Category directory {Dir} missing; category blocking disabled", _directory);
-                    return;
-                }
-                var files = System.IO.Directory.EnumerateFiles(_directory, "*.bin")
-                    .Concat(System.IO.Directory.EnumerateFiles(_directory, "*.txt"))
-                    .Select(f => new FileInfo(f)).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+                List<FileInfo> files = [];
+                if (System.IO.Directory.Exists(_directory))
+                    files = System.IO.Directory.EnumerateFiles(_directory, "*.bin")
+                        .Concat(System.IO.Directory.EnumerateFiles(_directory, "*.txt"))
+                        .Select(f => new FileInfo(f)).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+                else if (_fingerprint is null)
+                    _log.LogWarning("Category directory {Dir} missing; only the curated service domains are categorised", _directory);
                 var fingerprint = string.Join("|", files.Select(f => $"{f.Name}:{f.Length}:{f.LastWriteTimeUtc.Ticks}"));
                 if (!force && fingerprint == _fingerprint) return;
 
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var lists = new List<KeyValuePair<string, IEnumerable<string>>>();
+                foreach (var cat in Categories.Ut1Catalog.Sources.Keys)
+                {
+                    var curated = _catalog.DomainsOfPolicyCategory(cat).ToList();
+                    if (curated.Count > 0) lists.Add(new(cat, curated));
+                }
                 var sets = new List<KeyValuePair<string, HashedDomainSet>>();
                 foreach (var f in files)
                 {
