@@ -33,7 +33,11 @@ param(
     [string]$Configuration = "Release",
     [string]$ServerUrl,
     [switch]$NoServerUrl,
-    [switch]$SkipPublish
+    [switch]$SkipPublish,
+    # UT1 blacklists snapshot (GitHub mirror zip, read-only, no network): hashed into the shipped category seed.
+    [string]$Ut1Zip = "D:\Coding_Project\MinControl\tools\ut1\ut1-blacklists-master.zip",
+    # build an MSI without the shipped category lists
+    [switch]$NoCategories
 )
 $ErrorActionPreference = "Stop"
 
@@ -114,10 +118,22 @@ $cp1258 = [Text.Encoding]::GetEncoding(1258, [Text.EncoderFallback]::ExceptionFa
 try { [void]$cp1258.GetBytes($wxl) } catch { throw "vi-VN.wxl has characters codepage 1258 cannot store: $($_.Exception.Message)" }
 [IO.File]::WriteAllText($wxlOut, $wxl, (New-Object System.Text.UTF8Encoding($false)))
 
+# ------------------------------------------------------------------ category seed (UT1 snapshot + catalog domains)
+$seedDir = ""
+if (-not $NoCategories) {
+    if (-not (Test-Path $Ut1Zip)) { throw "UT1 snapshot not found: $Ut1Zip (pass -Ut1Zip <path> or -NoCategories)" }
+    $seedDir = Join-Path $objDir "categories-seed"
+    if (Test-Path $seedDir) { Remove-Item -Recurse -Force $seedDir }
+    Write-Host "==> category seed from $Ut1Zip" -ForegroundColor Cyan
+    & dotnet run --project (Join-Path $repo "windows\tools\MinControl.CategorySeed\MinControl.CategorySeed.csproj") -c $Configuration `
+        --nologo -v q -- --zip $Ut1Zip --out $seedDir
+    if ($LASTEXITCODE -ne 0) { throw "category seed failed ($LASTEXITCODE)" }
+}
+
 # ------------------------------------------------------------------ MSI
 Write-Host "==> build MSI" -ForegroundColor Cyan
 & dotnet build (Join-Path $repo "installer\MinControl.Installer.wixproj") -c $Configuration `
-    "-p:AgentPublishDir=$publishDir" "-p:ProductVersion=$Version" "-p:DefaultServerUrl=$ServerUrl" "-p:LocalizationFile=$wxlOut" `
+    "-p:AgentPublishDir=$publishDir" "-p:ProductVersion=$Version" "-p:DefaultServerUrl=$ServerUrl" "-p:LocalizationFile=$wxlOut" "-p:CategorySeedDir=$seedDir" `
     --nologo -v q
 if ($LASTEXITCODE -ne 0) { throw "MSI build failed ($LASTEXITCODE)" }
 

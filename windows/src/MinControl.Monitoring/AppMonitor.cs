@@ -3,6 +3,7 @@ using System.Diagnostics;
 using MinControl.Core.Abstractions;
 using MinControl.Core.Events;
 using MinControl.Core.Policy;
+using MinControl.Core.Telemetry;
 using MinControl.Monitoring.Acl;
 using MinControl.Monitoring.Processes;
 using MinControl.Monitoring.Rules;
@@ -44,7 +45,13 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private readonly ConcurrentDictionary<int, Tracked> _tracked = new();
     // Every pid already evaluated once (ETW and the backup poll both report starts; evaluate each pid once).
     private readonly ConcurrentDictionary<int, byte> _handled = new();
+    // pid → monotonic ms of its kill (de-duplicates racing evaluations of one process)
+    private readonly ConcurrentDictionary<int, long> _killedPids = new();
     private readonly Queue<BlockRecord> _recentBlocks = new();
+    /// <summary>process.blocked: at most one event per (sid, exe) per 10 s, repeats folded into <c>count</c> (API.md §17).</summary>
+    private readonly BlockEventFolder _blockedEvents;
+    private static readonly string? OwnInstallDir = NullIfEmpty(AppContext.BaseDirectory.TrimEnd('\\'));
+    private static readonly string? ProgramFilesDir = NullIfEmpty(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
     private long _blockCount;
 
     /// <summary>One enforcement (diagnostics).</summary>
@@ -93,6 +100,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         _loggerFactory = loggerFactory;
         _log = loggerFactory.CreateLogger<AppMonitor>();
         _evaluator = new AppRuleEvaluator(facts);
+        _blockedEvents = new BlockEventFolder(sink, clock, options.BlockedEventPeriod);
         _writable = new UserWritableProbe(_log);
 
         var roots = new List<string>();
@@ -202,6 +210,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         }
         _sources.Clear();
         SourceMode = "stopped";
+        try { _blockedEvents.FlushAll(); } catch (Exception ex) { _log.LogDebug(ex, "flush process.blocked"); }
         foreach (var c in _components)
         {
             try { c.Stop(); } catch (Exception ex) { _log.LogWarning(ex, "Stopping {Component}", c.GetType().Name); }
@@ -274,6 +283,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private void OnStopped(int pid)
     {
         _handled.TryRemove(pid, out _);
+        _killedPids.TryRemove(pid, out _);
         if (_tracked.TryRemove(pid, out var t) && t.Emitted)
         {
             try { _sink.Emit(EventTypes.ProcessStop, t.Sid, EventData.Process(t.Path, t.Pid, t.ParentPid)); }
@@ -283,6 +293,14 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
 
     private void Block(int pid, int parentPid, string sid, string path, RuleDecision decision)
     {
+        // The startup/policy rescan and the process sources can race on the same new pid: one kill (and one event) per
+        // process. Cleared when the pid stops, so a reused pid is judged again.
+        var nowMs = _clock.MonotonicMs;
+        if (_killedPids.TryGetValue(pid, out var at) && nowMs - at < 5_000) return;
+        _killedPids[pid] = nowMs;
+        if (_killedPids.Count > 4096)
+            foreach (var kv in _killedPids)
+                if (nowMs - kv.Value > 60_000) _killedPids.TryRemove(kv.Key, out _);
         var sw = Stopwatch.StartNew();
         bool killed = _control.Terminate(pid, path);
         _tracked.TryRemove(pid, out _);
@@ -290,12 +308,53 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
             path, pid, decision.Rule, sid, killed, sw.ElapsedMilliseconds);
         RecordBlock(sid, path, pid, decision.Rule ?? "unknown", killed);
 
-        EmitProcess(EventTypes.ProcessBlocked, sid, path, pid, parentPid, decision.Rule ?? "unknown", enrich: true);
+        bool first = EmitBlocked(sid, path, pid, parentPid, decision, killed);
 
         if (decision.RequestApproval && decision.Sha256 is { } sha && MarkRequested(sid, sha))
             EmitProcess(EventTypes.RequestExeApproval, sid, path, pid, parentPid, rule: null, enrich: true);
 
-        NotifyUser(sid, $"MinControl đã chặn {Path.GetFileName(path)}", BlockedReasonText(decision.Rule));
+        if (first) NotifyUser(sid, $"MinControl đã chặn {Path.GetFileName(path)}", BlockedReasonText(decision.Rule));
+    }
+
+    /// <summary>process.blocked (folded per sid+exe): action killed, rule (Vietnamese + machine id), service, window
+    /// title when the blocked exe owns the foreground window. Never emitted when nothing was killed.
+    /// Returns true when emitted now (first in its window).</summary>
+    private bool EmitBlocked(string sid, string path, int pid, int parentPid, RuleDecision decision, bool killed)
+    {
+        if (!killed) return false;
+        try
+        {
+            var sig = _facts.Signature(path);
+            var data = BlockedData(path, pid, parentPid, decision, _facts.Sha256(path), sig.Publisher, sig.Signed, _facts.SizeBytes(path),
+                ForegroundTitleOf(sid, path));
+            return _blockedEvents.Record(EventTypes.ProcessBlocked, sid, sid + "|" + path.ToUpperInvariant(), data);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Emit process.blocked");
+            return false;
+        }
+    }
+
+    internal static System.Text.Json.Nodes.JsonObject BlockedData(string path, int pid, int parentPid, RuleDecision decision,
+        string? sha, string? publisher, bool? signed, long? size, string? title)
+    {
+        var rule = decision.Rule ?? "unknown";
+        var data = EventData.Process(path, pid, parentPid, sha, publisher, signed, size, rule);
+        data["action"] = "killed";
+        if (decision.Service is { } svc) data["service"] = svc;
+        if (!string.IsNullOrWhiteSpace(title)) data["title"] = title.Length <= 256 ? title : title[..256];
+        return data;
+    }
+
+    private string? ForegroundTitleOf(string sid, string path)
+    {
+        try
+        {
+            var fg = _services.GetService<IForegroundTracker>()?.Current(sid);
+            return fg is { } f && string.Equals(f.ExePath, path, StringComparison.OrdinalIgnoreCase) ? f.Title : null;
+        }
+        catch { return null; }
     }
 
     /// <summary>Vietnamese reason line of the "blocked" toast for an app rule (<see cref="RuleDecision.Rule"/>).</summary>
@@ -306,6 +365,9 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         "approval" => "Bố mẹ không cho phép ứng dụng này",
         "newExecutable:ask" => "Ứng dụng mới · đang chờ bố mẹ duyệt",
         "newExecutable" => "Không được chạy ứng dụng mới",
+        "appMode:allowlist" => "Chỉ được dùng các ứng dụng bố mẹ cho phép",
+        { } r when r.StartsWith("service:", StringComparison.Ordinal) =>
+            "Dịch vụ bị chặn: " + (MinControl.Core.Catalog.ServiceCatalog.Shared.Find(r["service:".Length..])?.Name ?? r["service:".Length..]),
         { } r when r.StartsWith("group:", StringComparison.Ordinal) => "Đã hết giờ dùng nhóm ứng dụng này hôm nay",
         _ => "Ứng dụng nằm trong danh sách chặn",
     };
@@ -408,6 +470,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         var killed = _control.Terminate(t.Pid, t.Path);
         _tracked.TryRemove(t.Pid, out _);
         RecordBlock(t.Sid, t.Path, t.Pid, decision.Rule ?? "unknown", killed);
+        EmitBlocked(t.Sid, t.Path, t.Pid, t.ParentPid, decision, killed);   // folded with the main process event
     }
 
     private void RecordBlock(string sid, string path, int pid, string rule, bool killed)
@@ -527,6 +590,8 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
             IsUserWritableByAcl = path => _writable.IsUserWritable(sid, path, pidHint),
             ApprovalFor = sha => _approvals.DecisionFor(sid, sha),
             WindowsDir = _windowsDir,
+            OwnInstallDir = OwnInstallDir,
+            ProgramFilesDir = ProgramFilesDir,
         };
     }
 

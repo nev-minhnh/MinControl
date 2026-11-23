@@ -152,3 +152,10 @@ public interface ICloudLink
     bool Connected { get; }
     Task RunAsync(CancellationToken ct);   // connect, auth, receive envelopes, send acks/state; reconnect forever
 }
+
+/// <summary>Banned-word enforcement (API.md §17 keywords), implemented by the Service. The history reader reports fresh
+/// visits so search queries hidden from the window title (URL q / p / text / search_query) are caught too.</summary>
+public interface IKeywordGuard
+{
+    void OnHistoryVisit(string sid, string browser, string url, string? title, DateTimeOffset visitedAt);
+}

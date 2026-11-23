@@ -50,6 +50,10 @@ builder.Services.AddMinControlMonitoring();
 builder.Services.AddMinControlNetGuard();
 builder.Services.AddMinControlBrowser(o => builder.Configuration.GetSection("Browser").Bind(o));
 builder.Services.AddHostedService<AppMonitorHost>();
+// ---- banned words (API.md §17): foreground titles from the session helper + fresh history visits
+builder.Services.AddSingleton<MinControl.Service.Keywords.KeywordGuard>();
+builder.Services.AddSingleton<IKeywordGuard>(sp => sp.GetRequiredService<MinControl.Service.Keywords.KeywordGuard>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MinControl.Service.Keywords.KeywordGuard>());
 builder.Services.AddHostedService<PolicyApplier>();
 
 // ---- diag.report sections owned by the host (API.md §14); the others are registered by their components.

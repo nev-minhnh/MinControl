@@ -355,7 +355,7 @@ public sealed class CloudLink : ICloudLink
         {
             var gap = (long)(now - last).TotalSeconds;
             if (gap >= _options.OfflineGapThresholdSec)
-                _events.Emit(EventTypes.TamperOfflineGap, null, new JsonObject { ["gapSec"] = gap });
+                _events.Emit(EventTypes.TamperOfflineGap, null, new JsonObject { ["gapSec"] = gap, ["detail"] = TamperText.OfflineGap(gap) });
         }
         TouchOnline();
     }

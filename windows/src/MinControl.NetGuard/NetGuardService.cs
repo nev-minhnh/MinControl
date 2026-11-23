@@ -291,8 +291,8 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
             foreach (var rule in affected)
             {
                 var detail = !r.ProviderPresent || !r.SublayerPresent
-                    ? "WFP provider/sublayer removed; re-added"
-                    : $"{WfpManager.ExpectedKeys(rule).Count(missing.Contains)} WFP filter(s) missing; re-added";
+                    ? TamperText.WfpProviderRemoved
+                    : TamperText.WfpFiltersMissing(WfpManager.ExpectedKeys(rule).Count(missing.Contains));
                 try { _events.Emit(EventTypes.TamperWfpFilterMissing, rule.Sid, new JsonObject { ["detail"] = detail }); }
                 catch (Exception ex) { _log.LogWarning(ex, "Emit tamper.wfp_filter_missing failed"); }
             }

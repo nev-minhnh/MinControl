@@ -61,6 +61,9 @@ public sealed class BrowserHistoryReader : BackgroundService
         _tempRoot = tempRoot; _options = options; _log = log;
     }
 
+    /// <summary>Banned-word check of fresh visits (search query in the URL); resolved lazily, may return null.</summary>
+    public Func<IKeywordGuard?>? KeywordGuard { get; init; }
+
     /// <summary>Read positions (diagnostics).</summary>
     public HistoryCursorStore Cursors => _cursors;
 
@@ -189,6 +192,8 @@ public sealed class BrowserHistoryReader : BackgroundService
         var clean = BrowserEventValidator.Sanitize(EventTypes.WebVisit, data);
         if (clean is null) return false;
         _sink.Emit(EventTypes.WebVisit, sid, clean, at);
+        try { KeywordGuard?.Invoke()?.OnHistoryVisit(sid, browser, v.Url, v.Title, at); }
+        catch (Exception ex) { _log.LogDebug(ex, "keyword check of a visit failed"); }
 
         if (!string.IsNullOrWhiteSpace(v.SearchTerm) && core != 8)    // a reload of a results page is not a new search
         {

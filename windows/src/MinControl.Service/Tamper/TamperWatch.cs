@@ -22,7 +22,7 @@ internal sealed class TamperWatch(IEventSink events, IClock clock, PolicyProvide
             log.LogWarning("stored policy failed re-verification at startup; reporting tamper.state_tampered");
             events.Emit(EventTypes.TamperStateTampered, null, new JsonObject
             {
-                ["detail"] = "policy stored in state.db failed signature re-verification at service start; it was discarded",
+                ["detail"] = TamperText.StateTampered,
             });
         }
 
@@ -38,13 +38,13 @@ internal sealed class TamperWatch(IEventSink events, IClock clock, PolicyProvide
                 if (jumps.Check(clock.UtcNow.ToUnixTimeMilliseconds(), Environment.TickCount64) is long jumpSec)
                 {
                     log.LogWarning("system clock jumped {Sec}s", jumpSec);
-                    events.Emit(EventTypes.TamperClockJump, null, new JsonObject { ["jumpSec"] = jumpSec });
+                    events.Emit(EventTypes.TamperClockJump, null, new JsonObject { ["jumpSec"] = jumpSec, ["detail"] = TamperText.ClockJump(jumpSec) });
                 }
                 var nowTz = CurrentTimeZone();
                 if (nowTz != tz)
                 {
                     log.LogWarning("system timezone changed {Old} -> {New}", tz, nowTz);
-                    events.Emit(EventTypes.TamperTimezoneChanged, null, new JsonObject { ["detail"] = $"{tz} -> {nowTz}" });
+                    events.Emit(EventTypes.TamperTimezoneChanged, null, new JsonObject { ["detail"] = TamperText.TimezoneChanged(tz, nowTz) });
                     tz = nowTz;
                 }
             }

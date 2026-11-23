@@ -49,6 +49,18 @@ internal static class Win32
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern SafeProcessHandle OpenProcess(uint access, bool inherit, int pid);
 
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
+    private const int SM_SHUTTINGDOWN = 0x2000;
+
+    /// <summary>True while Windows is shutting down / restarting (the stop may arrive before SERVICE_CONTROL_SHUTDOWN).</summary>
+    public static bool IsSystemShuttingDown()
+    {
+        try { return GetSystemMetrics(SM_SHUTTINGDOWN) != 0; }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException) { return false; }
+    }
+
     [DllImport("kernel32.dll")]
     public static extern IntPtr GetCurrentProcess();
 

@@ -5,7 +5,8 @@ using Timer = System.Windows.Forms.Timer;
 namespace MinControl.Session;
 
 /// <summary>Headless message loop of the session helper: pipe to the service, foreground tracking
-/// (SetWinEventHook + 5 s title poll), idle reporting, heartbeat, and the overlay / toast / message UI.</summary>
+/// (SetWinEventHook + 1 s title poll: a banned word in a tab title must be caught within ~1–2 s), idle reporting,
+/// heartbeat, closing a tab/window on the service's request (keywords), and the overlay / toast / message UI.</summary>
 internal sealed class HelperContext : ApplicationContext
 {
     private readonly SynchronizationContext _ui;
@@ -13,12 +14,12 @@ internal sealed class HelperContext : ApplicationContext
     private readonly PipeClient _pipe;
     private readonly Native.WinEventProc _hookProc; // must stay referenced while the hook is installed
     private readonly IntPtr _hook;
-    private readonly Timer _titlePoll = new() { Interval = 5_000 };
+    private readonly Timer _titlePoll = new() { Interval = 1_000 };
     private readonly Timer _idle = new() { Interval = 1_000 };
     private readonly Timer _heartbeat = new() { Interval = 2_000 };
     private readonly OverlayManager _overlay = new();
     private readonly object _fgGate = new();
-    private (string Exe, string Title, int Pid)? _lastForeground;
+    private (string Exe, string Title, int Pid, IntPtr Hwnd)? _lastForeground;
     private ToastForm? _toast;
     private BlockedToastForm? _blockedToast;
 
@@ -62,11 +63,11 @@ internal sealed class HelperContext : ApplicationContext
             var title = Native.WindowTitle(hwnd);
             lock (_fgGate)
             {
-                var current = (exe, title, pid);
+                var current = (exe, title, pid, hwnd);
                 if (!force && _lastForeground == current) return;
                 _lastForeground = current;
             }
-            Send(IpcTypes.Foreground, new JsonObject { ["exe"] = exe, ["title"] = title, ["pid"] = pid });
+            Send(IpcTypes.Foreground, new JsonObject { ["exe"] = exe, ["title"] = title, ["pid"] = pid, ["hwnd"] = hwnd.ToInt64() });
         }
         catch (Exception) { /* best effort */ }
     }
@@ -95,6 +96,23 @@ internal sealed class HelperContext : ApplicationContext
                 var noticeTitle = m.Str("title") ?? "MinControl đã chặn";
                 var noticeReason = m.Str("reason") ?? "";
                 _ui.Post(_ => ShowBlockedToast(noticeTitle, noticeReason), null);
+                break;
+            case IpcTypes.CloseWindow:
+                var closeId = m.Long("requestId") ?? 0;
+                var hwndValue = new IntPtr(m.Long("hwnd") ?? 0);
+                var closePid = (int)(m.Long("pid") ?? 0);
+                var tab = m.Str("mode") == "tab";
+                var closeTitle = m.Str("title") ?? "";
+                var closeReason = m.Str("reason") ?? "";
+                _ui.Post(_ =>
+                {
+                    var (ok, error) = WindowCloser.Close(hwndValue, closePid, tab);
+                    if (ok) ShowBlockedToast(closeTitle, closeReason);
+                    var reply = new JsonObject { ["requestId"] = closeId, ["ok"] = ok };
+                    if (error is not null) reply["error"] = error;
+                    Send(IpcTypes.CloseResult, reply);
+                    ReportForeground(force: false);   // the next tab's title right away
+                }, null);
                 break;
             case IpcTypes.Capture:
                 var requestId = m.Long("requestId") ?? 0;

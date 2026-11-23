@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using MinControl.Core.Abstractions;
 using MinControl.Core.Events;
 using MinControl.Core.Policy;
+using MinControl.Core.Telemetry;
 using MinControl.NetGuard.Telemetry;
 using MinControl.NetGuard.Web;
 
@@ -40,7 +41,7 @@ public sealed class FilteringProxy : IAsyncDisposable
     private readonly WebDecisionEngine _engine;
     private readonly CallerIdentifier _callers;
     private readonly DomainAggregator _aggregator;
-    private readonly EventThrottle _blockedThrottle;
+    private readonly BlockEventFolder _blockedEvents;
     private readonly IBlockNotifier? _notifier;
     private readonly ILogger _log;
     private readonly object _gate = new();
@@ -71,7 +72,7 @@ public sealed class FilteringProxy : IAsyncDisposable
         _engine = engine;
         _callers = callers;
         _aggregator = aggregator;
-        _blockedThrottle = new EventThrottle(clock, options.BlockedEventDedup);
+        _blockedEvents = new BlockEventFolder(events, clock, options.BlockedEventDedup);
         _notifier = notifier;
         _log = (ILogger?)log ?? NullLogger.Instance;
         _lastSummaryMs = clock.MonotonicMs;
@@ -146,6 +147,7 @@ public sealed class FilteringProxy : IAsyncDisposable
     {
         _policy.PolicyChanged -= OnPolicyChanged;
         try { await StopAsync().ConfigureAwait(false); } catch { /* shutting down */ }
+        _blockedEvents.Dispose();   // flushes folded events
     }
 
     private async Task AcceptLoopAsync(Socket listener, CancellationToken ct)
@@ -318,23 +320,35 @@ public sealed class FilteringProxy : IAsyncDisposable
     private void OnBlocked(string sid, string exeName, string host, string? url, WebDecision d, bool logDomains)
     {
         if (logDomains) _aggregator.RecordConnection(sid, exeName, host, false);
-        if (!_blockedThrottle.ShouldEmit(sid + "|" + host)) return;
+        bool first;
+        try { first = _blockedEvents.Record(EventTypes.WebBlocked, sid, sid + "|" + host, BlockedData(exeName, host, url, d, _engine.Catalog)); }
+        catch (Exception ex) { _log.LogWarning(ex, "Emit web.blocked failed"); return; }
+        if (!first) return;   // folded into the pending event (count); the toast was shown for the first one
+        // The Service adds a per-user cap on toasts.
+        try { _notifier?.NotifyWebBlocked(sid, host, d); }
+        catch (Exception ex) { _log.LogDebug(ex, "blocked notice failed"); }
+    }
+
+    /// <summary><c>web.blocked</c> data of a refused proxy request (API.md §17: action, rule, service, category, exe).</summary>
+    internal static JsonObject BlockedData(string exeName, string host, string? url, WebDecision d, MinControl.Core.Catalog.ServiceCatalog? catalog = null)
+    {
         var data = new JsonObject
         {
             ["host"] = DomainAggregator.Truncate(host, 253),
             ["source"] = "proxy",
             ["reason"] = d.Reason ?? BlockReasons.Blocklist,
+            ["action"] = "refused",
+            ["rule"] = DomainAggregator.Truncate(BlockNoticeText.Rule(d, catalog), 128),
             ["exe"] = DomainAggregator.Truncate(exeName, 260),
         };
         if (d.Category is not null) data["category"] = DomainAggregator.Truncate(d.Category, 32);
+        if (d.Service is not null) data["service"] = d.Service;
         if (url is not null) data["url"] = DomainAggregator.Truncate(url, 2048);
-        try { _events.Emit(EventTypes.WebBlocked, sid, data); }
-        catch (Exception ex) { _log.LogWarning(ex, "Emit web.blocked failed"); }
-        // Same (sid, host) throttle as the event (once per BlockedEventDedup); the Service adds a per-user cap.
-        // The Vietnamese reason is only shown in the toast: web.blocked has additionalProperties:false.
-        try { _notifier?.NotifyWebBlocked(sid, host, d); }
-        catch (Exception ex) { _log.LogDebug(ex, "blocked notice failed"); }
+        return data;
     }
+
+    /// <summary>Emits folded web.blocked events still pending (service stop).</summary>
+    public void FlushBlockedEvents() => _blockedEvents.FlushAll();
 
     // ------------------------------------------------------------------ live re-evaluation
 

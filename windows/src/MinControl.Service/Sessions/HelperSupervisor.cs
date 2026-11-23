@@ -174,7 +174,7 @@ internal sealed class HelperSupervisor(
                 state.TamperRaised = true;
                 log.LogWarning("session helper absent > 30 s in session {Session}: logging off", sessionId);
                 events.Emit(EventTypes.TamperAgentKilled, s.Sid,
-                    new JsonObject { ["detail"] = "session helper absent > 30 s; session logged off", ["exe"] = HelperLauncher.HelperExeName });
+                    new JsonObject { ["detail"] = TamperText.HelperKilled, ["exe"] = HelperLauncher.HelperExeName });
             }
             if (state.LastLogoffMono is null || now - state.LastLogoffMono.Value >= AbsentLimitMs)
             {

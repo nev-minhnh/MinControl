@@ -18,7 +18,11 @@
                                   the Finish dialog offers the QR connect screen (MinControl.Connect.exe, Start-menu
                                   shortcut "Kết nối MinControl với điện thoại").
     CHROMEEXTID=<32 a-p>  EDGEEXTID=<32 a-p>   extension store ids written to %ProgramData%\MinControl\config.json
-    PURGE=1                       on uninstall also wipe %ProgramData%\MinControl (identity, state, logs)
+    KEEPDATA=1                    on uninstall KEEP %ProgramData%\MinControl (identity, state, logs, category lists).
+                                  Default: uninstall purges it all (never on a major upgrade: UPGRADINGPRODUCTCODE).
+  A first install (no related product, not a repair) passes the fresh flag to "Setup install": every leftover of an earlier
+  install in %ProgramData%\MinControl is wiped except categories\ (live lists + the seed laid down by this MSI).
+  The server is told to forget the device on uninstall (Setup uninstall -> POST /v1/device/deregister, API.md 18).
 
   Uninstall runs "MinControl.Setup uninstall" (from-msi mode) first (stop service, remove WFP filters, browser
   policies for every profile, native host registration, SafeBoot keys) so the managed user is never left
@@ -45,6 +49,8 @@
     <Launch Condition="Installed OR VersionNT >= 603" Message="!(loc.NeedWin10)" />
 
     <!-- Programs and Features: removable (by an administrator only: per-machine product), no "Change". -->
+    <Icon Id="MinControlIcon.ico" SourceFile="$(var.AssetsDir)\mincontrol.ico" />
+    <Property Id="ARPPRODUCTICON" Value="MinControlIcon.ico" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPCOMMENTS" Value="Parental control agent. Removing it requires an administrator." />
 
@@ -58,14 +64,20 @@
     <Property Id="MC_ATTEMPT" Secure="yes" />
     <Property Id="CHROMEEXTID" Secure="yes" />
     <Property Id="EDGEEXTID" Secure="yes" />
-    <Property Id="PURGE" Secure="yes" />
+    <Property Id="KEEPDATA" Secure="yes" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="MinControl" />
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
     <StandardDirectory Id="CommonAppDataFolder">
-      <Directory Id="DATAFOLDER" Name="MinControl" />
+      <Directory Id="DATAFOLDER" Name="MinControl">
+        <!-- shipped category lists (build-time seed, windows/tools/MinControl.CategorySeed). The service promotes them into
+             categories\ when newer; removed again on uninstall -->
+        <Directory Id="CATEGORIESFOLDER" Name="categories">
+          <Directory Id="SEEDFOLDER" Name="seed" />
+        </Directory>
+      </Directory>
     </StandardDirectory>
 
     <Feature Id="Agent" Title="MinControl agent" AllowAbsent="no">
@@ -75,6 +87,10 @@
       <ComponentRef Id="ServiceComponent" />
       <ComponentRef Id="SetupComponent" />
       <ComponentRef Id="ConnectComponent" />
+      <ComponentRef Id="BrandAssets" />
+<?if "$(var.SeedDir)" != "" ?>
+      <ComponentGroupRef Id="CategorySeedFiles" />
+<?endif?>
       <ComponentRef Id="SafeBootRegistration" />
       <ComponentRef Id="NativeHostRegistration" />
     </Feature>
@@ -92,6 +108,19 @@
       </Files>
     </ComponentGroup>
 
+    <!-- icon + toast image next to the exes (service / session helper use them for toasts) -->
+    <Component Id="BrandAssets" Directory="INSTALLFOLDER" Guid="3B0C7F0E-4C57-4E55-9A0B-6C1F4A9A2D11">
+      <File Id="BrandIco" Source="$(var.AssetsDir)\mincontrol.ico" KeyPath="yes" />
+      <File Id="BrandPng" Source="$(var.AssetsDir)\mincontrol-512.png" />
+    </Component>
+
+<?if "$(var.SeedDir)" != "" ?>
+    <!-- every file the seed tool wrote (*.bin + seed-state.json); plain overwrite on upgrade, removed on uninstall -->
+    <ComponentGroup Id="CategorySeedFiles" Directory="SEEDFOLDER">
+      <Files Include="$(var.SeedDir)\**" />
+    </ComponentGroup>
+<?endif?>
+
     <!-- SYSTEM + Administrators: full; Users: read & execute (browsers launch the native host as the user). -->
     <Component Id="InstallFolderAcl" Directory="INSTALLFOLDER" Guid="C8484D18-77BE-4A14-BB09-4F81DD72ABEA">
       <CreateFolder>
@@ -100,7 +129,7 @@
     </Component>
 
     <!-- %ProgramData%\MinControl: SYSTEM + Administrators only (I7). Permanent: state survives uninstall
-         unless PURGE=1 (Setup deletes it). -->
+         unless KEEPDATA=1 is set on uninstall (Setup purges it, never on upgrade). -->
     <Component Id="DataFolderAcl" Directory="DATAFOLDER" Guid="55CF5B65-98B9-41A4-9EE5-8B9356E0793B" Permanent="yes">
       <CreateFolder>
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
@@ -168,8 +197,11 @@
     <!-- ============================================================ custom actions (MinControl.Setup) -->
 
     <!-- install: post-MSI config (only when SERVERURL is given; otherwise run Setup install by hand) -->
+    <!-- first install = no related (older) product and not a repair/maintenance run: Setup wipes old local state -->
+    <SetProperty Id="FRESHARG" Value="--fresh" After="FindRelatedProducts" Sequence="execute"
+                 Condition="NOT WIX_UPGRADE_DETECTED AND NOT Installed" />
     <SetProperty Id="CA_SetupInstall" Sequence="execute" Before="CA_SetupInstall"
-                 Value="&quot;[#SetupExe]&quot; install --from-msi --server &quot;[SERVERURL]&quot; --chrome-ext &quot;[CHROMEEXTID]&quot; --edge-ext &quot;[EDGEEXTID]&quot;" />
+                 Value="&quot;[#SetupExe]&quot; install --from-msi [FRESHARG] --server &quot;[SERVERURL]&quot; --chrome-ext &quot;[CHROMEEXTID]&quot; --edge-ext &quot;[EDGEEXTID]&quot;" />
     <CustomAction Id="CA_SetupInstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
                   Execute="deferred" Impersonate="no" Return="check" />
 
@@ -199,13 +231,22 @@
                   Execute="deferred" Impersonate="no" Return="check" />
 
     <!-- uninstall cleanup; never blocks removal (Return=ignore), output goes to the MSI log -->
-    <SetProperty Id="PURGEARG" Value="--purge" After="InstallInitialize" Sequence="execute" Condition="PURGE = &quot;1&quot;" />
+    <!-- Uninstall purges %ProgramData%\MinControl by default; KEEPDATA=1 keeps it. CA_SetupUninstall itself is skipped
+         while a major upgrade removes the old product (UPGRADINGPRODUCTCODE), so an upgrade never purges. -->
+    <SetProperty Id="PURGEARG" Value="--purge" After="InstallInitialize" Sequence="execute"
+                 Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND (KEEPDATA &lt;&gt; &quot;1&quot;)" />
     <SetProperty Id="CA_SetupUninstall" Sequence="execute" Before="CA_SetupUninstall"
                  Value="&quot;[#SetupExe]&quot; uninstall --yes --from-msi [PURGEARG]" />
     <CustomAction Id="CA_SetupUninstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
                   Execute="deferred" Impersonate="no" Return="ignore" />
 
+    <!-- expected-stop marker for upgrade / repair / uninstall; immediate, before RemoveExistingProducts (which is
+         scheduled after InstallValidate) so it precedes the old product's StopServices; see CustomActions.cs -->
+    <CustomAction Id="CA_WriteExpectedStop" BinaryRef="MinControlUiCA" DllEntry="WriteExpectedStop" Execute="immediate" Return="ignore" />
+
     <InstallExecuteSequence>
+      <Custom Action="CA_WriteExpectedStop" Before="InstallValidate"
+              Condition="Privileged AND (Installed OR WIX_UPGRADE_DETECTED)" />
       <Custom Action="CA_SetupUninstall" After="StopServices"
               Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="CA_ScFailureFlag" After="InstallServices" Condition="NOT REMOVE" />

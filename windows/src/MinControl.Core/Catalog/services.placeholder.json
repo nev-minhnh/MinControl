@@ -1,0 +1,12 @@
+{
+  "version": 0,
+  "services": [
+    {
+      "id": "youtube",
+      "name": "YouTube",
+      "category": "video",
+      "domains": ["*.youtube.com", "*.youtu.be", "*.youtube-nocookie.com", "*.ytimg.com", "*.googlevideo.com", "*.youtubei.googleapis.com", "*.yt3.ggpht.com", "*.youtubekids.com"],
+      "apps": []
+    }
+  ]
+}
