@@ -1,0 +1,15 @@
+{
+  "id": "01JDQ5000000000000000000DH",
+  "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+  "userSid": "S-1-5-21-1111111111-2222222222-3333333333-1001",
+  "ts": "2026-11-22T08:42:00Z",
+  "monoMs": 3500000,
+  "type": "web.blocked",
+  "data": {
+    "host": "dns.google",
+    "source": "proxy",
+    "reason": "keyword",
+    "exe": "chrome.exe",
+    "keyword": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }
+}

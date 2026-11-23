@@ -2,7 +2,10 @@
 import { verifyUploadToken } from "../auth/upload-token";
 import { intakeEvents } from "../ingest";
 import { HttpError, errorResponse, json, parseJsonBytes, readBytes, validateOrThrow } from "../lib/http";
-import { normTs } from "../lib/time";
+import { b64urlDecode, utf8 } from "../lib/encoding";
+import { verifySignature } from "../lib/crypto";
+import { normTs, parseAuthTs } from "../lib/time";
+import { afterDeviceRemoved, deleteDeviceAndData } from "../wipe";
 import { ULID_RE } from "../lib/ulid";
 import type { Ctx } from "../router";
 import { BLOB_KEY_RE } from "./master";
@@ -128,4 +131,30 @@ export async function putInventory(c: Ctx): Promise<Response> {
   }
   if (stmts.length) await c.env.DB.batch(stmts);
   return json({ stored });
+}
+
+/**
+ * POST /v1/device/deregister (API.md section 18.2; no upload token). Body {deviceId, ts, sig},
+ * sig = Ed25519(deviceKey, "deregister|"+deviceId+"|"+ts), |now - ts| <= 300 s. Idempotent.
+ */
+export async function deregister(c: Ctx): Promise<Response> {
+  const b = parseJsonBytes(await readBytes(c.request, 4096)) as { deviceId?: unknown; ts?: unknown; sig?: unknown } | null;
+  const deviceId = b?.deviceId;
+  const ts = typeof b?.ts === "number" ? String(b.ts) : b?.ts;
+  const sig = b?.sig;
+  if (typeof deviceId !== "string" || !ULID_RE.test(deviceId) || typeof ts !== "string" || typeof sig !== "string" || !/^[A-Za-z0-9_-]{86}$/.test(sig)) {
+    throw new HttpError(400, "invalid_body", "expected {deviceId, ts, sig}");
+  }
+  const tsMs = parseAuthTs(ts);
+  if (!Number.isFinite(tsMs) || Math.abs(Date.now() - tsMs) > 300_000) throw new HttpError(401, "stale_request", "ts outside ±300 s");
+  const row = await c.env.DB.prepare("SELECT device_pub_key FROM devices WHERE id = ?").bind(deviceId).first<{ device_pub_key: string }>();
+  if (!row) return json({ deleted: false });
+  const pub = b64urlDecode(row.device_pub_key);
+  const sigBytes = b64urlDecode(sig);
+  if (!pub || !sigBytes || !(await verifySignature("ed25519", pub, sigBytes, utf8(`deregister|${deviceId}|${ts}`)))) {
+    throw new HttpError(401, "bad_signature", "deregister signature invalid");
+  }
+  const deleted = await deleteDeviceAndData(c.env, deviceId);
+  await afterDeviceRemoved(c.env, (p) => c.exec.waitUntil(p));
+  return json({ deleted });
 }

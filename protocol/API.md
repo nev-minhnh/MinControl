@@ -291,3 +291,28 @@ Every kind of blocking supports two modes: **blocklist** (default allow, block w
 - **Events**: `web.blocked.reason` adds `"keyword"`, `"service"`; `web.blocked` data adds optional `keyword`,
   `service`; `process.blocked` data adds optional `service`. A `web.blocked` / `process.blocked` is emitted for
   EVERY attempt (rate limit: same host/exe at most once per 10 s), so the timeline always shows "Đã chặn".
+- **Fully described blocks** (so the timeline shows exactly what happened): `web.blocked` data adds optional
+  `action` ("refused"|"closed_tab"|"closed_window"), `title` (≤512, page/video/window title at block time), `query`
+  (≤512, search query when relevant), `engine` (google|bing|youtube|coccoc|other), `count` (int ≥ 1, attempts folded
+  into this event within its rate-limit window) and `rule` (≤128, human-readable label, e.g. "Danh mục: Mạng xã hội",
+  "Dịch vụ: TikTok", "Từ khóa: xxx", "Danh sách chặn: *.youtube.com"). `process.blocked` data adds optional `action`
+  ("killed"|"denied"), `count`, `title` (window title if any); `rule` already exists.
+
+## 18. No recovery code; uninstall and reinstall leave no garbage (decided by Minh 2026-11-23)
+Supersedes §13B and the "Đổi điện thoại / khôi phục" path of §12 for the normal product.
+1. **No recovery code.** `POST /v1/master/register` (bootstrap secret) stays only as an **operator tool** (disaster
+   recovery by whoever deploys the Worker); the apps do not offer it.
+2. **Device deregister** `POST /v1/device/deregister` (no upload token) body `{"deviceId","ts","sig"}`,
+   sig = b64url Ed25519(deviceKey, `"deregister|"+deviceId+"|"+ts`), |now − ts| ≤ 300 s (ts as in §10 poll). Deletes the
+   device and ALL its data (events, web_visits, usage_daily, domains_daily, screenshots rows, alerts, commands,
+   policies, managed_users, app_inventory, transfer_devices, claims of it, pairing codes) and tells its DeviceHub to
+   drop its storage and close its sockets. `200 {"deleted":true}`; unknown device → `200 {"deleted":false}`
+   (idempotent); known device with a bad signature → `401`. The uninstaller calls it before removing the agent.
+3. **Master** `DELETE /v1/master/devices/:id` (→ `204`) deletes the device and all its data with the same helper.
+4. **Last device gone** (by 2 or 3): all master keys are revoked, the seal key and all push subscriptions are cleared
+   and live master sockets closed, so the next phone that scans a PC's QR becomes master (§12 trust on first use).
+5. **`register-with-claim`** is allowed whenever there is no active master key (§12, unchanged). When it succeeds it
+   wipes everything left from the previous era: all other devices and their data, alerts, push subscriptions, the
+   notify settings and old transfers. Only `config` meter rows (`usage:*`) and the new master are kept.
+6. **`POST /v1/master/reset`** (sign-role key) → `200 {"reset":true}`: wipes all devices and data, alerts, master
+   keys, seal key, push subscriptions, settings, transfers and pairing codes (pending PC claims and meter rows stay).

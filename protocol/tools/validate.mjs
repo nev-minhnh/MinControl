@@ -29,5 +29,22 @@ for (const stem of readdirSync(join(root, "fixtures"))) {
     }
   }
 }
+// services.json catalog: schema + uniqueness (ids, domains across services) + every entry blocks something
+{
+  const validate = ajv.getSchema("https://mincontrol.local/protocol/services.schema.json");
+  const cat = JSON.parse(readFileSync(join(root, "services.json"), "utf8"));
+  checked++;
+  if (!validate(cat)) { failures++; console.error("FAIL services.json", JSON.stringify(validate.errors?.slice(0, 3))); }
+  const ids = new Set(), doms = new Map();
+  for (const s of cat.services ?? []) {
+    if (ids.has(s.id)) { failures++; console.error(`FAIL services.json duplicate id ${s.id}`); }
+    ids.add(s.id);
+    if (!s.domains.length && !s.apps.length) { failures++; console.error(`FAIL services.json ${s.id} has no domains or apps`); }
+    for (const d of s.domains) {
+      if (doms.has(d)) { failures++; console.error(`FAIL services.json domain ${d} in both ${doms.get(d)} and ${s.id}`); }
+      doms.set(d, s.id);
+    }
+  }
+}
 console.log(`${checked} fixtures checked, ${failures} failures`);
 process.exit(failures ? 1 : 0);

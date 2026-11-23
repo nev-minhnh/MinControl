@@ -6,7 +6,7 @@ import type { Env } from "./env";
 import { json } from "./lib/http";
 import { meteredEnv } from "./meter";
 import { Router } from "./router";
-import { deviceWs, postEvents, putBlob, putInventory } from "./routes/device";
+import { deregister, deviceWs, postEvents, putBlob, putInventory } from "./routes/device";
 import { approveClaim, enrollStart, getClaim, getClaimByCode, pollClaim, registerWithClaim, rejectClaim } from "./routes/claims";
 import { createPairingCode, enroll } from "./routes/enroll";
 import { masterLive } from "./routes/live";
@@ -27,6 +27,8 @@ export const router = new Router()
   .add("PUT", "/v1/device/blobs/*key", "none", putBlob) // upload token checked in the handler
   .add("PUT", "/v1/device/inventory", "none", putInventory) // upload token checked in the handler
   // master
+  .add("POST", "/v1/device/deregister", "none", deregister) // device signature checked in the handler
+  .add("POST", "/v1/master/reset", "master", m.resetAll)
   .add("POST", "/v1/master/register", "none", m.register) // bootstrap secret checked in the handler
   .add("POST", "/v1/master/register-with-claim", "none", registerWithClaim) // TOFU; sig checked in the handler
   .add("POST", "/v1/master/transfers/claim", "none", claimTransfer) // token + sig checked in the handler
