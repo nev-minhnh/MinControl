@@ -45,6 +45,8 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private readonly ConcurrentDictionary<int, Tracked> _tracked = new();
     // Every pid already evaluated once (ETW and the backup poll both report starts; evaluate each pid once).
     private readonly ConcurrentDictionary<int, byte> _handled = new();
+    // pid → monotonic ms of its kill (de-duplicates racing evaluations of one process)
+    private readonly ConcurrentDictionary<int, long> _killedPids = new();
     private readonly Queue<BlockRecord> _recentBlocks = new();
     /// <summary>process.blocked: at most one event per (sid, exe) per 10 s, repeats folded into <c>count</c> (API.md §17).</summary>
     private readonly BlockEventFolder _blockedEvents;
@@ -281,6 +283,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private void OnStopped(int pid)
     {
         _handled.TryRemove(pid, out _);
+        _killedPids.TryRemove(pid, out _);
         if (_tracked.TryRemove(pid, out var t) && t.Emitted)
         {
             try { _sink.Emit(EventTypes.ProcessStop, t.Sid, EventData.Process(t.Path, t.Pid, t.ParentPid)); }
@@ -290,6 +293,14 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
 
     private void Block(int pid, int parentPid, string sid, string path, RuleDecision decision)
     {
+        // The startup/policy rescan and the process sources can race on the same new pid: one kill (and one event) per
+        // process. Cleared when the pid stops, so a reused pid is judged again.
+        var nowMs = _clock.MonotonicMs;
+        if (_killedPids.TryGetValue(pid, out var at) && nowMs - at < 5_000) return;
+        _killedPids[pid] = nowMs;
+        if (_killedPids.Count > 4096)
+            foreach (var kv in _killedPids)
+                if (nowMs - kv.Value > 60_000) _killedPids.TryRemove(kv.Key, out _);
         var sw = Stopwatch.StartNew();
         bool killed = _control.Terminate(pid, path);
         _tracked.TryRemove(pid, out _);
