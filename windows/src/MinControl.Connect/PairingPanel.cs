@@ -12,9 +12,9 @@ namespace MinControl.Connect;
 internal sealed class PairingPanel : UserControl
 {
     private readonly SetupRunner _runner;
-    private readonly Label _title, _hint, _fingerprint, _code, _countdown, _status;
+    private readonly Label _title, _hint, _fpCaption, _fingerprint, _code, _countdown, _status;
     private readonly PictureBox _qr;
-    private readonly Button _action;
+    private readonly Button _action, _close;
     private readonly System.Windows.Forms.Timer _tick = new() { Interval = 1000 };
     private CancellationTokenSource? _cts;
     private DateTimeOffset _expires;
@@ -32,30 +32,41 @@ internal sealed class PairingPanel : UserControl
         BackColor = Color.White;
         Dock = DockStyle.Fill;
 
-        var layout = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true,
-            Padding = new Padding(28, 20, 28, 16), BackColor = Color.White,
-        };
-        _title = Theme.Text("Kết nối với điện thoại", 15f, FontStyle.Bold);
-        _title.Margin = new Padding(0, 0, 0, 6);
+        var page = new CenteredPage();
+        var logo = Theme.Logo(56);
+        _title = Theme.Text("Kết nối với điện thoại", 16f, FontStyle.Bold);
+        _title.Margin = Theme.Px(0, 0, 0, 6);
         _hint = Theme.Text("Mở app MinControl trên điện thoại → bấm Quét mã → quét mã này. Lần đầu dùng, app sẽ tự thiết lập.", 10.5f, color: Theme.Muted);
-        _hint.Margin = new Padding(0, 0, 0, 12);
-        _qr = new PictureBox { Size = new Size(240, 240), SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0, 0, 0, 10), Visible = false };
-        _fingerprint = Theme.Text("", 10.5f, FontStyle.Bold);
-        _fingerprint.Margin = new Padding(0, 0, 0, 2);
-        _code = Theme.Text("", 9f, color: Theme.Muted);
-        _code.Margin = new Padding(0, 0, 0, 2);
-        _countdown = Theme.Text("", 9f, color: Theme.Muted);
-        _countdown.Margin = new Padding(0, 0, 0, 10);
+        _hint.Margin = Theme.Px(0, 0, 0, 16);
+        _qr = new PictureBox
+        {
+            Size = Theme.Px(248, 248), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White, Padding = Theme.Px(8, 8, 8, 8),
+            Margin = Theme.Px(0, 0, 0, 14), Visible = false,
+        };
+        _qr.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Theme.Line, Math.Max(1, Theme.Px(1)));
+            e.Graphics.DrawRectangle(pen, 0, 0, _qr.Width - 1, _qr.Height - 1);
+        };
+        _fpCaption = Theme.Text("", 9.5f, color: Theme.Muted);
+        _fpCaption.Margin = Theme.Px(0, 0, 0, 2);
+        _fingerprint = Theme.Text("", 15f, FontStyle.Bold);
+        _fingerprint.Margin = Theme.Px(0, 0, 0, 12);
+        _code = Theme.Text("", 9.5f, color: Theme.Muted);
+        _code.Margin = Theme.Px(0, 0, 0, 4);
+        _countdown = Theme.Text("", 9.5f, color: Theme.Muted);
+        _countdown.Margin = Theme.Px(0, 0, 0, 12);
         _status = Theme.Text("", 10.5f);
-        _status.Margin = new Padding(0, 0, 0, 12);
+        _status.Margin = Theme.Px(0, 0, 0, 12);
         _action = Theme.PrimaryButton("Thử lại");
         _action.Visible = false;
         _action.Click += (_, _) => _onAction?.Invoke();
+        _close = Theme.SecondaryButton("Đóng");
+        _close.Visible = false;
+        _close.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
 
-        layout.Controls.AddRange([_title, _hint, _qr, _fingerprint, _code, _countdown, _status, _action]);
-        Controls.Add(layout);
+        page.Add(logo, _title, _hint, _qr, _fpCaption, _fingerprint, _code, _countdown, _status, CenteredPage.ButtonRow(_action, _close));
+        Controls.Add(page);
 
         _tick.Tick += (_, _) => UpdateCountdown();
     }
@@ -144,9 +155,10 @@ internal sealed class PairingPanel : UserControl
     {
         _tick.Stop();
         _qr.Visible = false;
-        _fingerprint.Text = _code.Text = _countdown.Text = "";
+        _fpCaption.Text = _fingerprint.Text = _code.Text = _countdown.Text = "";
+        ShowQrDetails(false);
         _hint.Visible = true;
-        _action.Visible = false;
+        _action.Visible = _close.Visible = false;
         SetStatus("Đang tạo mã QR…", Theme.Muted);
     }
 
@@ -161,14 +173,15 @@ internal sealed class PairingPanel : UserControl
             old?.Dispose();
         }
         var fp = (string?)s["fingerprint"] ?? "";
-        _fingerprint.Text = "Mã nhận dạng máy: " + string.Join(" ", Enumerable.Range(0, fp.Length / 4).Select(i => fp.Substring(i * 4, 4))) +
-                            "\n(điện thoại phải hiện đúng mã này)";
+        _fpCaption.Text = "Mã nhận dạng máy (điện thoại phải hiện đúng mã này)";
+        _fingerprint.Text = string.Join(" ", Enumerable.Range(0, fp.Length / 4).Select(i => fp.Substring(i * 4, 4)));
         _code.Text = $"Không quét được? Trong app chọn \"Nhập mã\": {(string?)s["code"]}";
         _expires = DateTimeOffset.TryParse((string?)s["expiresAt"], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var e)
             ? e : DateTimeOffset.UtcNow.AddMinutes(15);
         _qr.Visible = true;
+        ShowQrDetails(true);
         _hint.Visible = true;
-        _action.Visible = false;
+        _action.Visible = _close.Visible = false;
         SetStatus("Đang chờ điện thoại xác nhận…", Theme.Muted);
         UpdateCountdown();
         _tick.Start();
@@ -185,22 +198,19 @@ internal sealed class PairingPanel : UserControl
         _tick.Stop();
         _qr.Visible = false;
         _hint.Visible = false;
-        _fingerprint.Text = _code.Text = _countdown.Text = "";
+        _fpCaption.Text = _fingerprint.Text = _code.Text = _countdown.Text = "";
+        ShowQrDetails(false);
         SetStatus(message, color);
-        if (actionText is not null && action is not null)
+        _action.Visible = actionText is not null && action is not null;
+        if (_action.Visible)
         {
             _action.Text = actionText;
             _onAction = action;
-            _action.Visible = true;
         }
-        else if (showClose)
-        {
-            _action.Text = "Đóng";
-            _onAction = () => CloseRequested?.Invoke(this, EventArgs.Empty);
-            _action.Visible = true;
-        }
-        else _action.Visible = false;
+        _close.Visible = showClose;
     }
+
+    private void ShowQrDetails(bool visible) => _fpCaption.Visible = _fingerprint.Visible = _code.Visible = _countdown.Visible = visible;
 
     private void SetStatus(string text, Color color)
     {

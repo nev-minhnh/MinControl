@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    "Kết nối MinControl với điện thoại": elevated window that shows the pairing QR code (API.md §10) until the parent
+    "MinControl Connect": elevated window that shows the pairing QR code (API.md §10) until the parent
     scans and approves it in the master app. It drives "MinControl.Setup.exe claim-start / claim-wait" next to it.
     PairingPanel / SetupRunner / Theme are also compiled into MinControl.Bootstrapper (MinControl-Setup.exe).
     Separate exe because Setup is a console app; the manifest requests UAC (Setup needs elevation anyway).
@@ -13,7 +13,15 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\..\assets\mincontrol.ico</ApplicationIcon>
+    <!-- "MinControl Connect": taskbar / Task Manager name (FileDescription) and product name -->
+    <AssemblyTitle>MinControl Connect</AssemblyTitle>
+    <Product>MinControl Connect</Product>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- window icon (multi-size 16..256) and logo, loaded from the assembly so they never depend on files on disk -->
+    <EmbeddedResource Include="..\..\assets\mincontrol.ico" LogicalName="MinControl.Icon.ico" />
+    <EmbeddedResource Include="..\..\assets\mincontrol-512.png" LogicalName="MinControl.Logo.png" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="QRCoder" />
   </ItemGroup>
