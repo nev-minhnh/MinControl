@@ -13,7 +13,10 @@
     <OutputName>MinControl-$(ProductVersion)</OutputName>
     <AgentPublishDir Condition="'$(AgentPublishDir)' == ''">$(MSBuildThisFileDirectory)..\artifacts\publish\agent</AgentPublishDir>
     <DefaultServerUrl Condition="'$(DefaultServerUrl)' == ''"></DefaultServerUrl>
-    <DefineConstants>PublishDir=$(AgentPublishDir);ProductVersion=$(ProductVersion);DefaultServerUrl=$(DefaultServerUrl)</DefineConstants>
+    <!-- category seed (scripts/build-msi.ps1 runs windows/tools/MinControl.CategorySeed); empty = MSI without seed lists -->
+    <CategorySeedDir Condition="'$(CategorySeedDir)' == ''"></CategorySeedDir>
+    <AssetsDir>$(MSBuildThisFileDirectory)..\windows\assets</AssetsDir>
+    <DefineConstants>PublishDir=$(AgentPublishDir);ProductVersion=$(ProductVersion);DefaultServerUrl=$(DefaultServerUrl);SeedDir=$(CategorySeedDir);AssetsDir=$(AssetsDir)</DefineConstants>
     <OutputPath>$(MSBuildThisFileDirectory)..\artifacts\msi\</OutputPath>
     <!-- vi-VN first, stock en-US strings of the UI extension as fallback; one MSI. -->
     <!-- per-machine Start-menu shortcut on a file KeyPath: ICE38/43/57 only fit per-user shortcuts -->
