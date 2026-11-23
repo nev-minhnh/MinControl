@@ -2,6 +2,9 @@ namespace MinControl.Monitoring;
 
 public sealed class MonitoringOptions
 {
+    /// <summary>process.blocked: same (sid, exe) at most once per period, repeats folded into count (API.md 17).</summary>
+    public TimeSpan BlockedEventPeriod { get; set; } = TimeSpan.FromSeconds(10);
+
     /// <summary>Kernel-enforced layer: deny-Execute ACE for the managed SID on exes of block rules under
     /// %ProgramFiles% / %ProgramFiles(x86)% only (never %windir%, never user-writable paths). Off by default.</summary>
     public bool EnableAclLayer { get; set; }
