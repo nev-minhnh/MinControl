@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.IO;
 using Microsoft.Win32;
 using WixToolset.Dtf.WindowsInstaller;
 
@@ -12,6 +14,39 @@ namespace MinControl.Installer.CA
     /// </summary>
     public static class CustomActions
     {
+        /// <summary>
+        /// "Expected stop" marker (same JSON as MinControl.Core.Storage.ExpectedStopMarker; the CA project does not
+        /// reference Core): <c>{"at":"yyyy-MM-ddTHH:mm:ssZ","by":"msi"}</c> in %ProgramData%\MinControl\expected-stop.json,
+        /// so the service does not report tamper.service_stopped for the stop this MSI is about to cause.
+        /// IMMEDIATE (not deferred) on purpose: during a major upgrade the OLD product is removed inside
+        /// RemoveExistingProducts, which runs (with its own StopServices) before this package's deferred script even
+        /// starts, so a deferred action could never precede that stop. It is scheduled Before="InstallValidate" for
+        /// upgrade/repair/uninstall and guarded by Privileged; elevated msiexec runs the execute sequence with the
+        /// token that may write %ProgramData%\MinControl (SYSTEM/Administrators only). The folder is not created here
+        /// (that would bypass its restricted ACL): without a folder there is no installed service to protect.
+        /// Errors are ignored.
+        /// </summary>
+        [CustomAction]
+        public static ActionResult WriteExpectedStop(Session session)
+        {
+            try
+            {
+                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "MinControl");
+                if (!Directory.Exists(dir))
+                {
+                    session.Log("WriteExpectedStop: no data folder, skipped");
+                    return ActionResult.Success;
+                }
+                var json = "{\"at\":\"" + DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) + "\",\"by\":\"msi\"}";
+                File.WriteAllText(Path.Combine(dir, "expected-stop.json"), json);
+            }
+            catch (Exception e)
+            {
+                session.Log("WriteExpectedStop: " + e.Message);
+            }
+            return ActionResult.Success;
+        }
+
         /// <summary>
         /// After ExecuteAction (install succeeded). Fills the ExitDialog optional text and the
         /// "Mở màn hình kết nối" checkbox (checked) when this PC is not paired yet.

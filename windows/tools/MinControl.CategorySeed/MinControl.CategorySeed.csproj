@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Build-time tool (not shipped): hashes the UT1 blacklists from the local GitHub-mirror snapshot zip
+    (tools\ut1\ut1-blacklists-master.zip, no network) plus the curated service-catalog domains into the MinControl .bin
+    files and writes seed-state.json. scripts/build-msi.ps1 runs it; the MSI installs the output into
+    %ProgramData%\MinControl\categories\seed\ and the service promotes it into categories\ when newer.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>MinControl.CategorySeed</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MinControl.Core\MinControl.Core.csproj" />
+    <ProjectReference Include="..\..\src\MinControl.NetGuard\MinControl.NetGuard.csproj" />
+  </ItemGroup>
+</Project>

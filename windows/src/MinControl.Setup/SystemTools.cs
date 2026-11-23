@@ -57,6 +57,8 @@ internal static class SystemTools
     {
         var state = ServiceState();
         if (state is null or "STOPPED") return true;
+        // Tell the service this stop is planned (no tamper.service_stopped alert). Best effort.
+        MinControl.Core.Storage.ExpectedStopMarker.Write(new MinControl.Core.Storage.DataPaths().ExpectedStop, "setup", DateTimeOffset.UtcNow);
         Run(Sc, "stop", ServiceName);
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)

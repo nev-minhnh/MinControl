@@ -10,9 +10,11 @@ using MinControl.Core.Util;
 using MinControl.Setup;
 
 // MinControl.Setup — run elevated (the exe manifest requests UAC).
-//   install  --server <https-url> [--chrome-ext <id>] [--edge-ext <id>] [--from-msi]
+//   install  --server <https-url> [--chrome-ext <id>] [--edge-ext <id>] [--from-msi] [--fresh]
 //       Post-MSI configuration: writes %ProgramData%\MinControl\config.json (SYSTEM/Admins-only ACL) and the
 //       native-messaging host manifest next to MinControl.NativeHost.exe. The MSI runs it with its properties.
+//       --fresh (the MSI passes it on a first install: no earlier MinControl product, not a repair/upgrade): wipes
+//       %ProgramData%\MinControl except categories\ first, so a reinstall never inherits an old identity or state.
 //   enroll <code> [--server <https-url>] [--force] [--from-msi] [--attempt <id>] [--restart-service]
 //       Server defaults to config.json ServerUrl. Every run records its outcome in
 //       %ProgramData%\MinControl\enroll-status.json + HKLM\SOFTWARE\MinControl (EnrollStatus) for the MSI Finish
@@ -51,7 +53,7 @@ internal static partial class Cli
             {
                 case "install":
                     return Install(paths, Opt(args, "--server"), Opt(args, "--chrome-ext"), Opt(args, "--edge-ext"),
-                        args.Contains("--insecure-http"));
+                        args.Contains("--insecure-http"), args.Contains("--fresh"), mirrorToRegistry: dataDir is null);
                 case "enroll":
                     if (args.Length < 2 || args[1].StartsWith("--", StringComparison.Ordinal)) return Usage();
                     return await EnrollCommandAsync(paths, args[1], Opt(args, "--server"), args.Contains("--force"),
@@ -120,9 +122,24 @@ internal static partial class Cli
 
     // ------------------------------------------------------------------------------------------------ install
 
-    private static int Install(DataPaths paths, string? server, string? chromeExt, string? edgeExt, bool allowHttp)
+    private static int Install(DataPaths paths, string? server, string? chromeExt, string? edgeExt, bool allowHttp,
+        bool fresh, bool mirrorToRegistry)
     {
         if (!IsElevated()) return RequireElevation();
+        if (fresh)
+        {
+            // Clean install: nothing from an earlier install survives except categories\ (live lists + the seed the MSI
+            // laid down before this custom action runs; never delete it). The service is not running yet.
+            var left = SetupWipe.WipeExceptCategories(paths.Root);
+            EnrollStatus.Clear(paths, registry: mirrorToRegistry);
+            Console.WriteLine($"fresh install  : wiped {paths.Root} (kept {SetupWipe.KeptFolder}\\)");
+            foreach (var f in left) Console.Error.WriteLine($"warning: could not delete {f}");
+            if (File.Exists(paths.StateDb) || File.Exists(paths.DeviceKey))
+            {
+                Console.Error.WriteLine("error: old state.db/device.key could not be removed");
+                return 1;
+            }
+        }
         paths.EnsureExists();
         paths.ApplyRestrictedAcl();   // I7 before anything is written
         var config = AgentConfig.Load(paths.Root);
@@ -419,7 +436,11 @@ internal static partial class Cli
         });
         Step("remove SafeBoot Minimal/Network keys", SystemTools.RemoveSafeBootKeys);
 
-        // 3. Local state.
+        // 3. Tell the server to forget this device (API.md §18.2) while the identity still exists. Best effort,
+        //    also when not purging (the device is going away from the family's list either way); offline = log + go on.
+        await StepAsync("deregister device on the server", () => DeregisterAsync(paths, config));
+
+        // 4. Local state.
         if (purge)
         {
             Step("wipe state.db + device.key", () => Unenroll(paths));
@@ -427,7 +448,7 @@ internal static partial class Cli
         }
         else Console.WriteLine($"[keep] {paths.Root} (state + device identity; re-install keeps the enrolment; --purge wipes it)");
 
-        // 4. Remove the program itself unless the MSI is already doing that.
+        // 5. Remove the program itself unless the MSI is already doing that.
         if (!fromMsi)
         {
             if (SystemTools.InstalledProductCode() is { } code)
@@ -445,6 +466,23 @@ internal static partial class Cli
 
         Console.WriteLine(failures == 0 ? "Uninstall cleanup complete. Revoke the device in the master app." : $"Uninstall finished with {failures} failure(s); see above.");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>Signed POST /v1/device/deregister. Does nothing when the PC is not enrolled; a network or server failure
+    /// is only logged (never fails the uninstall).</summary>
+    private static async Task DeregisterAsync(DataPaths paths, AgentConfig config)
+    {
+        if (!File.Exists(paths.DeviceKey) || !File.Exists(paths.StateDb)) { Console.WriteLine("       (not enrolled: nothing to deregister)"); return; }
+        string? deviceId, server;
+        using (var store = new StateStore(paths.StateDb))
+        {
+            deviceId = store.GetMeta(StateStore.MetaKeys.DeviceId);
+            server = store.GetMeta(StateStore.MetaKeys.ServerUrl) ?? config.ServerUrl;
+        }
+        if (deviceId is null || !Uri.TryCreate(server, UriKind.Absolute, out var baseUri)) { Console.WriteLine("       (no device id / server: nothing to deregister)"); return; }
+        using var identity = new DeviceIdentity(paths, new DpapiMachineKeyProtector());
+        var error = await Deregistration.TrySendAsync(baseUri, identity, deviceId, DateTimeOffset.UtcNow);
+        Console.WriteLine(error is null ? "       server deleted this device" : $"       warning: deregister failed ({error}); continuing offline");
     }
 
     private static int Unenroll(DataPaths paths)

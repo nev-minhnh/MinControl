@@ -16,5 +16,8 @@
     <ProjectReference Include="..\..\src\MinControl.Browser\MinControl.Browser.csproj" />
     <Compile Include="..\..\src\MinControl.Service\Logic\*.cs" LinkBase="SessionLogic" />
     <Compile Include="..\..\src\MinControl.Setup\PairingQr.cs" LinkBase="SetupLinked" />
+    <Compile Include="..\..\src\MinControl.Setup\Deregistration.cs" LinkBase="SetupLinked" />
+    <Compile Include="..\..\src\MinControl.Setup\SetupWipe.cs" LinkBase="SetupLinked" />
+    <Compile Include="..\..\tools\MinControl.CategorySeed\CategorySeedBuilder.cs" LinkBase="CategorySeedLinked" />
   </ItemGroup>
 </Project>
