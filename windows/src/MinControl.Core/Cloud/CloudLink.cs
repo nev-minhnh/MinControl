@@ -51,20 +51,27 @@ public sealed class CloudLink : ICloudLink
     private readonly ScreenshotStorage? _screens;
     private readonly SemaphoreSlim _blobSlots = new(MaxConcurrentBlobs, MaxConcurrentBlobs);
     private volatile bool _connected;
+    private readonly LiveEventPusher? _live;
+    private readonly StateChangeDebouncer? _debouncer;
 
     public CloudLink(StateStore store, DeviceIdentity identity, EnvelopeHandler handler, DeviceStateBuilder state,
         CloudUploader uploader, UploadTokenHolder token, IEventSink events, IClock clock, CoreOptions options,
         PolicyProvider policy, CommandDispatcher commands, EventSink? concreteSink = null, ScreenshotStorage? screens = null,
-        ILogger<CloudLink>? log = null)
+        ILogger<CloudLink>? log = null, IStateChangeNotifier? stateNotifier = null, LiveEventPusher? live = null)
     {
         _store = store; _identity = identity; _handler = handler; _state = state; _uploader = uploader; _token = token;
         _events = events; _clock = clock; _options = options; _policy = policy; _screens = screens;
         _log = log ?? (ILogger)NullLogger.Instance;
+        _live = live;
+        if (live is not null) uploader.InFlight = live.InFlight;
+        if (stateNotifier is not null) _debouncer = new StateChangeDebouncer(stateNotifier, SignalState);
         policy.PolicyChanged += (_, _) => SignalState();
         commands.StateChanged += SignalState;
         commands.RefreshRequested += () => { SignalState(); SignalUpload(); };
         uploader.FlushDue += SignalUpload;
         if (concreteSink is not null)
+        {
+            if (live is not null) concreteSink.Queued += (row, id, json, _) => live.Enqueue(row, id, json);
             concreteSink.Emitted += type =>
             {
                 uploader.Nudge(type);
@@ -72,6 +79,7 @@ public sealed class CloudLink : ICloudLink
                     || type == EventTypes.QuotaExhausted || _store.OutboxCount >= CloudUploader.MaxBatch)
                     SignalUpload();
             };
+        }
     }
 
     public bool Connected => _connected;
@@ -173,6 +181,7 @@ public sealed class CloudLink : ICloudLink
         using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var heartbeat = Task.Run(() => HeartbeatAsync(ws, sessionCts.Token), sessionCts.Token);
         SignalUpload();
+        _live?.Attach(json => SendRawAsync(ws, json, sessionCts.Token));
         try
         {
             await SendAsync(ws, new JsonObject { ["t"] = "state", ["state"] = _state.Build() }, ct).ConfigureAwait(false);
@@ -202,6 +211,9 @@ public sealed class CloudLink : ICloudLink
                     case "blob_request":
                         StartBlobRequest(ws, msg, ct);
                         break;
+                    case "events_ack":
+                        _live?.HandleAck(msg);
+                        break;
                     case "ping":
                         await SendAsync(ws, new JsonObject { ["t"] = "pong" }, ct).ConfigureAwait(false);
                         break;
@@ -215,6 +227,7 @@ public sealed class CloudLink : ICloudLink
         }
         finally
         {
+            _live?.Detach();
             await sessionCts.CancelAsync().ConfigureAwait(false);
             try { await heartbeat.ConfigureAwait(false); } catch (OperationCanceledException) { } catch (WebSocketException) { }
             if (ws.State == WebSocketState.Open)
@@ -358,9 +371,12 @@ public sealed class CloudLink : ICloudLink
         return b.Uri;
     }
 
-    private async Task SendAsync(ClientWebSocket ws, JsonObject msg, CancellationToken ct)
+    private Task SendAsync(ClientWebSocket ws, JsonObject msg, CancellationToken ct)
+        => SendRawAsync(ws, msg.ToJsonString(ProtocolJson.Options), ct);
+
+    private async Task SendRawAsync(ClientWebSocket ws, string json, CancellationToken ct)
     {
-        var bytes = Encoding.UTF8.GetBytes(msg.ToJsonString(ProtocolJson.Options));
+        var bytes = Encoding.UTF8.GetBytes(json);
         await _sendLock.WaitAsync(ct).ConfigureAwait(false);
         try { await ws.SendAsync(bytes, WebSocketMessageType.Text, true, ct).ConfigureAwait(false); }
         finally { _sendLock.Release(); }

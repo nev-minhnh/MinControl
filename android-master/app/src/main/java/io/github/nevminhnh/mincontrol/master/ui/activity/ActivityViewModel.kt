@@ -106,8 +106,24 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    init {
+        // API.md 15: pushed events merge at the top of the visible lists (timeline, web, domains) without a reload.
+        viewModelScope.launch { graph.live.events.collect { onLive(it) } }
+    }
+
+    private fun onLive(m: io.github.nevminhnh.mincontrol.master.live.LiveMessage.Events) {
+        val c = child.value ?: return
+        if (m.deviceId != c.deviceId || date.value != LocalDate.now()) return
+        val today = date.value
+        val inDay: (String) -> Boolean = { ts -> Fmt.localDate(ts) == today }
+        val live = io.github.nevminhnh.mincontrol.master.live.LiveMerge
+        events.value = live.mergeEvents(events.value, m.events, live.timelineAccept(c.sid, inDay))
+        domainEvents.value = live.mergeEvents(domainEvents.value, m.events, live.domainAccept(c.sid, inDay))
+        webItems.value = live.mergeWeb(webItems.value, m.events, c.sid, webQuery.value, webFilter.value.kind, inDay)
+    }
+
     /** Resume + every 20 s + FCM alert + pull-to-refresh: reloads the visible tab in place (lists are kept while loading). */
-    val refresher = AutoRefresher(viewModelScope, RefreshIntervals.DEFAULT_MS) { refreshCurrent() }
+    val refresher = AutoRefresher(viewModelScope, RefreshIntervals.DEFAULT_MS, live = graph.live.healthy) { refreshCurrent() }
 
     private suspend fun refreshCurrent() {
         if (child.value == null) return

@@ -2,11 +2,13 @@
 // Holds the device WebSocket (hibernation API), the signed policy/command queue with per-kind seq,
 // presence and upload-token refresh. D1 mirrors (policies, commands, devices.online/state) are written
 // from here so the Worker can serve master reads without waking the DO.
+// Live view (API.md section 15): read-only master sockets (tag "master") get state/events/online pushes.
 import { DurableObject } from "cloudflare:workers";
 import { issueUploadToken } from "./auth/upload-token";
 import { type BlobResult, BlobRelay } from "./blob-relay";
 import type { Env } from "./env";
 import { randomBytes, verifySignatureB64 } from "./lib/crypto";
+import { type DeviceInfo, intakeEvents, screenEvents } from "./ingest";
 import { b64urlEncode, utf8 } from "./lib/encoding";
 import { nowIso, parseAuthTs } from "./lib/time";
 import { validateWsDeviceMessage } from "./generated/validators";
@@ -22,14 +24,38 @@ const AUTH_SKEW_MS = 300_000;
 /** Refresh the upload token this long before it expires. */
 const TOKEN_REFRESH_LEAD_MS = 10 * 60_000;
 const MAX_FRAME_BYTES = 64 * 1024;
+/** Master live sockets idle (no ping) for this long are closed (API.md section 15). */
+export const MASTER_IDLE_MS = 10 * 60_000;
+/** Cap on concurrent master live sockets per device; the oldest is closed beyond it. */
+export const MAX_MASTER_SOCKETS = 8;
+export const CLOSE_MASTER_IDLE = 4408;
+export const MASTER_TAG = "master";
+/** Internal hand-off from the Worker's /v1/master/live route (X-MC-Auth already verified there). */
+export const MASTER_LIVE_PATH = "/v1/master/live";
+export const MASTER_KEY_HEADER = "x-mc-live-key-id";
 
 interface Attachment {
+  role?: undefined; // device socket (attachments written before section 15 have no role)
   deviceId: string;
   nonce: string;
   authed: boolean;
   connectedAt: number;
   tokenExpMs: number;
+  /** cached at auth so event frames need no extra D1 read */
+  hostname?: string;
+  timezone?: string | null;
 }
+
+interface MasterAttachment {
+  role: "master";
+  deviceId: string;
+  keyId: string;
+  connectedAt: number;
+  /** last ping that reached webSocketMessage (exact `{"t":"ping"}` frames are auto-answered, see masterLastSeen) */
+  lastPingMs: number;
+}
+
+type AnyAttachment = Attachment | MasterAttachment;
 
 export interface PolicyMeta {
   version: number;
@@ -65,6 +91,7 @@ type Msg =
   | { t: "master_keys_rejected"; seq: number; error: string }
   | { t: "state"; state: { agentVersion: string; policyVersion?: number | null } & Record<string, unknown> }
   | { t: "blob_missing"; reqId: string }
+  | { t: "events"; events: unknown[] }
   | { t: "ping" }
   | { t: "pong" };
 
@@ -113,7 +140,26 @@ export class DeviceHub extends DurableObject<Env> {
   }
 
   private authedSockets(): WebSocket[] {
-    return this.ctx.getWebSockets().filter((ws) => (ws.deserializeAttachment() as Attachment | null)?.authed);
+    return this.ctx.getWebSockets().filter((ws) => {
+      const att = ws.deserializeAttachment() as AnyAttachment | null;
+      return att?.role !== "master" && att?.authed === true;
+    });
+  }
+
+  private masterSockets(): WebSocket[] {
+    return this.ctx.getWebSockets(MASTER_TAG);
+  }
+
+  /** Sends one frame to every master live socket (best effort). */
+  private fanOut(frame: unknown): void {
+    const sockets = this.masterSockets();
+    if (sockets.length === 0) return;
+    const text = JSON.stringify(frame);
+    for (const ws of sockets) this.sendRaw(ws, text);
+  }
+
+  private deviceOnline(except?: WebSocket): boolean {
+    return this.authedSockets().some((ws) => ws !== except && ws.readyState === WebSocket.OPEN);
   }
 
   // ---------------------------------------------------------------- RPC (called by the Worker)
@@ -172,6 +218,11 @@ export class DeviceHub extends DurableObject<Env> {
         );
       }
       await db.batch(stmts);
+      for (const ws of this.authedSockets()) {
+        const att = ws.deserializeAttachment() as Attachment;
+        att.timezone = p.timezone;
+        ws.serializeAttachment(att);
+      }
       const delivered = this.sendToDevice(input.envelopeJson);
       if (delivered) await this.markPolicyDelivered(input.seq);
       return { ok: true, delivered };
@@ -211,6 +262,22 @@ export class DeviceHub extends DurableObject<Env> {
     return this.blobs.resolveBytes(reqId, key, bytes);
   }
 
+  /**
+   * Closes master live sockets: all of them, or only those opened with one of `keyIds`.
+   * Called after master keys are revoked or rotated (phone transfer, re-register). Returns how many were closed.
+   */
+  async closeMasterSockets(keyIds?: string[]): Promise<number> {
+    const only = keyIds ? new Set(keyIds) : null;
+    let n = 0;
+    for (const ws of this.masterSockets()) {
+      const att = ws.deserializeAttachment() as MasterAttachment | null;
+      if (only && att && !only.has(att.keyId)) continue;
+      this.closeWs(ws, CLOSE_AUTH_FAILED, "master key revoked");
+      n++;
+    }
+    return n;
+  }
+
   async revoke(deviceId: string): Promise<void> {
     this.bindDevice(deviceId);
     this.setMeta("revoked", "1");
@@ -229,13 +296,15 @@ export class DeviceHub extends DurableObject<Env> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return Response.json({ error: "upgrade_required", message: "expected a WebSocket upgrade" }, { status: 426 });
     }
-    const deviceId = new URL(request.url).searchParams.get("deviceId") ?? "";
+    const url = new URL(request.url);
+    const deviceId = url.searchParams.get("deviceId") ?? "";
     try {
       this.bindDevice(deviceId);
     } catch {
       return Response.json({ error: "wrong_device", message: "device mismatch" }, { status: 400 });
     }
     if (this.revoked) return Response.json({ error: "revoked", message: "device revoked" }, { status: 403 });
+    if (url.pathname === MASTER_LIVE_PATH) return this.acceptMaster(deviceId, request.headers.get(MASTER_KEY_HEADER) ?? "");
 
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
@@ -248,8 +317,57 @@ export class DeviceHub extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  private acceptMaster(deviceId: string, keyId: string): Response {
+    if (!keyId) return Response.json({ error: "unauthorized", message: "missing master key" }, { status: 401 });
+    const existing = this.masterSockets();
+    if (existing.length >= MAX_MASTER_SOCKETS) {
+      const byAge = existing
+        .map((ws) => ({ ws, at: (ws.deserializeAttachment() as MasterAttachment | null)?.connectedAt ?? 0 }))
+        .sort((a, b) => a.at - b.at);
+      for (const { ws } of byAge.slice(0, existing.length - MAX_MASTER_SOCKETS + 1)) this.closeWs(ws, CLOSE_REPLACED, "too many live sockets");
+    }
+    const pair = new WebSocketPair();
+    const [client, server] = [pair[0], pair[1]];
+    this.ctx.acceptWebSocket(server, [MASTER_TAG]);
+    const now = Date.now();
+    const att: MasterAttachment = { role: "master", deviceId, keyId, connectedAt: now, lastPingMs: now };
+    server.serializeAttachment(att);
+    server.send(JSON.stringify({ t: "online", deviceId, online: this.deviceOnline() }));
+    this.scheduleAlarm();
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** Master sockets are read-only: pings are answered, everything else is ignored. */
+  private handleMasterMessage(ws: WebSocket, att: MasterAttachment, message: string | ArrayBuffer): void {
+    if (typeof message !== "string" || message.length > 256) return;
+    let msg: unknown;
+    try {
+      msg = JSON.parse(message);
+    } catch {
+      return;
+    }
+    if (!msg || typeof msg !== "object" || (msg as { t?: unknown }).t !== "ping") return;
+    att.lastPingMs = Date.now();
+    ws.serializeAttachment(att);
+    this.sendRaw(ws, '{"t":"pong"}');
+  }
+
+  /** Last sign of life of a master socket: connect, a ping we saw, or a ping auto-answered while hibernating. */
+  private masterLastSeen(ws: WebSocket, att: MasterAttachment): number {
+    let t = Math.max(att.connectedAt, att.lastPingMs);
+    try {
+      const auto = this.ctx.getWebSocketAutoResponseTimestamp(ws);
+      if (auto) t = Math.max(t, auto.getTime());
+    } catch {
+      /* not available */
+    }
+    return t;
+  }
+
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    const att = ws.deserializeAttachment() as Attachment | null;
+    const any = ws.deserializeAttachment() as AnyAttachment | null;
+    if (any?.role === "master") return this.handleMasterMessage(ws, any, message);
+    const att = any as Attachment | null;
     if (!att) return this.closeWs(ws, CLOSE_BAD_FRAME, "no session");
     if (typeof message !== "string" || message.length > MAX_FRAME_BYTES) {
       return this.closeWs(ws, att.authed ? CLOSE_BAD_FRAME : CLOSE_AUTH_FAILED, "bad frame");
@@ -293,12 +411,51 @@ export class DeviceHub extends DurableObject<Env> {
       case "blob_missing":
         this.blobs.resolveMissing(m.reqId);
         return;
+      case "events":
+        return this.handleEvents(ws, att, m.events);
       case "state":
+        this.fanOut({ t: "state", deviceId: att.deviceId, state: m.state });
         await this.env.DB.prepare(
           "UPDATE devices SET state_json = ?, last_seen_at = ?, online = 1, agent_version = ? WHERE id = ?",
         ).bind(JSON.stringify(m.state), nowIso(), m.state.agentVersion, att.deviceId).run();
         return;
     }
+  }
+
+  /**
+   * Live events (API.md section 15): the same intake as HTTP POST /v1/device/events (one D1 batch per frame,
+   * idempotent on id), then `events_ack` to the device + fan-out of the accepted events; alerts/FCM after that.
+   * If storing fails, only the schema rejections are acked and the rest stays in the device outbox (HTTP fallback).
+   */
+  private async handleEvents(ws: WebSocket, att: Attachment, raw: unknown[]): Promise<void> {
+    const device = await this.deviceInfo(ws, att);
+    if (!device) return;
+    let acked = false;
+    try {
+      await intakeEvents(this.env, device, raw, (p) => this.ctx.waitUntil(p), ({ accepted, rejected }) => {
+        acked = true;
+        this.sendRaw(ws, JSON.stringify({ t: "events_ack", ids: accepted.map((e) => e.id), rejected }));
+        if (accepted.length > 0) this.fanOut({ t: "events", deviceId: att.deviceId, events: accepted });
+      });
+    } catch (e) {
+      console.error("DeviceHub: event intake failed", e instanceof Error ? e.message : e);
+      if (!acked) this.sendRaw(ws, JSON.stringify({ t: "events_ack", ids: [], rejected: screenEvents(raw, att.deviceId).rejected }));
+    }
+  }
+
+  /** hostname/timezone for ingest: cached in the attachment (set at auth, refreshed on policy change). */
+  private async deviceInfo(ws: WebSocket, att: Attachment): Promise<DeviceInfo | null> {
+    if (att.hostname !== undefined && att.timezone !== undefined) {
+      return { id: att.deviceId, hostname: att.hostname, timezone: att.timezone };
+    }
+    const row = await this.env.DB.prepare("SELECT hostname, timezone FROM devices WHERE id = ?")
+      .bind(att.deviceId)
+      .first<{ hostname: string; timezone: string | null }>();
+    if (!row) return null;
+    att.hostname = row.hostname;
+    att.timezone = row.timezone;
+    ws.serializeAttachment(att);
+    return { id: att.deviceId, hostname: row.hostname, timezone: row.timezone };
   }
 
   override async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean): Promise<void> {
@@ -314,8 +471,13 @@ export class DeviceHub extends DurableObject<Env> {
     const now = Date.now();
     const secret = this.env.UPLOAD_TOKEN_SECRET;
     for (const ws of this.ctx.getWebSockets()) {
-      const att = ws.deserializeAttachment() as Attachment | null;
-      if (!att) continue;
+      const any = ws.deserializeAttachment() as AnyAttachment | null;
+      if (!any) continue;
+      if (any.role === "master") {
+        if (now - this.masterLastSeen(ws, any) >= MASTER_IDLE_MS) this.closeWs(ws, CLOSE_MASTER_IDLE, "idle");
+        continue;
+      }
+      const att = any;
       if (!att.authed) {
         if (now - att.connectedAt >= AUTH_TIMEOUT_MS) this.closeWs(ws, CLOSE_AUTH_FAILED, "auth timeout");
         continue;
@@ -339,9 +501,9 @@ export class DeviceHub extends DurableObject<Env> {
     if (m.deviceId !== att.deviceId || !Number.isFinite(tsMs) || Math.abs(now - tsMs) > AUTH_SKEW_MS) {
       return this.closeWs(ws, CLOSE_AUTH_FAILED, "auth failed");
     }
-    const row = await this.env.DB.prepare("SELECT device_pub_key, revoked_at FROM devices WHERE id = ?")
+    const row = await this.env.DB.prepare("SELECT device_pub_key, revoked_at, hostname, timezone FROM devices WHERE id = ?")
       .bind(att.deviceId)
-      .first<{ device_pub_key: string; revoked_at: string | null }>();
+      .first<{ device_pub_key: string; revoked_at: string | null; hostname: string; timezone: string | null }>();
     if (!row || row.revoked_at || this.revoked) {
       if (row?.revoked_at) this.setMeta("revoked", "1");
       return this.closeWs(ws, row?.revoked_at ? CLOSE_REVOKED : CLOSE_AUTH_FAILED, "auth failed");
@@ -362,7 +524,10 @@ export class DeviceHub extends DurableObject<Env> {
     const tok = await issueUploadToken(secret, att.deviceId, now);
     att.authed = true;
     att.tokenExpMs = tok.expMs;
+    att.hostname = row.hostname;
+    att.timezone = row.timezone;
     ws.serializeAttachment(att);
+    this.fanOut({ t: "online", deviceId: att.deviceId, online: true });
     ws.send(JSON.stringify({ t: "ready", serverTime: nowIso(now), uploadToken: tok.token, uploadTokenExpiresAt: tok.expiresAt }));
     await this.env.DB.prepare("UPDATE devices SET online = 1, last_seen_at = ? WHERE id = ?").bind(nowIso(now), att.deviceId).run();
     await this.deliverPending(ws, now);
@@ -481,11 +646,11 @@ export class DeviceHub extends DurableObject<Env> {
   }
 
   private async updatePresence(closing: WebSocket): Promise<void> {
-    const att = closing.deserializeAttachment() as Attachment | null;
-    if (!att?.authed) return;
-    const stillOnline = this.authedSockets().some((ws) => ws !== closing && ws.readyState === WebSocket.OPEN);
-    if (!stillOnline) {
+    const att = closing.deserializeAttachment() as AnyAttachment | null;
+    if (!att || att.role === "master" || !att.authed) return;
+    if (!this.deviceOnline(closing)) {
       this.blobs.failAll("offline");
+      this.fanOut({ t: "online", deviceId: att.deviceId, online: false });
       await this.env.DB.prepare("UPDATE devices SET online = 0, last_seen_at = ? WHERE id = ?").bind(nowIso(), att.deviceId).run();
     }
   }
@@ -502,8 +667,13 @@ export class DeviceHub extends DurableObject<Env> {
   private scheduleAlarm(): void {
     let next = Infinity;
     for (const ws of this.ctx.getWebSockets()) {
-      const att = ws.deserializeAttachment() as Attachment | null;
-      if (!att) continue;
+      const any = ws.deserializeAttachment() as AnyAttachment | null;
+      if (!any) continue;
+      if (any.role === "master") {
+        next = Math.min(next, this.masterLastSeen(ws, any) + MASTER_IDLE_MS);
+        continue;
+      }
+      const att = any;
       next = Math.min(next, att.authed ? att.tokenExpMs - TOKEN_REFRESH_LEAD_MS : att.connectedAt + AUTH_TIMEOUT_MS);
     }
     const q = this.sql.exec<{ m: number | null }>("SELECT MIN(expires_ms) AS m FROM queue WHERE status = 'queued'").toArray()[0];

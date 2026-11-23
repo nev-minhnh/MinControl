@@ -230,3 +230,22 @@ policies MinControl wrote: ProxyMode/ProxyServer, InPrivate, DoH, AllowDeletingB
 `categories` (per list: file, bytes, entries, lastModified, lastError), `monitor` (ETW running or polling fallback,
 rules count, last blocks), `logs` (last 200 warning/error lines). The master app shows it in "Chẩn đoán máy" and the
 lead reads it from D1 (`events` type `diag.report`). No secrets (no keys, no tokens) may appear in a report.
+
+## 15. Realtime (decided by Minh 2026-11-23)
+Goal: while the parent has the app open and the PC is online, what the child does appears within ~1–3 s.
+- **Device → cloud, live**: every event is ALSO sent immediately over the existing device WebSocket as
+  `{"t":"events","events":[Event…]}` (≤ 50 per frame, ≤ 64 KB), right after it is written to the outbox. DeviceHub
+  writes them to D1 exactly like `POST /v1/device/events` (same ingest code, idempotent on id), then answers
+  `{"t":"events_ack","ids":[…]}`; the device deletes acked events from the outbox. The HTTP batch upload stays as the
+  fallback (WS down, backlog after reconnect). Alert evaluation + FCM run on this path too (so pushes arrive in seconds).
+- **State**: the device sends `state` immediately on foreground app change, lock/unlock, logon/logoff, quota threshold
+  crossings (and still every 60 s). `net.domain` is aggregated per **1 minute** instead of 5, and the first connection to a
+  new host in the current window is emitted at once.
+- **Cloud → master, live**: `GET /v1/master/live?deviceId=<id>` upgrades to a WebSocket (auth: `X-MC-Auth` on the upgrade
+  request, or `?auth=` with the same header value since browsers/OkHttp can set headers — use the header). DeviceHub
+  keeps master sockets (hibernation API) and pushes `{"t":"state","deviceId","state"}`, `{"t":"events","deviceId",
+  "events":[…]}` (already ingested ones) and `{"t":"online","deviceId","online":bool}`. Master sockets are read-only;
+  ping/pong every 30 s; server closes idle master sockets after 10 min without pong.
+- **App**: holds one live socket per device only while in the foreground (lifecycle-aware), merges pushed events into the
+  visible lists and state instantly; polling (§ auto-refresh) stays as fallback with a slower interval (60 s) while the
+  socket is healthy. In the background only FCM is used.

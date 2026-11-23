@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -55,6 +57,7 @@ import io.github.nevminhnh.mincontrol.master.ui.theme.Danger
 import io.github.nevminhnh.mincontrol.master.ui.theme.Outline
 import io.github.nevminhnh.mincontrol.master.ui.theme.Primary
 import io.github.nevminhnh.mincontrol.master.ui.theme.Surface
+import io.github.nevminhnh.mincontrol.master.ui.theme.SuccessDot
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextSecondary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -112,7 +115,8 @@ fun MinControlApp(openTab: String? = null) {
             if (Destination.entries.any { it.route == current }) BottomBar(current, alertCount) { nav.switchTab(it) }
         },
     ) { inner ->
-        NavHost(nav, startDestination = Destination.Overview.route, modifier = Modifier.fillMaxSize().padding(inner)) {
+        Box(Modifier.fillMaxSize().padding(inner)) {
+        NavHost(nav, startDestination = Destination.Overview.route, modifier = Modifier.fillMaxSize()) {
             composable(Destination.Overview.route) {
                 OverviewScreen(
                     onAddDevice = { nav.navigate(Routes.PAIRING) },
@@ -133,6 +137,9 @@ fun MinControlApp(openTab: String? = null) {
             composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }, onTransfer = { nav.navigate(Routes.TRANSFER) }, onDiagnose = { nav.navigate(Routes.DIAGNOSE) }) }
             composable(Routes.DIAGNOSE) { io.github.nevminhnh.mincontrol.master.ui.diagnose.DiagnoseScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.TRANSFER) { io.github.nevminhnh.mincontrol.master.ui.transfer.TransferScreen(onBack = { nav.popBackStack() }) }
+        }
+        val live by graph.live.healthy.collectAsState()
+        if (live) LiveBadge(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 4.dp, end = 64.dp))
         }
     }
 }
@@ -178,5 +185,14 @@ private fun BottomBar(current: String?, alertCount: Int, onSelect: (String) -> U
                 }
             }
         }
+    }
+}
+
+/** Tiny green dot + "Trực tiếp" while a realtime socket is open (API.md 15). */
+@Composable
+private fun LiveBadge(modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.size(6.dp).clip(CircleShape).background(SuccessDot))
+        Text("Trực tiếp", fontSize = 10.sp, color = TextSecondary, lineHeight = 12.sp)
     }
 }

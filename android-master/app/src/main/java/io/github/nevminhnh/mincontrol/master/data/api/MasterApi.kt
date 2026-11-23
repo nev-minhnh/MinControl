@@ -291,6 +291,17 @@ class MasterApi(
         Unit
     }
 
+    private val liveHttp: OkHttpClient by lazy {
+        http.newBuilder().pingInterval(25, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS).build()
+    }
+
+    /** API.md 15: read-key signed WebSocket upgrade to `/v1/master/live?deviceId=`; a fresh signature per attempt. */
+    fun openLive(deviceId: String, listener: okhttp3.WebSocketListener): okhttp3.WebSocket {
+        val base = baseUrl()?.trimEnd('/') ?: throw ApiException.NotConfigured()
+        val url = base.toHttpUrl().newBuilder().addPathSegments("v1/master/live").addQueryParameter("deviceId", deviceId).build()
+        return liveHttp.newWebSocket(build(url, "GET", null, auth = true), listener)
+    }
+
     private fun build(url: HttpUrl, method: String, body: ByteArray?, auth: Boolean): Request {
         val b = Request.Builder().url(url)
         val payload = body ?: ByteArray(0)
