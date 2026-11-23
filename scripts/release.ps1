@@ -47,9 +47,11 @@ if ([IO.Path]::GetExtension($ApkPath) -ne ".apk") { throw "ApkPath must be an .a
 
 if (-not $SkipGitHub) {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw "gh (GitHub CLI) not found on PATH" }
-    & gh auth status 1>$null 2>$null
+    # Run through cmd.exe: Windows PowerShell 5.1 turns a native command's stderr into a terminating error under
+    # $ErrorActionPreference = "Stop", and "release not found" is the EXPECTED answer here.
+    cmd /c "gh auth status >nul 2>nul"
     if ($LASTEXITCODE -ne 0) { throw "gh is not signed in (gh auth login)" }
-    & gh release view $tag --repo $Repo 1>$null 2>$null
+    cmd /c "gh release view $tag --repo $Repo >nul 2>nul"
     if ($LASTEXITCODE -eq 0) { throw "release $tag already exists on $Repo" }
 }
 
@@ -93,6 +95,8 @@ $assets = @($files.Keys | ForEach-Object { Join-Path $stage $_ }) + $sumsPath
 $ghArgs = @("release", "create", $tag, "--repo", $Repo, "--title", "MinControl $Version", "--notes-file", $NotesFile)
 if ($Draft) { $ghArgs += "--draft" }
 if ($Prerelease) { $ghArgs += "--prerelease" }
-& gh @ghArgs @assets
-if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
+$prevEap = $ErrorActionPreference; $ErrorActionPreference = "Continue"   # gh prints upload progress on stderr
+& gh @ghArgs @assets 2>&1 | ForEach-Object { "$_" }
+$ghExit = $LASTEXITCODE; $ErrorActionPreference = $prevEap
+if ($ghExit -ne 0) { throw "gh release create failed ($ghExit)" }
 Write-Host "released $tag on $Repo" -ForegroundColor Green

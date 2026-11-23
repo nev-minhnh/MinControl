@@ -291,7 +291,8 @@ public sealed class BrowserHistoryTests : IDisposable
         Assert.Equal(1, fired);
 
         up.Nudge("web.visit");                                    // next window
-        await Task.Delay(300);
+        // Wait for the second flush instead of a fixed sleep (slow CI runners missed a 300 ms window).
+        for (var i = 0; i < 500 && Volatile.Read(ref fired) < 2; i++) await Task.Delay(10);
         Assert.Equal(2, fired);
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
     }
