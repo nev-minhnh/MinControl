@@ -12,6 +12,7 @@ import { readUsage } from "../meter";
 import { type Ctx, lookupMasterKey } from "../router";
 import { loadSettings, saveSettings } from "../settings";
 import { validateMasterRegister, validatePushSubscribe } from "../generated/validators";
+import { deleteDeviceAndData, afterDeviceRemoved, wipeAll } from "../wipe";
 import { closeMasterLiveSockets } from "./live";
 
 /** A device counts as online while its socket is open and it reported within this window. */
@@ -86,7 +87,7 @@ interface RegisterBody {
   sealPubKey: string;
 }
 
-/** POST /v1/master/register (no X-MC-Auth; guarded by ADMIN_BOOTSTRAP_SECRET). */
+/** POST /v1/master/register (no X-MC-Auth; guarded by ADMIN_BOOTSTRAP_SECRET). Operator tool only, not part of the normal product (API.md section 18.1). */
 export async function register(c: Ctx): Promise<Response> {
   const env = c.env;
   const body = validateOrThrow<RegisterBody>(validateMasterRegister, parseJsonBytes(await readBytes(c.request, 32 * 1024)), "register request");
@@ -152,10 +153,22 @@ export async function listDevices(c: Ctx): Promise<Response> {
 }
 
 export async function revokeDevice(c: Ctx): Promise<Response> {
-  const d = await requireDevice(c.env, c.params.id);
-  await c.env.DB.prepare("UPDATE devices SET revoked_at = ?, online = 0 WHERE id = ?").bind(nowIso(), d.id).run();
-  await hub(c.env, d.id).revoke(d.id);
+  const d = await requireDevice(c.env, c.params.id, true);
+  try {
+    await hub(c.env, d.id).revoke(d.id); // tells the live device first (section 18.3 then deletes everything)
+  } catch {
+    /* hub may be gone */
+  }
+  await deleteDeviceAndData(c.env, d.id);
+  await afterDeviceRemoved(c.env, (p) => c.exec.waitUntil(p));
   return noContent();
+}
+
+/** POST /v1/master/reset (sign-role key): wipes everything (API.md section 18.6). */
+export async function resetAll(c: Ctx): Promise<Response> {
+  if (c.master?.role !== "sign") throw new HttpError(403, "sign_key_required", "reset requires a sign-role key");
+  await wipeAll(c.env, (p) => c.exec.waitUntil(p));
+  return json({ reset: true });
 }
 
 export async function getSeq(c: Ctx): Promise<Response> {

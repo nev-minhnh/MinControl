@@ -292,6 +292,14 @@ export class DeviceHub extends DurableObject<Env> {
     }
   }
 
+  /** Device deleted (API.md section 18): close every socket and drop all storage. */
+  async purge(): Promise<void> {
+    this.blobs.failAll("offline");
+    for (const ws of this.ctx.getWebSockets()) this.closeWs(ws, CLOSE_REVOKED, "deleted");
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+
   // ---------------------------------------------------------------- WebSocket
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
