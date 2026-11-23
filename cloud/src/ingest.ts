@@ -1,6 +1,8 @@
 // Event batch ingestion: generic `events` plus denormalised tables, idempotent on event id.
 // D1 allows at most 100 bound parameters per statement, so rows are written as chunked multi-row inserts
 // inside one atomic batch (keeps the query count low on the Workers free plan).
+import { sendNoticePushes } from "./fcm";
+import { loadSettings } from "./settings";
 import { type AlertDraft, BURST_TYPES, BURST_WINDOW_MS, type RuleContext, alertForEvent, burstAlert, burstDetails, detectBurst, saveAndPushAlerts } from "./alerts";
 import type { Env } from "./env";
 import { localDay, normTs, nowIso } from "./lib/time";
@@ -32,6 +34,9 @@ export interface Rows {
 
 const MAX_PARAMS = 100;
 
+/** Event types that only feed daily aggregates and are never stored in `events` (API.md section 16). */
+export const AGGREGATE_ONLY_TYPES: ReadonlySet<string> = new Set(["net.domain", "usage.tick"]);
+
 const s = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const n = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
@@ -52,7 +57,7 @@ export function buildRows(events: IngestEvent[], deviceId: string, timezone: str
   for (const e of events) {
     const d = e.data;
     const sid = e.userSid ?? null;
-    rows.events.push([e.id, deviceId, sid, e.ts, e.monoMs, e.type, JSON.stringify(d), receivedAt]);
+    if (!AGGREGATE_ONLY_TYPES.has(e.type)) rows.events.push([e.id, deviceId, sid, e.ts, e.monoMs, e.type, JSON.stringify(d), receivedAt]);
     switch (e.type) {
       case "web.visit": {
         const url = s(d.url);
@@ -101,13 +106,18 @@ export function buildRows(events: IngestEvent[], deviceId: string, timezone: str
         const exe = (s(d.exe) ?? "").toLowerCase();
         const allowed = d.allowed === false ? 0 : 1;
         const k = `${sid}\u0000${day}\u0000${host}\u0000${exe}\u0000${allowed}`;
+        const startMs = Number.isFinite(winMs) ? winMs : Date.parse(e.ts);
+        const first = new Date(Math.min(startMs, Date.parse(e.ts))).toISOString();
+        const last = new Date(Math.max(startMs, Date.parse(e.ts))).toISOString();
         const cur = domains.get(k);
         if (cur) {
           cur[6] = (cur[6] as number) + (n(d.connections) ?? 0);
           cur[7] = (cur[7] as number) + (n(d.bytesOut) ?? 0);
           cur[8] = (cur[8] as number) + (n(d.bytesIn) ?? 0);
+          if (first < (cur[9] as string)) cur[9] = first;
+          if (last > (cur[10] as string)) cur[10] = last;
         } else {
-          const row: Row = [deviceId, sid, day, host, exe, allowed, n(d.connections) ?? 0, n(d.bytesOut) ?? 0, n(d.bytesIn) ?? 0];
+          const row: Row = [deviceId, sid, day, host, exe, allowed, n(d.connections) ?? 0, n(d.bytesOut) ?? 0, n(d.bytesIn) ?? 0, first, last];
           domains.set(k, row);
           rows.domains.push(row);
         }
@@ -151,9 +161,10 @@ export interface DeviceInfo {
  * no-ops (aggregates are only incremented for new ids). Two concurrent copies of the same batch could
  * double-count usage; the agent uploads sequentially, so this is accepted.
  */
-export async function ingestEvents(env: Env, device: DeviceInfo, events: IngestEvent[]): Promise<AlertDraft[]> {
+export async function ingestEvents(env: Env, device: DeviceInfo, events: IngestEvent[], freshOut?: IngestEvent[]): Promise<AlertDraft[]> {
   const db = env.DB;
-  const seen = await existingIds(db, events.map((e) => e.id));
+  // Aggregate-only events are not stored, so they cannot be de-duplicated by id (a lost ack may double-count one tick).
+  const seen = await existingIds(db, events.filter((e) => !AGGREGATE_ONLY_TYPES.has(e.type)).map((e) => e.id));
   const fresh = events.filter((e) => !seen.has(e.id));
   if (fresh.length === 0) return [];
   const rows = buildRows(fresh, device.id, device.timezone, nowIso());
@@ -180,13 +191,14 @@ export async function ingestEvents(env: Env, device: DeviceInfo, events: IngestE
     ),
     ...chunkedInsert(
       db,
-      "INSERT INTO domains_daily (device_id, user_sid, day, host, exe, allowed, connections, bytes_out, bytes_in)",
-      9,
+      "INSERT INTO domains_daily (device_id, user_sid, day, host, exe, allowed, connections, bytes_out, bytes_in, first_seen, last_seen)",
+      11,
       rows.domains,
-      "ON CONFLICT(device_id, user_sid, day, host, exe, allowed) DO UPDATE SET connections = connections + excluded.connections, bytes_out = bytes_out + excluded.bytes_out, bytes_in = bytes_in + excluded.bytes_in",
+      "ON CONFLICT(device_id, user_sid, day, host, exe, allowed) DO UPDATE SET connections = connections + excluded.connections, bytes_out = bytes_out + excluded.bytes_out, bytes_in = bytes_in + excluded.bytes_in, first_seen = MIN(COALESCE(first_seen, excluded.first_seen), excluded.first_seen), last_seen = MAX(COALESCE(last_seen, excluded.last_seen), excluded.last_seen)",
     ),
   ];
-  await db.batch(stmts);
+  if (stmts.length > 0) await db.batch(stmts);
+  freshOut?.push(...fresh);
   return evaluateAlerts(env, device, fresh);
 }
 
@@ -307,8 +319,61 @@ export async function intakeEvents(
   onStored?: (r: ScreenResult) => void,
 ): Promise<ScreenResult> {
   const r = screenEvents(raw, device.id);
-  const drafts = r.accepted.length > 0 ? await ingestEvents(env, device, r.accepted) : [];
+  const fresh: IngestEvent[] = [];
+  const drafts = r.accepted.length > 0 ? await ingestEvents(env, device, r.accepted, fresh) : [];
   onStored?.(r);
   await saveAndPushAlerts(env, drafts, waitUntil);
+  if (fresh.some((e) => e.type === "session.logon" || e.type === "session.logoff")) {
+    waitUntil(notifySessions(env, device, fresh).catch((e) => console.error("session push failed", e)));
+  }
   return r;
+}
+
+/** Sessions older than this are replays (backlog after a reconnect) and never pushed. */
+const SESSION_PUSH_MAX_AGE_MS = 30 * 60_000;
+
+/** "14:32 23/11" in an IANA timezone (24 h clock). */
+export function localClock(ms: number, timeZone: string | null): string {
+  const fmt = (tz: string) =>
+    new Intl.DateTimeFormat("vi-VN", { timeZone: tz, hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ms));
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = fmt(timeZone || "UTC");
+  } catch {
+    parts = fmt("UTC");
+  }
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${g("hour")}:${g("minute")} ${g("day")}/${g("month")}`;
+}
+
+/** FCM notices (no alert row) for logon/logoff of managed users when enabled in the settings. */
+export async function notifySessions(env: Env, device: DeviceInfo, fresh: IngestEvent[], now: number = Date.now()): Promise<void> {
+  const sess = fresh.filter(
+    (e) => (e.type === "session.logon" || e.type === "session.logoff") && e.userSid && now - Date.parse(e.ts) <= SESSION_PUSH_MAX_AGE_MS,
+  );
+  if (sess.length === 0) return;
+  const settings = await loadSettings(env.DB);
+  const wanted = sess.filter((e) => (e.type === "session.logon" ? settings.notifyLogon : settings.notifyLogoff));
+  if (wanted.length === 0) return;
+  const users = (
+    await env.DB.prepare("SELECT user_sid, name, label FROM managed_users WHERE device_id = ? AND managed = 1")
+      .bind(device.id)
+      .all<{ user_sid: string; name: string; label: string | null }>()
+  ).results;
+  const names = new Map(users.map((u) => [u.user_sid, u.label || u.name]));
+  const notices = wanted.flatMap((e) => {
+    const who = names.get(e.userSid!);
+    if (!who) return [];
+    const on = e.type === "session.logon";
+    return [
+      {
+        deviceId: device.id,
+        userSid: e.userSid!,
+        severity: "info" as const,
+        title: `${who} ${on ? "vừa đăng nhập" : "đã đăng xuất"} ${device.hostname}`,
+        body: `Lúc ${localClock(Date.parse(e.ts), device.timezone)} (giờ máy)`,
+      },
+    ];
+  });
+  if (notices.length > 0) await sendNoticePushes(env, notices);
 }

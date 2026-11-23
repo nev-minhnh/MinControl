@@ -8,7 +8,9 @@ import { b64urlDecode } from "../lib/encoding";
 import { HttpError, json, noContent, notFound, parseJsonBytes, readBytes, validateOrThrow } from "../lib/http";
 import { localDay, normTs, nowIso } from "../lib/time";
 import { ULID_RE, ulid } from "../lib/ulid";
+import { readUsage } from "../meter";
 import { type Ctx, lookupMasterKey } from "../router";
+import { loadSettings, saveSettings } from "../settings";
 import { validateMasterRegister, validatePushSubscribe } from "../generated/validators";
 import { closeMasterLiveSockets } from "./live";
 
@@ -375,6 +377,62 @@ export async function getUsage(c: Ctx): Promise<Response> {
     totalSec: rows.reduce((s, r) => s + r.active_sec, 0),
     apps: rows.map((r) => ({ exe: r.exe, group: r.grp || null, activeSec: r.active_sec })),
   });
+}
+
+/** GET /v1/master/devices/:id/domains (API.md section 16): per-host aggregate of one local day. */
+export async function listDomains(c: Ctx): Promise<Response> {
+  const d = await requireDevice(c.env, c.params.id, true);
+  let day = c.url.searchParams.get("day");
+  if (day && !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new HttpError(400, "invalid_query", "day must be YYYY-MM-DD");
+  day ||= localDay(Date.now(), d.timezone);
+  const sid = qSid(c);
+  const w = where([["device_id = ?", [d.id]], ["day = ?", [day]], sid ? ["user_sid = ?", [sid]] : null]);
+  const rows = (
+    await c.env.DB.prepare(
+      `SELECT host, GROUP_CONCAT(DISTINCT CASE WHEN exe <> '' THEN exe END) AS apps, SUM(connections) AS connections,
+              SUM(bytes_out) AS bytes_out, SUM(bytes_in) AS bytes_in, MAX(allowed = 0) AS blocked,
+              MIN(first_seen) AS first_seen, MAX(last_seen) AS last_seen
+       FROM domains_daily ${w.sql} GROUP BY host ORDER BY connections DESC, host LIMIT 2000`,
+    ).bind(...w.params).all<{ host: string; apps: string | null; connections: number; bytes_out: number; bytes_in: number; blocked: number; first_seen: string | null; last_seen: string | null }>()
+  ).results;
+  return json({
+    items: rows.map((r) => ({
+      host: r.host,
+      apps: r.apps ? r.apps.split(",") : [],
+      connections: r.connections,
+      bytesOut: r.bytes_out,
+      bytesIn: r.bytes_in,
+      blocked: r.blocked === 1,
+      firstSeen: r.first_seen,
+      lastSeen: r.last_seen,
+    })),
+  });
+}
+
+// ------------------------------------------------------------------ settings & free-tier meter
+
+export async function getSettings(c: Ctx): Promise<Response> {
+  return json(await loadSettings(c.env.DB));
+}
+
+export async function putSettings(c: Ctx): Promise<Response> {
+  const body = c.json<Record<string, unknown>>();
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "invalid_body", "settings must be an object");
+  for (const k of ["notifyLogon", "notifyLogoff"]) {
+    if (k in body && typeof body[k] !== "boolean") throw new HttpError(400, "invalid_body", `${k} must be a boolean`);
+  }
+  const cur = await loadSettings(c.env.DB);
+  const next = {
+    notifyLogon: typeof body.notifyLogon === "boolean" ? body.notifyLogon : cur.notifyLogon,
+    notifyLogoff: typeof body.notifyLogoff === "boolean" ? body.notifyLogoff : cur.notifyLogoff,
+  };
+  await saveSettings(c.env.DB, next, nowIso());
+  return json(next);
+}
+
+/** GET /v1/master/usage: D1 rows written today (UTC) vs the free-tier limit. */
+export async function getMeterUsage(c: Ctx): Promise<Response> {
+  return json(await readUsage(c.env.DB));
 }
 
 export async function listScreenshots(c: Ctx): Promise<Response> {

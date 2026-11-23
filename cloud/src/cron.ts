@@ -43,6 +43,7 @@ export async function runCron(env: Env, ctx: ExecutionContext, now: number = Dat
     db.prepare("DELETE FROM pairing_codes WHERE expires_at < ?").bind(nowIso(now - DAY_MS)),
     db.prepare("DELETE FROM claims WHERE created_at < ?").bind(nowIso(now - DAY_MS)),
     db.prepare("DELETE FROM claim_rate WHERE bucket < ?").bind(nowIso(now - DAY_MS).slice(0, 13)),
+    db.prepare("DELETE FROM config WHERE k LIKE 'usage:%' AND k < ?").bind(`usage:${nowIso(now - 14 * DAY_MS).slice(0, 10)}`),
   ]);
 
   const devices = (
