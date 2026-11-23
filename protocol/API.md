@@ -316,3 +316,22 @@ Supersedes §13B and the "Đổi điện thoại / khôi phục" path of §12 fo
    notify settings and old transfers. Only `config` meter rows (`usage:*`) and the new master are kept.
 6. **`POST /v1/master/reset`** (sign-role key) → `200 {"reset":true}`: wipes all devices and data, alerts, master
    keys, seal key, push subscriptions, settings, transfers and pairing codes (pending PC claims and meter rows stay).
+
+## 19. Usability round (decided by Minh 2026-11-23)
+- **SafeSearch = Google/Bing only**: when `web.safeSearch` is true, every other web search engine is blocked
+  (reason `blocklist`, rule "SafeSearch: chỉ cho phép Google và Bing"). List in `protocol/search-engines.json`
+  (`{"version","engines":[{"id","name","domains":[patterns]}]}` — DuckDuckGo, Yandex, Yahoo, Brave Search, Ecosia,
+  Startpage, Qwant, Baidu, Naver, Seznam, Sogou, Mojeek, You.com search, Perplexity search pages are NOT here (AI)…;
+  must never include google.* / bing.com / youtube / msn needed by Edge).
+- **Default policy for a newly managed user** (built by the app): all policy categories blocked (adult, gambling,
+  proxy-vpn, games, social, video, violence, drugs, dating, malware, ai); SafeSearch on; YouTube strict; default app
+  groups from `protocol/app-groups.json` with NO quota (unlimited) — the parent turns limits on per group.
+- **`protocol/app-groups.json`**: `{"version","groups":[{"id","label","description","match":[AppMatch…]}]}` with groups
+  games (comprehensive list of popular online/PC games + launchers + Android emulators used for mobile games in
+  Vietnam), social-chat, video-entertainment, music, browsers-other (non-Edge/Chrome browsers), study (no limit
+  suggested), creative. Exe names / publishers only when confident.
+- **Alert settings** (account-wide, `GET/PUT /v1/master/settings` gains `alerts`):
+  `{"<alertType>":{"enabled":bool,"minIntervalMin":int}}` for types `tamper` (all tamper.*), `request.exe_approval`,
+  `quota.exhausted`, `quota.warning`, `blocked.burst`, `web.blocked`, `process.blocked`, `device.offline`,
+  `session.logon`, `session.logoff`. Defaults: only `tamper` enabled (minIntervalMin 0); everything else off. The
+  cloud creates alert rows + FCM pushes only for enabled types, at most once per minIntervalMin per (device,user,type).
