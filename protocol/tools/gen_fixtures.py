@@ -131,6 +131,12 @@ FIXTURES = {
             "no-managed-users": EMPTY_POLICY,
             "net-exempt-app-with-path": mutate(POLICY, lambda p: user(p)["web"].update(
                 netExemptApps=[{"exe": "Zoom.exe", "path": r"%ProgramFiles%\Zoom\bin\Zoom.exe"}])),
+            "blocking-v2": mutate(POLICY, lambda p: (user(p).update(
+                appMode="allowlist", keywords={"words": ["cờ bạc", "sex"], "matchSearches": True, "matchTitles": True},
+                appRules=[{"action": "allow", "match": {"exe": "chrome.exe"}}]),
+                user(p)["web"].update(blockedServices=["tiktok", "roblox"], allowedServices=["youtube"]))),
+            "allowlist-via-allowed-service": mutate(POLICY, lambda p: (user(p).update(appMode="allowlist", appRules=[]),
+                user(p)["web"].update(allowedServices=["steam"]))),
             "no-use-day-and-any-time-day": mutate(POLICY, lambda p: user(p)["screenTime"]["allowedWindows"].update(
                 sun=[], sat=["00:00-24:00"])),
         },
@@ -140,6 +146,15 @@ FIXTURES = {
             "missing-weekday": mutate(POLICY, lambda p: user(p)["screenTime"]["dailyQuotaMin"].pop("sun")),
             "browser-not-supported": mutate(POLICY, lambda p: user(p)["web"].update(allowedBrowsers=["firefox.exe"])),
             "domain-uppercase": mutate(POLICY, lambda p: user(p)["web"].update(blockDomains=["Example.COM"])),
+            "service-id-uppercase": mutate(POLICY, lambda p: user(p)["web"].update(blockedServices=["TikTok"])),
+            "service-id-duplicate": mutate(POLICY, lambda p: user(p)["web"].update(blockedServices=["tiktok", "tiktok"])),
+            "app-mode-unknown": mutate(POLICY, lambda p: user(p).update(appMode="denylist")),
+            "keywords-word-too-long": mutate(POLICY, lambda p: user(p).update(
+                keywords={"words": ["x" * 65], "matchSearches": True, "matchTitles": True})),
+            "keywords-empty-word": mutate(POLICY, lambda p: user(p).update(
+                keywords={"words": [""], "matchSearches": True, "matchTitles": True})),
+            "keywords-too-many": mutate(POLICY, lambda p: user(p).update(
+                keywords={"words": [f"w{i}" for i in range(501)], "matchSearches": True, "matchTitles": True})),
             "net-exempt-app-without-path": mutate(POLICY, lambda p: user(p)["web"].update(netExemptApps=[{"exe": "Zoom.exe"}])),
         },
         # schema-valid but must be rejected by the semantic validator in each agent's policy engine
@@ -153,6 +168,10 @@ FIXTURES = {
             "allowlist-empty-allow-domains": mutate(POLICY, lambda p: user(p)["web"].update(mode="allowlist", allowDomains=[])),
             "overlapping-category-schedule-windows": mutate(POLICY, lambda p: user(p)["web"]["categorySchedules"]["games"].update(
                 mon=["15:00-17:00", "16:00-18:00"])),
+            "service-both-blocked-and-allowed": mutate(POLICY, lambda p: user(p)["web"].update(
+                blockedServices=["tiktok", "youtube"], allowedServices=["youtube"])),
+            "allowlist-app-mode-without-allow-rule-or-service": mutate(POLICY, lambda p: (user(p).update(appMode="allowlist"),
+                user(p)["web"].update(allowedServices=[]))),
             "unknown-timezone": mutate(POLICY, lambda p: p.update(timezone="Mars/Olympus")),
         },
     },
@@ -184,9 +203,17 @@ FIXTURES = {
     "event": {
         "valid": {"web-visit": VISIT, "tamper-offline-gap-no-user": GAP, "process-blocked": BLOCKED,
                   "tamper-state-tampered": STATE_TAMPERED, "diag-report": DIAG, "web-blocked-doh": DOH_BLOCKED,
+                  "web-blocked-keyword": mutate(DOH_BLOCKED, lambda e: e.update(id="01JDQ500000000000000000KWD", data={
+                      "host": "www.google.com", "source": "extension", "reason": "keyword", "keyword": "cờ bạc"})),
+                  "web-blocked-service": mutate(DOH_BLOCKED, lambda e: e.update(id="01JDQ500000000000000000SVC", data={
+                      "host": "www.tiktok.com", "source": "proxy", "reason": "service", "service": "tiktok"})),
+                  "process-blocked-service": mutate(BLOCKED, lambda e: e.update(id="01JDQ500000000000000000PSV", data=dict(
+                      e["data"], exe="RobloxPlayerBeta.exe", service="roblox", rule="service:roblox"))),
                   "web-blocked-port": mutate(DOH_BLOCKED, lambda e: e.update(id="01JDQ500000000000000000PRT", data={
                       "host": "203.0.113.7", "source": "proxy", "reason": "port", "exe": "game.exe"}))},
         "invalid": {
+            "web-blocked-service-bad-id": mutate(DOH_BLOCKED, lambda e: e["data"].update(reason="service", service="TikTok")),
+            "web-blocked-keyword-too-long": mutate(DOH_BLOCKED, lambda e: e["data"].update(reason="keyword", keyword="x" * 65)),
             "web-visit-missing-userSid": mutate(VISIT, lambda e: e.pop("userSid")),
             "web-visit-wrong-data": mutate(VISIT, lambda e: e.update(data=BLOCKED["data"])),
             "local-time-not-utc": mutate(GAP, lambda e: e.update(ts="2026-11-22T15:44:00+07:00")),
