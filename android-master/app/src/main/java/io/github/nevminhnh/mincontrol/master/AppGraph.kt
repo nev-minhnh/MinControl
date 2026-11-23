@@ -22,6 +22,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /** App settings kept in [SecurePrefs] (server URL is sensitive enough: it names the Worker). */
 class Settings(private val prefs: SecurePrefs) {
@@ -74,6 +77,13 @@ class AppGraph(context: Context) {
     )
     val push = PushRegistrar(this)
 
+    /** API.md 15: foreground-only realtime sockets. */
+    val live = io.github.nevminhnh.mincontrol.master.live.LiveHub(
+        scope, io.github.nevminhnh.mincontrol.master.live.OkLiveConnector(api),
+        sink = { repo.applyLive(it) },
+        onAlertEvent = { scope.launch { runCatching { repo.refreshAlerts() } } },
+    )
+
     /** Child selected on the overview (drives the Activity and Rules tabs). */
     val selectedChild = MutableStateFlow<ChildKey?>(null)
 }
@@ -89,6 +99,18 @@ class MinControlApplication : Application() {
         // A transfer that wiped the keys but died before leaving the screen: back to first-run.
         if (graph.settings.registered.value && !runCatching { graph.keys.hasKeys() }.getOrDefault(true)) graph.settings.setRegistered(false)
         if (graph.settings.registered.value) graph.push.syncToken()
+        // API.md 15: live sockets only while the app is in the foreground and a phone is registered.
+        graph.scope.launch {
+            combine(graph.repo.devices, graph.settings.registered) { d, reg -> if (reg) d.map { it.deviceId }.toSet() else emptySet() }
+                .collect { graph.live.setDevices(it) }
+        }
+        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(androidx.lifecycle.LifecycleEventObserver { _, e ->
+            when (e) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> graph.live.setForeground(true)
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> graph.live.setForeground(false)
+                else -> {}
+            }
+        })
     }
 }
 

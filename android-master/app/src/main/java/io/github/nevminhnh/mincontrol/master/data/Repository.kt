@@ -34,6 +34,7 @@ import io.github.nevminhnh.mincontrol.master.util.Ulid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import io.github.nevminhnh.mincontrol.master.ui.pairing.disambiguateHostnames
@@ -115,6 +116,20 @@ class Repository(
         val now = System.currentTimeMillis()
         dao.replaceDevices(list.map { DeviceRow(it.deviceId, ApiJson.encodeToString(DeviceInfo.serializer(), it), now) })
         return list
+    }
+
+    private val liveMutex = kotlinx.coroutines.sync.Mutex()
+
+    /** API.md 15: a pushed `state` / `online` frame updates the cached device row, so every screen sees it at once. */
+    suspend fun applyLive(msg: io.github.nevminhnh.mincontrol.master.live.LiveMessage) = liveMutex.withLock {
+        val row = dao.devices().firstOrNull { it.deviceId == msg.deviceId } ?: return@withLock
+        val cur = runCatching { ApiJson.decodeFromString(DeviceInfo.serializer(), row.json) }.getOrNull() ?: return@withLock
+        val next = when (msg) {
+            is io.github.nevminhnh.mincontrol.master.live.LiveMessage.State -> io.github.nevminhnh.mincontrol.master.live.LiveMerge.applyState(cur, msg.state)
+            is io.github.nevminhnh.mincontrol.master.live.LiveMessage.Online -> io.github.nevminhnh.mincontrol.master.live.LiveMerge.applyOnline(cur, msg.online)
+            else -> return@withLock
+        }
+        dao.putDevices(listOf(row.copy(json = ApiJson.encodeToString(DeviceInfo.serializer(), next))))
     }
 
     suspend fun cachedDevices(): List<DeviceInfo> =
