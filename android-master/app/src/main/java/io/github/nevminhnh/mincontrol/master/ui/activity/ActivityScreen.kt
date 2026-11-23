@@ -346,7 +346,7 @@ private fun DomainsTab(vm: ActivityViewModel) {
         }
     }
     selected?.let { r ->
-        DomainActionDialog(vm, r.host, null, "${r.connections} kết nối · ${Fmt.time(r.firstTs)} – ${Fmt.time(r.lastTs)}") { selected = null }
+        DomainActionDialog(vm, r.host, null, "${r.connections} kết nối · ${Fmt.time(r.firstTs)} → ${Fmt.time(r.lastTs)}") { selected = null }
     }
 }
 
@@ -396,7 +396,7 @@ private fun DomainRowView(r: DomainRow, divider: Boolean) {
                 Text(r.host, style = MaterialTheme.typography.titleMedium, color = if (r.blocked) DangerText else TextPrimary,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    (if (r.blocked) "Bị chặn · " else "") + "${Fmt.time(r.firstTs)} – ${Fmt.time(r.lastTs)}",
+                    (if (r.blocked) "Bị chặn · " else "") + "${Fmt.time(r.firstTs)} → ${Fmt.time(r.lastTs)}",
                     style = MaterialTheme.typography.bodySmall, color = if (r.blocked) DangerText else TextSecondary,
                 )
             }

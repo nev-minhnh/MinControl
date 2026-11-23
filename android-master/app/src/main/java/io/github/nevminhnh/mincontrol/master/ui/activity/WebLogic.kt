@@ -55,6 +55,46 @@ data class DomainRow(
 )
 
 object DomainAggregator {
+    fun fromItems(items: List<io.github.nevminhnh.mincontrol.master.data.protocol.DomainItem>): List<DomainRow> =
+        items.map { DomainRow(it.host.lowercase(), it.connections, it.apps, it.firstSeen, it.lastSeen, it.blocked) }
+
+    /** Case-insensitive substring filter on host or exe. */
+    fun filter(rows: List<DomainRow>, query: String): List<DomainRow> {
+        val q = query.trim().lowercase()
+        return if (q.isEmpty()) rows else rows.filter { it.host.contains(q) || it.apps.any { x -> x.lowercase().contains(q) } }
+    }
+
+    /**
+     * API.md 16: folds live `net.domain` [events] into already aggregated [rows] (connections += n, lastSeen extended,
+     * exe added, blocked sticky). Ids in [seen] are skipped and new ones added. Result sorted connections desc, host.
+     */
+    fun mergeLive(rows: List<DomainRow>, events: List<EventItem>, seen: MutableSet<String>): List<DomainRow> {
+        val map = LinkedHashMap<String, DomainRow>()
+        rows.forEach { map[it.host] = it }
+        var changed = false
+        for (e in events) {
+            if (e.type != "net.domain" || !seen.add(e.id)) continue
+            val d = e.data
+            val host = (d["host"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: continue
+            val exe = (d["exe"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+            val n = (d["connections"] as? JsonPrimitive)?.intOrNull ?: 1
+            val blocked = (d["allowed"] as? JsonPrimitive)?.booleanOrNull == false
+            val ts = (d["windowStart"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: e.ts
+            val cur = map[host]
+            map[host] = if (cur == null) DomainRow(host, n, listOfNotNull(exe), ts, maxOf(ts, e.ts), blocked)
+            else cur.copy(
+                connections = cur.connections + n,
+                apps = if (exe != null && exe !in cur.apps) cur.apps + exe else cur.apps,
+                firstTs = if (cur.firstTs.isEmpty() || ts < cur.firstTs) ts else cur.firstTs,
+                lastTs = if (e.ts > cur.lastTs) e.ts else cur.lastTs,
+                blocked = cur.blocked || blocked,
+            )
+            changed = true
+        }
+        if (!changed) return rows
+        return map.values.sortedWith(compareByDescending<DomainRow> { it.connections }.thenBy { it.host })
+    }
+
     /** Aggregates `net.domain` events by lower-cased host; connections desc, then host. Optional substring [query] on host or exe. */
     fun aggregate(events: List<EventItem>, query: String = ""): List<DomainRow> {
         class Acc(var conn: Int = 0, val apps: LinkedHashSet<String> = linkedSetOf(), var first: String = "", var last: String = "", var blocked: Boolean = false)

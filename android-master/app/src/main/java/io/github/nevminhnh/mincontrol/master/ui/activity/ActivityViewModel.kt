@@ -78,9 +78,10 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
     // web: domains (net.domain)
     val webView = MutableStateFlow(WebView.Pages)
     val domainQuery = MutableStateFlow("")
-    private val domainEvents = MutableStateFlow<List<EventItem>>(emptyList())
+    private val domainBase = MutableStateFlow<List<DomainRow>>(emptyList())
+    private val domainSeen = HashSet<String>()
     val domainsLoading = MutableStateFlow(false)
-    val domains: StateFlow<List<DomainRow>> = combine(domainEvents, domainQuery) { e, q -> DomainAggregator.aggregate(e, q) }
+    val domains: StateFlow<List<DomainRow>> = combine(domainBase, domainQuery) { r, q -> DomainAggregator.filter(r, q) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val domainApplying = MutableStateFlow(false)
 
@@ -118,7 +119,7 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         val inDay: (String) -> Boolean = { ts -> Fmt.localDate(ts) == today }
         val live = io.github.nevminhnh.mincontrol.master.live.LiveMerge
         events.value = live.mergeEvents(events.value, m.events, live.timelineAccept(c.sid, inDay))
-        domainEvents.value = live.mergeEvents(domainEvents.value, m.events, live.domainAccept(c.sid, inDay))
+        domainBase.value = DomainAggregator.mergeLive(domainBase.value, m.events.filter { it.userSid == c.sid && inDay(it.ts) }, domainSeen)
         webItems.value = live.mergeWeb(webItems.value, m.events, c.sid, webQuery.value, webFilter.value.kind, inDay)
     }
 
@@ -141,7 +142,7 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
     fun select(c: Child) { graph.selectedChild.value = c.key }
 
     fun reloadAll() {
-        events.value = emptyList(); usage.value = null; webItems.value = emptyList(); shots.value = emptyList(); domainEvents.value = emptyList()
+        events.value = emptyList(); usage.value = null; webItems.value = emptyList(); shots.value = emptyList(); domainBase.value = emptyList(); domainSeen.clear()
         loadTimeline(); loadWeb(reset = true); loadDomains(); loadShots(reset = true)
     }
 
@@ -189,14 +190,9 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         val d = date.value
         if (!quiet) domainsLoading.value = true
         try {
-            val all = mutableListOf<EventItem>()
-            var cursor: String? = null
-            for (i in 0 until 40) {
-                val page = repo.events(c.deviceId, c.sid, Fmt.dayStart(d), Fmt.dayEnd(d), cursor, type = "net.domain")
-                all += page.items
-                cursor = page.next ?: break
-            }
-            domainEvents.value = all
+            val rows = DomainAggregator.fromItems(repo.domains(c.deviceId, c.sid, d.toString()))
+            domainSeen.clear()
+            domainBase.value = rows
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
