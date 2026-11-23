@@ -203,8 +203,8 @@ describe("device events frame (API.md 15)", () => {
 
     const before = s.d1.queries();
     await s.send(ws, { t: "events", events: [visit, tamper] });
-    // hostname/timezone come from the cached attachment: existing-id SELECT + insert batch + rule context + alert batch
-    expect(s.d1.queries() - before).toBeLessThanOrEqual(4);
+    // hostname/timezone come from the cached attachment: existing-id SELECT + insert batch + rule context + settings + alert batch
+    expect(s.d1.queries() - before).toBeLessThanOrEqual(5);
     const ack = ws.frames().at(-1)!;
     expect(ack).toEqual({ t: "events_ack", ids: [visit.id, tamper.id], rejected: [] });
     expect(s.d1.sql.prepare("SELECT COUNT(*) AS n FROM events WHERE device_id = ?").get(s.deviceId)).toEqual({ n: 2 });

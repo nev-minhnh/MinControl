@@ -2,6 +2,7 @@
 import type { Env } from "./env";
 import { sendAlertPushes } from "./fcm";
 import { nowIso } from "./lib/time";
+import { type Settings, alertSettingKey, loadSettings } from "./settings";
 import { ulid } from "./lib/ulid";
 
 export type Severity = "info" | "warn" | "critical";
@@ -76,7 +77,8 @@ export const BURST_DETAIL_MAX = 10;
 const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
 
 /**
- * Single-event rules: quota.exhausted, request.exe_approval, tamper.*.
+ * Single-event rules: quota.exhausted, quota.warning, request.exe_approval, tamper.*, web.blocked, process.blocked.
+ * Which of them are actually raised is decided by the account settings (see `applyAlertSettings`).
  * The alert's `data` = the event's `data` plus {title, body, eventId} (API.md section 8).
  */
 export function alertForEvent(ev: RuleEvent, ctx: RuleContext): AlertDraft | null {
@@ -86,6 +88,20 @@ export function alertForEvent(ev: RuleEvent, ctx: RuleContext): AlertDraft | nul
     const scope = str(ev.data.scope) ?? "total";
     const what = scope.startsWith("group:") ? `thời gian nhóm "${scope.slice(6)}"` : "thời gian dùng máy hôm nay";
     return { ...base, severity: "info", title: "Đã hết giờ", body: `${who} trên ${ctx.hostname} đã dùng hết ${what}.`, extra: { ...ev.data } };
+  }
+  if (ev.type === "quota.warning") {
+    const scope = str(ev.data.scope) ?? "total";
+    const what = scope.startsWith("group:") ? `thời gian nhóm "${scope.slice(6)}"` : "thời gian dùng máy hôm nay";
+    const left = typeof ev.data.remainingMin === "number" ? ` (còn ${ev.data.remainingMin} phút)` : "";
+    return { ...base, severity: "info", title: "Sắp hết giờ", body: `${who} trên ${ctx.hostname} sắp dùng hết ${what}${left}.`, extra: { ...ev.data } };
+  }
+  if (ev.type === "web.blocked") {
+    const host = str(ev.data.host) ?? "một trang web";
+    return { ...base, severity: "info", title: "Trang web bị chặn", body: `${who} trên ${ctx.hostname} bị chặn khi mở ${host}.`, extra: { ...ev.data } };
+  }
+  if (ev.type === "process.blocked") {
+    const exe = str(ev.data.exe) ?? "một ứng dụng";
+    return { ...base, severity: "info", title: "Ứng dụng bị chặn", body: `${who} trên ${ctx.hostname} bị chặn khi chạy ${exe}.`, extra: { ...ev.data } };
   }
   if (ev.type === "request.exe_approval") {
     const exe = str(ev.data.exe) ?? "một ứng dụng";
@@ -191,8 +207,62 @@ export function offlineAlert(deviceId: string, hostname: string, lastSeen: strin
   };
 }
 
-/** Inserts alerts (idempotent on event id) and pushes the newly created ones. */
+interface Throttleable {
+  type: string;
+  deviceId: string;
+  userSid: string | null;
+  ts: string;
+}
+
+/**
+ * API.md section 19: keeps only items whose type is enabled in `settings.alerts` and honours
+ * minIntervalMin per (device, user, settings key). `lastTs` looks up the previous accepted item's time (ms).
+ * Items are considered in ts order; within one call an accepted item throttles the following ones.
+ */
+export async function applyAlertSettings<T extends Throttleable>(
+  items: readonly T[],
+  settings: Settings,
+  lastTs: (key: string, t: T) => Promise<number | null>,
+): Promise<T[]> {
+  const out: T[] = [];
+  const last = new Map<string, number>();
+  for (const it of [...items].sort((a, b) => a.ts.localeCompare(b.ts))) {
+    const key = alertSettingKey(it.type)
+    const cfg = key ? settings.alerts[key] : undefined;
+    if (!key || !cfg?.enabled) continue;
+    const ms = Date.parse(it.ts) || 0;
+    if (cfg.minIntervalMin > 0) {
+      const k = `${it.deviceId}|${it.userSid ?? ""}|${key}`;
+      let prev = last.get(k);
+      if (prev === undefined) prev = (await lastTs(key, it)) ?? -Infinity;
+      if (ms - prev < cfg.minIntervalMin * 60_000) {
+        last.set(k, prev);
+        continue;
+      }
+      last.set(k, ms);
+    }
+    out.push(it);
+  }
+  return out;
+}
+
+/** Last stored alert time (ms) of a settings key for (device, user); `tamper` covers every tamper.* row. */
+export function lastAlertTs(env: Env) {
+  return async (key: string, t: Throttleable): Promise<number | null> => {
+    const typeSql = key === "tamper" ? "type LIKE 'tamper.%'" : "type = ?";
+    const binds: unknown[] = [t.deviceId, t.userSid];
+    if (key !== "tamper") binds.push(key);
+    const r = await env.DB.prepare(`SELECT MAX(ts) AS ts FROM alerts WHERE device_id = ? AND user_sid IS ? AND ${typeSql}`)
+      .bind(...binds)
+      .first<{ ts: string | null }>();
+    return r?.ts ? Date.parse(r.ts) : null;
+  };
+}
+
+/** Filters by the alert settings (API.md section 19), inserts alerts (idempotent on event id) and pushes the newly created ones. */
 export async function saveAndPushAlerts(env: Env, drafts: AlertDraft[], waitUntil: (p: Promise<unknown>) => void): Promise<AlertRow[]> {
+  if (drafts.length === 0) return [];
+  drafts = await applyAlertSettings(drafts, await loadSettings(env.DB), lastAlertTs(env));
   if (drafts.length === 0) return [];
   const rows = drafts.map((d) => ({ id: ulid(Date.parse(d.ts) || Date.now()), d }));
   const results = await env.DB.batch(
