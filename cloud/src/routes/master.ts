@@ -10,6 +10,7 @@ import { localDay, normTs, nowIso } from "../lib/time";
 import { ULID_RE, ulid } from "../lib/ulid";
 import { type Ctx, lookupMasterKey } from "../router";
 import { validateMasterRegister, validatePushSubscribe } from "../generated/validators";
+import { closeMasterLiveSockets } from "./live";
 
 /** A device counts as online while its socket is open and it reported within this window. */
 const ONLINE_FRESH_MS = 3 * 60_000;
@@ -117,6 +118,7 @@ export async function register(c: Ctx): Promise<Response> {
     env.DB.prepare("INSERT OR REPLACE INTO config (k, v, updated_at) VALUES ('master_seal_pub_key', ?, ?)").bind(body.sealPubKey, now),
     env.DB.prepare("INSERT OR REPLACE INTO config (k, v, updated_at) VALUES ('bootstrap_used', ?, ?)").bind(secretHash, now),
   ]);
+  closeMasterLiveSockets(env, (p) => c.exec.waitUntil(p)); // every earlier key was revoked
   return json({ keys: body.keys.map((k) => ({ keyId: k.keyId, role: k.role })) }, 201);
 }
 
