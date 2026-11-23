@@ -9,6 +9,7 @@ import { FREE_ROWS_WRITTEN_LIMIT, meteredEnv, readUsage } from "../src/meter";
 import * as m from "../src/routes/master";
 import type { Ctx } from "../src/router";
 import type { Env } from "../src/env";
+import { ALERT_TYPES, type Settings, loadSettings } from "../src/settings";
 
 const DEV = "01JABCDEFGHJKMNPQRSTVWXYZ0";
 const SID = "S-1-5-21-1-2-3-1001";
@@ -130,13 +131,83 @@ describe("domains, settings and usage routes", () => {
     await expect(m.listDomains(ctx(env, { id: DEV }, "day=bad"))).rejects.toMatchObject({ status: 400 });
   });
 
-  it("settings default false, merge on PUT, reject non-booleans", async () => {
+  it("settings defaults: only tamper on; merge on PUT; validation", async () => {
     const { db } = makeDb();
     const env = { DB: db } as Env;
-    expect(await (await m.getSettings(ctx(env, {}))).json()).toEqual({ notifyLogon: false, notifyLogoff: false });
+    const got = (await (await m.getSettings(ctx(env, {}))).json()) as Settings;
+    expect(got.notifyLogon).toBe(false);
+    expect(Object.keys(got.alerts).sort()).toEqual([...ALERT_TYPES].sort());
+    for (const [t, v] of Object.entries(got.alerts)) expect(v).toEqual({ enabled: t === "tamper", minIntervalMin: 0 });
+    // legacy flag maps onto session.logon
     await m.putSettings(ctx(env, {}, "", { notifyLogon: true }));
-    expect(await (await m.getSettings(ctx(env, {}))).json()).toEqual({ notifyLogon: true, notifyLogoff: false });
+    let s2 = (await (await m.getSettings(ctx(env, {}))).json()) as Settings;
+    expect(s2.notifyLogon).toBe(true);
+    expect(s2.alerts["session.logon"].enabled).toBe(true);
+    // partial alerts merge
+    await m.putSettings(ctx(env, {}, "", { alerts: { "quota.exhausted": { enabled: true, minIntervalMin: 30 }, tamper: { minIntervalMin: 5 } } }));
+    s2 = (await (await m.getSettings(ctx(env, {}))).json()) as Settings;
+    expect(s2.alerts["quota.exhausted"]).toEqual({ enabled: true, minIntervalMin: 30 });
+    expect(s2.alerts.tamper).toEqual({ enabled: true, minIntervalMin: 5 });
+    expect(s2.alerts["session.logon"].enabled).toBe(true);
     await expect(m.putSettings(ctx(env, {}, "", { notifyLogoff: "yes" }))).rejects.toMatchObject({ status: 400 });
+    await expect(m.putSettings(ctx(env, {}, "", { alerts: { bogus: { enabled: true } } }))).rejects.toMatchObject({ status: 400 });
+    await expect(m.putSettings(ctx(env, {}, "", { alerts: { tamper: { enabled: "x" } } }))).rejects.toMatchObject({ status: 400 });
+    await expect(m.putSettings(ctx(env, {}, "", { alerts: { tamper: { minIntervalMin: -1 } } }))).rejects.toMatchObject({ status: 400 });
+    await expect(m.putSettings(ctx(env, {}, "", { alerts: { tamper: { minIntervalMin: 1.5 } } }))).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("reads legacy stored settings", async () => {
+    const { db } = makeDb();
+    await db.prepare("INSERT INTO config (k, v, updated_at) VALUES ('settings', ?, 'x')").bind(JSON.stringify({ notifyLogoff: true })).run();
+    const s = await loadSettings(db);
+    expect(s.alerts["session.logoff"].enabled).toBe(true);
+    expect(s.alerts.tamper.enabled).toBe(true);
+  });
+});
+
+describe("alert settings in the engine", () => {
+  async function setup(alerts: object | null) {
+    const { db } = makeDb();
+    if (alerts) await db.prepare("INSERT INTO config (k, v, updated_at) VALUES ('settings', ?, 'x')").bind(JSON.stringify({ alerts })).run();
+    const { env, sent } = await stubFcm(db);
+    const dev = { id: DEV, hostname: "PC-CON", timezone: "Asia/Ho_Chi_Minh" };
+    const run = async (events: ReturnType<typeof ev>[]) => {
+      await intakeEvents(env, dev, events, () => undefined);
+      return db.prepare("SELECT type FROM alerts ORDER BY ts, id").all<{ type: string }>().then((r) => r.results.map((x) => x.type));
+    };
+    return { db, env, sent, run };
+  }
+  const T0 = Date.now() - 3600_000;
+  const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
+
+  it("only tamper by default", async () => {
+    const { run } = await setup(null);
+    const types = await run([ev("quota.exhausted", { scope: "total", remainingMin: 0 }, at(0)), ev("tamper.clock_jump", {}, at(1)), ev("request.exe_approval", { exe: "a.exe", path: "C:\a.exe", pid: 1 }, at(2)), ev("web.blocked", { host: "a.test", source: "proxy", reason: "category" }, at(3))]);
+    expect(types).toEqual(["tamper.clock_jump"]);
+  });
+
+  it("enabled types raise alerts, minIntervalMin limits per type", async () => {
+    const { run } = await setup({ "quota.exhausted": { enabled: true, minIntervalMin: 10 }, "request.exe_approval": { enabled: true, minIntervalMin: 0 } });
+    expect(await run([ev("quota.exhausted", { scope: "total", remainingMin: 0 }, at(0)), ev("quota.exhausted", { scope: "total", remainingMin: 0 }, at(5)), ev("request.exe_approval", { exe: "a.exe", path: "C:\a.exe", pid: 1 }, at(5)), ev("request.exe_approval", { exe: "b.exe", path: "C:\b.exe", pid: 1 }, at(6))])).toEqual([
+      "quota.exhausted",
+      "request.exe_approval",
+      "request.exe_approval",
+    ]);
+    // later batch: inside the window of the stored alert at(0) -> dropped; after it -> raised
+    expect(await run([ev("quota.exhausted", { scope: "total", remainingMin: 0 }, at(8))])).toHaveLength(3);
+    expect(await run([ev("quota.exhausted", { scope: "total", remainingMin: 0 }, at(11))])).toHaveLength(4);
+  });
+
+  it("tamper.* share one settings key and interval", async () => {
+    const { run } = await setup({ tamper: { enabled: true, minIntervalMin: 30 } });
+    expect(await run([ev("tamper.clock_jump", {}, at(0)), ev("tamper.agent_killed", {}, at(1))])).toEqual(["tamper.clock_jump"]);
+  });
+
+  it("burst alert only when blocked.burst is enabled", async () => {
+    const off = await setup(null);
+    expect(await off.run([ev("web.blocked", { host: "a", source: "proxy", reason: "category" }, at(0)), ev("web.blocked", { host: "b", source: "proxy", reason: "category" }, at(1)), ev("web.blocked", { host: "c", source: "proxy", reason: "category" }, at(2))])).toEqual([]);
+    const on = await setup({ "blocked.burst": { enabled: true, minIntervalMin: 0 } });
+    expect(await on.run([ev("web.blocked", { host: "a", source: "proxy", reason: "category" }, at(0)), ev("web.blocked", { host: "b", source: "proxy", reason: "category" }, at(1)), ev("web.blocked", { host: "c", source: "proxy", reason: "category" }, at(2))])).toEqual(["blocked.burst"]);
   });
 });
 
@@ -156,6 +227,18 @@ describe("session pushes", () => {
     expect(sent[0]).toMatchObject({ type: "notice", severity: "info", title: "Bi vừa đăng nhập PC-CON", deviceId: DEV, userSid: SID });
     expect(sent[0]!.body).toMatch(/^Lúc \d\d:\d\d \d\d\/\d\d/);
     expect(sent[1]!.title).toBe("Bi đã đăng xuất PC-CON");
+  });
+
+  it("session notices honour alerts map and minIntervalMin", async () => {
+    const t = (sec: number) => new Date(Date.now() - 60_000 + sec * 1000).toISOString();
+    const settings = { alerts: { "session.logon": { enabled: true, minIntervalMin: 10 }, "session.logoff": { enabled: false, minIntervalMin: 0 } } };
+    const { db } = makeDb();
+    await db.prepare("INSERT INTO config (k, v, updated_at) VALUES ('settings', ?, 'x')").bind(JSON.stringify(settings)).run();
+    const { env, sent } = await stubFcm(db);
+    await notifySessions(env, dev, [ev("session.logon", {}, t(0)), ev("session.logoff", {}, t(1))] as never);
+    expect(sent).toHaveLength(1);
+    await notifySessions(env, dev, [ev("session.logon", {}, t(30))] as never); // within 10 min of the previous one
+    expect(sent).toHaveLength(1);
   });
 
   it("stays silent when disabled", async () => {

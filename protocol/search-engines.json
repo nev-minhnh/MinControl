@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "engines": [
+    {
+      "id": "duckduckgo",
+      "name": "DuckDuckGo",
+      "domains": [
+        "*.duckduckgo.com",
+        "duck.com"
+      ]
+    },
+    {
+      "id": "yandex",
+      "name": "Yandex",
+      "domains": [
+        "*.yandex.com",
+        "*.yandex.ru",
+        "*.yandex.by",
+        "*.yandex.kz",
+        "*.yandex.ua",
+        "*.ya.ru"
+      ]
+    },
+    {
+      "id": "yahoo",
+      "name": "Yahoo Search",
+      "domains": [
+        "*.search.yahoo.com",
+        "*.search.yahoo.co.jp"
+      ]
+    },
+    {
+      "id": "brave-search",
+      "name": "Brave Search",
+      "domains": [
+        "*.search.brave.com"
+      ]
+    },
+    {
+      "id": "ecosia",
+      "name": "Ecosia",
+      "domains": [
+        "*.ecosia.org"
+      ]
+    },
+    {
+      "id": "startpage",
+      "name": "Startpage",
+      "domains": [
+        "*.startpage.com"
+      ]
+    },
+    {
+      "id": "qwant",
+      "name": "Qwant",
+      "domains": [
+        "*.qwant.com"
+      ]
+    },
+    {
+      "id": "baidu",
+      "name": "Baidu",
+      "domains": [
+        "*.baidu.com"
+      ]
+    },
+    {
+      "id": "naver",
+      "name": "Naver",
+      "domains": [
+        "*.naver.com"
+      ]
+    },
+    {
+      "id": "seznam",
+      "name": "Seznam",
+      "domains": [
+        "*.seznam.cz"
+      ]
+    },
+    {
+      "id": "sogou",
+      "name": "Sogou",
+      "domains": [
+        "*.sogou.com"
+      ]
+    },
+    {
+      "id": "so-360",
+      "name": "360 Search",
+      "domains": [
+        "*.so.com"
+      ]
+    },
+    {
+      "id": "mojeek",
+      "name": "Mojeek",
+      "domains": [
+        "*.mojeek.com"
+      ]
+    },
+    {
+      "id": "you-search",
+      "name": "You.com",
+      "domains": [
+        "*.you.com"
+      ]
+    },
+    {
+      "id": "ask",
+      "name": "Ask.com",
+      "domains": [
+        "*.ask.com"
+      ]
+    },
+    {
+      "id": "aol-search",
+      "name": "AOL Search",
+      "domains": [
+        "*.search.aol.com"
+      ]
+    },
+    {
+      "id": "dogpile",
+      "name": "Dogpile",
+      "domains": [
+        "*.dogpile.com"
+      ]
+    },
+    {
+      "id": "swisscows",
+      "name": "Swisscows",
+      "domains": [
+        "*.swisscows.com"
+      ]
+    },
+    {
+      "id": "kagi",
+      "name": "Kagi",
+      "domains": [
+        "*.kagi.com"
+      ]
+    },
+    {
+      "id": "metager",
+      "name": "MetaGer",
+      "domains": [
+        "*.metager.org",
+        "*.metager.de"
+      ]
+    },
+    {
+      "id": "coccoc-search",
+      "name": "Cốc Cốc Search",
+      "domains": [
+        "coccoc.com"
+      ]
+    },
+    {
+      "id": "petal",
+      "name": "Petal Search",
+      "domains": [
+        "*.petalsearch.com"
+      ]
+    },
+    {
+      "id": "yep",
+      "name": "Yep",
+      "domains": [
+        "*.yep.com"
+      ]
+    }
+  ]
+}

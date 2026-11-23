@@ -10,7 +10,7 @@ import { localDay, normTs, nowIso } from "../lib/time";
 import { ULID_RE, ulid } from "../lib/ulid";
 import { readUsage } from "../meter";
 import { type Ctx, lookupMasterKey } from "../router";
-import { loadSettings, saveSettings } from "../settings";
+import { ALERT_TYPES, type AlertType, MAX_INTERVAL_MIN, loadSettings, saveSettings } from "../settings";
 import { validateMasterRegister, validatePushSubscribe } from "../generated/validators";
 import { deleteDeviceAndData, afterDeviceRemoved, wipeAll } from "../wipe";
 import { closeMasterLiveSockets } from "./live";
@@ -435,10 +435,28 @@ export async function putSettings(c: Ctx): Promise<Response> {
     if (k in body && typeof body[k] !== "boolean") throw new HttpError(400, "invalid_body", `${k} must be a boolean`);
   }
   const cur = await loadSettings(c.env.DB);
-  const next = {
-    notifyLogon: typeof body.notifyLogon === "boolean" ? body.notifyLogon : cur.notifyLogon,
-    notifyLogoff: typeof body.notifyLogoff === "boolean" ? body.notifyLogoff : cur.notifyLogoff,
-  };
+  const alerts = structuredClone(cur.alerts);
+  // legacy flags first, so an explicit `alerts` entry in the same request wins
+  if (typeof body.notifyLogon === "boolean") alerts["session.logon"].enabled = body.notifyLogon;
+  if (typeof body.notifyLogoff === "boolean") alerts["session.logoff"].enabled = body.notifyLogoff;
+  if ("alerts" in body) {
+    const inc = body.alerts;
+    if (!inc || typeof inc !== "object" || Array.isArray(inc)) throw new HttpError(400, "invalid_body", "alerts must be an object");
+    for (const [t, v] of Object.entries(inc as Record<string, unknown>)) {
+      if (!(ALERT_TYPES as readonly string[]).includes(t)) throw new HttpError(400, "invalid_body", `unknown alert type ${t}`);
+      if (!v || typeof v !== "object" || Array.isArray(v)) throw new HttpError(400, "invalid_body", `alerts.${t} must be an object`);
+      const o = v as Record<string, unknown>;
+      for (const k of Object.keys(o)) if (k !== "enabled" && k !== "minIntervalMin") throw new HttpError(400, "invalid_body", `alerts.${t}.${k} is not allowed`);
+      if ("enabled" in o && typeof o.enabled !== "boolean") throw new HttpError(400, "invalid_body", `alerts.${t}.enabled must be a boolean`);
+      if ("minIntervalMin" in o && !(typeof o.minIntervalMin === "number" && Number.isInteger(o.minIntervalMin) && o.minIntervalMin >= 0 && o.minIntervalMin <= MAX_INTERVAL_MIN)) {
+        throw new HttpError(400, "invalid_body", `alerts.${t}.minIntervalMin must be an integer 0..${MAX_INTERVAL_MIN}`);
+      }
+      const k = t as AlertType;
+      if (typeof o.enabled === "boolean") alerts[k].enabled = o.enabled;
+      if (typeof o.minIntervalMin === "number") alerts[k].minIntervalMin = o.minIntervalMin;
+    }
+  }
+  const next = { notifyLogon: alerts["session.logon"].enabled, notifyLogoff: alerts["session.logoff"].enabled, alerts };
   await saveSettings(c.env.DB, next, nowIso());
   return json(next);
 }
