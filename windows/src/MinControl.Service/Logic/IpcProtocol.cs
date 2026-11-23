@@ -10,16 +10,18 @@ namespace MinControl.Service.Logic;
 // Wire format on \\.\pipe\MinControl.Session.<sessionId>:
 //   [uint32 little-endian payload length][UTF-8 JSON {"type":"...","data":{...}}]
 // service -> helper: warning {remainingMin} | lock_overlay {reason, graceSec} | clear_overlay {} |
-//                    message {text} | capture {requestId, maxWidth, jpegQuality} | blocked_notice {title, reason}
-// helper -> service: hello {pid} | foreground {exe, title?, pid} | idle {idleMs} |
-//                    capture_result {requestId, jpeg(base64)?, width, height, error?} | heartbeat {}
+//                    message {text} | capture {requestId, maxWidth, jpegQuality} | blocked_notice {title, reason} |
+//                    close_window {requestId, hwnd, pid, mode: "tab"|"window", title, reason}
+// helper -> service: hello {pid} | foreground {exe, title?, pid, hwnd} | idle {idleMs} |
+//                    capture_result {requestId, jpeg(base64)?, width, height, error?} | heartbeat {} |
+//                    close_result {requestId, ok, error?}
 
 public static class IpcTypes
 {
     public const string Warning = "warning", LockOverlay = "lock_overlay", ClearOverlay = "clear_overlay",
-        Message = "message", Capture = "capture", BlockedNotice = "blocked_notice";
+        Message = "message", Capture = "capture", BlockedNotice = "blocked_notice", CloseWindow = "close_window";
     public const string Hello = "hello", Foreground = "foreground", Idle = "idle",
-        CaptureResult = "capture_result", Heartbeat = "heartbeat";
+        CaptureResult = "capture_result", Heartbeat = "heartbeat", CloseResult = "close_result";
 }
 
 /// <summary>One IPC message. <see cref="Data"/> is never null after decoding.</summary>

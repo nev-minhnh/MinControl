@@ -45,7 +45,10 @@ public static class ServiceCollectionExtensions
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger<BrowserHistoryReader>();
             return new BrowserHistoryReader(sp.GetRequiredService<IUserDirectory>(), sp.GetService<IPolicyProvider>(),
                 sp.GetRequiredService<IHistoryEventSink>(), sp.GetRequiredService<IClock>(), sp.GetRequiredService<IHistoryFileLocator>(),
-                new HistoryCursorStore(Path.Combine(root, "browser-history.json"), log), Path.Combine(root, "tmp"), opts, log);
+                new HistoryCursorStore(Path.Combine(root, "browser-history.json"), log), Path.Combine(root, "tmp"), opts, log)
+            {
+                KeywordGuard = () => sp.GetService<IKeywordGuard>(),   // registered by the Service (keywords, API.md §17)
+            };
         });
         services.AddHostedService(sp => sp.GetRequiredService<BrowserHistoryReader>());
         services.AddSingleton<MinControl.Core.Diagnostics.IDiagnosticsSection>(sp => new BrowserDiagnostics(sp.GetRequiredService<IRegistryHive>(),

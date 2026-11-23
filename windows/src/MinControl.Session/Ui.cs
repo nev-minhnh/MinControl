@@ -221,6 +221,14 @@ internal sealed class BlockedToastForm : Form
         };
         Controls.Add(body);
         Controls.Add(head);
+        if (AppIcon.Image is { } img)
+        {
+            Controls.Add(new PictureBox
+            {
+                Image = img, SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Left, Width = 56,
+                Padding = new Padding(0, 4, 12, 4),
+            });
+        }
 
         var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
         Location = new Point(area.Right - Width - 16, area.Bottom - Height - 16 - Math.Max(0, offsetAbove));
@@ -250,6 +258,7 @@ internal sealed class MessageForm : Form
     public MessageForm(string text)
     {
         Text = "Tin nhắn từ bố mẹ";
+        if (AppIcon.Icon is { } appIcon) Icon = appIcon;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -267,4 +276,34 @@ internal sealed class MessageForm : Form
         Controls.Add(ok);
         AcceptButton = ok;
     }
+}
+
+/// <summary>The MinControl app icon (installed next to the exes as <c>mincontrol-512.png</c> / <c>mincontrol.ico</c>);
+/// null when missing (dev builds) so the UI works without it.</summary>
+internal static class AppIcon
+{
+    private static readonly Lazy<Image?> ImageLazy = new(() =>
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "mincontrol-512.png");
+            if (!File.Exists(path)) return null;
+            using var src = Image.FromFile(path);
+            return new Bitmap(src, new Size(96, 96));
+        }
+        catch (Exception) { return null; }
+    });
+
+    private static readonly Lazy<Icon?> IconLazy = new(() =>
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "mincontrol.ico");
+            return File.Exists(path) ? new Icon(path) : null;
+        }
+        catch (Exception) { return null; }
+    });
+
+    public static Image? Image => ImageLazy.Value;
+    public static Icon? Icon => IconLazy.Value;
 }
