@@ -127,6 +127,9 @@ object BlockingV2 {
         up.keywords?.words?.forEach { if (it.isBlank() || it.length > MAX_KEYWORD_LEN) out += "${up.label}: từ khóa “$it” không hợp lệ" }
         val both = up.web.blockedServices.orEmpty().intersect(up.web.allowedServices.orEmpty().toSet())
         if (both.isNotEmpty()) out += "${up.label}: dịch vụ vừa chặn vừa cho phép (${both.first()})"
+        // API.md §17: allowlist app mode needs at least one allowed app or service, otherwise only system apps could run.
+        if (up.appMode == io.github.nevminhnh.mincontrol.master.data.protocol.AppMode.ALLOWLIST && up.appRules.none { it.action == io.github.nevminhnh.mincontrol.master.data.protocol.RuleAction.ALLOW } && up.web.allowedServices.isNullOrEmpty())
+            out += "${up.label}: chế độ chỉ cho phép ứng dụng cần ít nhất một ứng dụng hoặc dịch vụ được phép"
         if (catalog != null && catalog.services.isNotEmpty()) {
             (up.web.blockedServices.orEmpty() + up.web.allowedServices.orEmpty()).filter { catalog.byId(it) == null }
                 .forEach { out += "${up.label}: dịch vụ “$it” không có trong danh mục" }
