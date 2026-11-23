@@ -52,4 +52,10 @@ builder.Services.AddMinControlBrowser(o => builder.Configuration.GetSection("Bro
 builder.Services.AddHostedService<AppMonitorHost>();
 builder.Services.AddHostedService<PolicyApplier>();
 
+// ---- diag.report sections owned by the host (API.md §14); the others are registered by their components.
+builder.Services.AddSingleton<MinControl.Core.Diagnostics.IDiagnosticsSection>(sp => new ServiceDiagnostics(sp,
+    sp.GetRequiredService<MinControl.Core.CoreOptions>(), sp.GetRequiredService<IClock>()));
+builder.Services.AddSingleton<MinControl.Core.Diagnostics.IDiagnosticsSection>(sp => new UsersDiagnostics(sp.GetRequiredService<UserDirectory>(),
+    sp.GetRequiredService<SessionTracker>(), sp.GetRequiredService<IPolicyProvider>()));
+
 await builder.Build().RunAsync();

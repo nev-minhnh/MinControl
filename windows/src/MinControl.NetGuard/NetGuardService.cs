@@ -44,6 +44,30 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
 
     private sealed record VerifyCache(long AtMs, IReadOnlyList<WfpUserRule> Desired, WfpVerifyResult Result);
 
+    /// <summary>Outcome of the last WFP apply (start, policy change or watchdog repair), for diagnostics.</summary>
+    public sealed record ApplyOutcome(DateTimeOffset At, string Trigger, bool Ok, IReadOnlyList<string> Sids, string? Error);
+
+    public ApplyOutcome? LastApply { get; private set; }
+    public IReadOnlyList<WfpUserRule>? Desired => _desired;
+    public FilteringProxy Proxy => _proxy;
+    public BypassDetector Bypass => _bypass;
+
+    private void ApplyWfp(IReadOnlyList<WfpUserRule> rules, string trigger)
+    {
+        var sids = rules.Select(r => r.Sid).ToList();
+        try
+        {
+            _wfp.Apply(rules);
+            LastApply = new ApplyOutcome(_clock.UtcNow, trigger, true, sids, null);
+        }
+        catch (Exception ex)
+        {
+            LastApply = new ApplyOutcome(_clock.UtcNow, trigger, false, sids, ex.Message);
+            _log.LogError(ex, "WFP apply ({Trigger}) failed for {Users} user(s)", trigger, rules.Count);
+            throw;
+        }
+    }
+
     public NetGuardService(NetGuardOptions options, IWfpManager wfp, FilteringProxy proxy, DomainAggregator aggregator,
         BypassDetector bypass, ExemptAppResolver exempt, CategoryStore categories, IUserDirectory users, IEventSink events,
         IClock clock, ILogger<NetGuardService>? log = null)
@@ -71,7 +95,7 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
             var rules = BuildRules(policy, managedSids);
             // Proxy first: once filters are in place the managed user can only reach the network through it.
             StartProxySafe();
-            await Task.Run(() => _wfp.Apply(rules), ct).ConfigureAwait(false);   // transactional: on failure old filters stay (I4)
+            await Task.Run(() => ApplyWfp(rules, "policy"), ct).ConfigureAwait(false);   // transactional: on failure old filters stay (I4)
             var changed = ChangedRules(_desired, rules);
             _desired = rules;
             _verifyCache = null;
@@ -274,7 +298,7 @@ public sealed class NetGuardService : INetGuard, IAsyncDisposable
             }
             try
             {
-                _wfp.Apply(desired);
+                ApplyWfp(desired, "watchdog");
                 _verifyCache = null;
                 EnforceNow(affected);   // connections opened while the filters were missing are pre-existing now
             }

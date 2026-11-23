@@ -25,6 +25,10 @@ import io.github.nevminhnh.mincontrol.master.ui.Fmt
 import io.github.nevminhnh.mincontrol.master.ui.alerts.AlertCard
 import io.github.nevminhnh.mincontrol.master.ui.alerts.AlertsViewModel
 import io.github.nevminhnh.mincontrol.master.ui.pick
+import io.github.nevminhnh.mincontrol.master.policy.AppRules
+import io.github.nevminhnh.mincontrol.master.refresh.AutoRefresher
+import io.github.nevminhnh.mincontrol.master.refresh.RefreshIntervals
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -102,6 +106,22 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Resume + every 20 s + FCM alert + pull-to-refresh: reloads the visible tab in place (lists are kept while loading). */
+    val refresher = AutoRefresher(viewModelScope, RefreshIntervals.DEFAULT_MS) { refreshCurrent() }
+
+    private suspend fun refreshCurrent() {
+        if (child.value == null) return
+        if (date.value != LocalDate.now()) return // past days do not change
+        when (tab.value) {
+            ActivityTab.Timeline, ActivityTab.Apps -> {
+                timelineNow(quiet = true)
+                runCatching { repo.refreshAlerts() }
+            }
+            ActivityTab.Web -> if (webView.value == WebView.Pages) loadWebNow(reset = true, quiet = true) else domainsNow(quiet = true)
+            ActivityTab.Shots -> shotsNow(reset = true, quiet = true)
+        }
+    }
+
     fun select(c: Child) { graph.selectedChild.value = c.key }
 
     fun reloadAll() {
@@ -109,10 +129,12 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         loadTimeline(); loadWeb(reset = true); loadDomains(); loadShots(reset = true)
     }
 
-    fun loadTimeline() = viewModelScope.launch {
-        val c = child.value ?: return@launch
+    fun loadTimeline() = viewModelScope.launch { timelineNow(quiet = false) }
+
+    private suspend fun timelineNow(quiet: Boolean) {
+        val c = child.value ?: return
         val d = date.value
-        loading.value = true
+        if (!quiet) loading.value = true
         try {
             policy.value = runCatching { repo.loadPolicy(c.deviceId, preferCache = true).policy }.getOrNull()
             usage.value = runCatching { repo.usage(c.deviceId, c.sid, d.toString()) }.getOrNull()
@@ -128,10 +150,13 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
                 repo.events(c.deviceId, null, Fmt.dayStart(d), Fmt.dayEnd(d), null, type = "tamper.*").items
             }.getOrDefault(emptyList())
             events.value = TimelineBuilder.mergeDeviceEvents(all, deviceLevel)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            if (quiet) throw e
             message.value = e.userMessage()
         } finally {
-            loading.value = false
+            if (!quiet) loading.value = false
         }
     }
 
@@ -141,10 +166,12 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         webJob = viewModelScope.launch { delay(350); loadWebNow(reset = true) }
     }
 
-    fun loadDomains() = viewModelScope.launch {
-        val c = child.value ?: return@launch
+    fun loadDomains() = viewModelScope.launch { domainsNow(quiet = false) }
+
+    private suspend fun domainsNow(quiet: Boolean) {
+        val c = child.value ?: return
         val d = date.value
-        domainsLoading.value = true
+        if (!quiet) domainsLoading.value = true
         try {
             val all = mutableListOf<EventItem>()
             var cursor: String? = null
@@ -154,10 +181,13 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
                 cursor = page.next ?: break
             }
             domainEvents.value = all
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            if (quiet) throw e
             message.value = e.userMessage()
         } finally {
-            domainsLoading.value = false
+            if (!quiet) domainsLoading.value = false
         }
     }
 
@@ -185,6 +215,33 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    val blockApplying = MutableStateFlow(false)
+
+    /** Quick action "Chặn ứng dụng này": adds `{action: block, match: {exe}}` to appRules and runs the sign-and-apply flow. */
+    fun blockApp(activity: FragmentActivity, exe: String) = viewModelScope.launch {
+        if (blockApplying.value) return@launch
+        val c = child.value ?: return@launch
+        val m = AppRules.matchForExe(exe) ?: return@launch
+        blockApplying.value = true
+        try {
+            val loaded = repo.loadPolicy(c.deviceId)
+            val cur = loaded.policy ?: run { message.value = "Chưa có chính sách cho máy này. Hãy tạo ở tab Quy tắc."; return@launch }
+            val up = cur.users[c.sid] ?: run { message.value = "Không tìm thấy người dùng trong chính sách."; return@launch }
+            if (AppRules.isBlocked(up.appRules, m.exe)) { message.value = "${m.exe} đã nằm trong danh sách chặn."; return@launch }
+            val next = cur.copy(version = maxOf(cur.version, loaded.response?.version ?: 0) + 1, users = cur.users + (c.sid to AppRules.blockExe(up, m.exe!!)))
+            val errs = PolicyValidation.errors(next)
+            if (errs.isNotEmpty()) { message.value = errs.first(); return@launch }
+            repo.applyPolicy(activity, c.deviceId, next, "Chặn ứng dụng ${m.exe}")
+            policy.value = next
+            message.value = "Đã chặn ${m.exe}."
+        } catch (e: BiometricCancelledException) {
+        } catch (e: Exception) {
+            message.value = e.userMessage()
+        } finally {
+            blockApplying.value = false
+        }
+    }
+
     fun setWebFilter(f: WebFilter) { webFilter.value = f; loadWeb(reset = true) }
 
     fun loadWeb(reset: Boolean = false) {
@@ -192,7 +249,7 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
         webJob = viewModelScope.launch { loadWebNow(reset) }
     }
 
-    private suspend fun loadWebNow(reset: Boolean) {
+    private suspend fun loadWebNow(reset: Boolean, quiet: Boolean = false) {
         val c = child.value ?: return
         val d = date.value
         if (!reset && webNext == null) return
@@ -201,22 +258,30 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
             webItems.value = if (reset) page.items else webItems.value + page.items
             webNext = page.next
             webHasMore.value = page.next != null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            if (quiet) throw e
             if (reset) webItems.value = emptyList()
             message.value = e.userMessage()
         }
     }
 
-    fun loadShots(reset: Boolean = false) = viewModelScope.launch {
-        val c = child.value ?: return@launch
+    fun loadShots(reset: Boolean = false) = viewModelScope.launch { shotsNow(reset, quiet = false) }
+
+    private suspend fun shotsNow(reset: Boolean, quiet: Boolean) {
+        val c = child.value ?: return
         val d = date.value
-        if (!reset && shotsNext == null) return@launch
+        if (!reset && shotsNext == null) return
         try {
             val page = repo.screenshots(c.deviceId, c.sid, Fmt.dayStart(d), Fmt.dayEnd(d), if (reset) null else shotsNext)
             shots.value = if (reset) page.items else shots.value + page.items
             shotsNext = page.next
             shotsHasMore.value = page.next != null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            if (quiet) throw e
             message.value = e.userMessage()
         }
     }

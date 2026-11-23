@@ -15,6 +15,8 @@ public interface IProcessEventSource : IDisposable
     event Action<int>? Stopped;
     /// <summary>Starts delivering events on a background thread. Throws if the source cannot start.</summary>
     void Start();
+    /// <summary>Raised once when the source stops delivering events unexpectedly after a successful start.</summary>
+    event Action<Exception?>? Faulted;
 }
 
 /// <summary>
@@ -31,9 +33,11 @@ internal sealed class EtwProcessEventSource : IProcessEventSource
     private TraceEventSession? _session;
     private Thread? _thread;
     private Timer? _flush;
+    private volatile bool _disposing;
 
     public event Action<ProcessStarted>? Started;
     public event Action<int>? Stopped;
+    public event Action<Exception?>? Faulted;
 
     public EtwProcessEventSource(MonitoringOptions options, ILogger log)
     {
@@ -59,8 +63,13 @@ internal sealed class EtwProcessEventSource : IProcessEventSource
 
         _thread = new Thread(() =>
         {
+            Exception? error = null;
             try { session.Source.Process(); }
-            catch (Exception ex) { _log.LogError(ex, "ETW process session stopped unexpectedly"); }
+            catch (Exception ex) { error = ex; }
+            if (_disposing) return;
+            // Session stopped by someone else (logman, a second instance taking the name…) or crashed.
+            _log.LogError(error, "ETW process session stopped unexpectedly; process control continues on polling");
+            try { Faulted?.Invoke(error); } catch { /* handler bug must not kill the thread silently */ }
         })
         { IsBackground = true, Name = "MinControl ETW process" };
         _thread.Start();
@@ -97,6 +106,7 @@ internal sealed class EtwProcessEventSource : IProcessEventSource
 
     public void Dispose()
     {
+        _disposing = true;
         _flush?.Dispose();
         try { _session?.Dispose(); } catch { /* ignore */ }
         _session = null;
@@ -113,8 +123,15 @@ internal sealed class PollingProcessEventSource : IProcessEventSource
 
     public event Action<ProcessStarted>? Started;
     public event Action<int>? Stopped;
+#pragma warning disable CS0067 // never raised: polling has no failure mode beyond a transient tick
+    public event Action<Exception?>? Faulted;
+#pragma warning restore CS0067
 
-    public PollingProcessEventSource(MonitoringOptions options) => _intervalMs = Math.Max(100, options.PollIntervalMs);
+    public PollingProcessEventSource(MonitoringOptions options) : this(options.PollIntervalMs) { }
+
+    public PollingProcessEventSource(int intervalMs) => _intervalMs = Math.Max(100, intervalMs);
+
+    public int IntervalMs => _intervalMs;
 
     public void Start()
     {

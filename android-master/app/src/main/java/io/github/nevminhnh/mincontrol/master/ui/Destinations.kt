@@ -20,4 +20,5 @@ object Routes {
     const val PAIRING = "pairing"
     const val SETTINGS = "settings"
     const val TRANSFER = "transfer"
+    const val DIAGNOSE = "diagnose"
 }

@@ -42,11 +42,28 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private readonly IReadOnlyList<IMonitorComponent> _components;
 
     private readonly ConcurrentDictionary<int, Tracked> _tracked = new();
+    // Every pid already evaluated once (ETW and the backup poll both report starts; evaluate each pid once).
+    private readonly ConcurrentDictionary<int, byte> _handled = new();
+    private readonly Queue<BlockRecord> _recentBlocks = new();
+    private long _blockCount;
+
+    /// <summary>One enforcement (diagnostics).</summary>
+    internal sealed record BlockRecord(DateTimeOffset At, string Sid, string Exe, int Pid, string Rule, bool Killed);
     private readonly ConcurrentDictionary<(string Sid, string Path), string?> _groupCache = new();
     private readonly ConcurrentDictionary<char, (bool Removable, long At)> _driveTypes = new();
 
-    private IProcessEventSource? _source;
+    private readonly List<IProcessEventSource> _sources = [];
     private Timer? _sweep;
+
+    /// <summary>"etw+poll" (ETW with the 1 s backup poll), "poll" (ETW unavailable), "poll (etw stopped)", "stopped".</summary>
+    internal string SourceMode { get; private set; } = "stopped";
+    internal string? SourceError { get; private set; }
+    internal int PollIntervalMs { get; private set; }
+
+    // Test seams (internal): process sources and the process list used by the rescan.
+    internal Func<IProcessEventSource>? PrimarySourceFactory { get; set; }
+    internal Func<int, IProcessEventSource>? PollSourceFactory { get; set; }
+    internal Func<IEnumerable<int>>? ProcessIds { get; set; }
     private int _started;
     private readonly string? _windowsDir = NullIfEmpty(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
     private readonly string[] _extraWritableRoots;
@@ -55,6 +72,14 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     public AppMonitor(IUserDirectory users, IPolicyProvider policy, IEventSink sink, IApprovalStore approvals,
         IClock clock, IServiceProvider services, IFileFacts facts, IProcessControl control, MonitoringOptions options,
         ILoggerFactory loggerFactory, ExecuteDenyAclLayer aclLayer)
+        : this(users, policy, sink, approvals, clock, services, facts, control, options, loggerFactory, aclLayer, null)
+    {
+    }
+
+    /// <summary>Tests pass <paramref name="components"/> (usually empty) instead of the real install/USB/download/ACL monitors.</summary>
+    internal AppMonitor(IUserDirectory users, IPolicyProvider policy, IEventSink sink, IApprovalStore approvals,
+        IClock clock, IServiceProvider services, IFileFacts facts, IProcessControl control, MonitoringOptions options,
+        ILoggerFactory loggerFactory, ExecuteDenyAclLayer? aclLayer, IReadOnlyList<IMonitorComponent>? components)
     {
         _users = users;
         _policy = policy;
@@ -76,13 +101,13 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         if (pub is not null && Path.GetDirectoryName(pub) is { } publicRoot) roots.Add(publicRoot); // C:\Users\Public
         _extraWritableRoots = [.. roots];
 
-        _components =
+        _components = components ??
         [
             new Installs.InstallWatcher(users, sink, options, loggerFactory.CreateLogger<Installs.InstallWatcher>(),
                 onInstall: () => { try { _services.GetService<Inventory.InventoryService>()?.Trigger(); } catch { } }),
             new Usb.UsbWatcher(users, policy, sink, loggerFactory.CreateLogger<Usb.UsbWatcher>()),
             new Downloads.DownloadWatcher(users, policy, sink, options, loggerFactory.CreateLogger<Downloads.DownloadWatcher>()),
-            aclLayer,
+            aclLayer ?? throw new ArgumentNullException(nameof(aclLayer)),
         ];
     }
 
@@ -93,9 +118,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         if (Interlocked.Exchange(ref _started, 1) == 1) return Task.CompletedTask;
 
         _policy.PolicyChanged += OnPolicyChanged;
-        _source = CreateSource();
-        _source.Started += s => ThreadPool.UnsafeQueueUserWorkItem(_ => SafeHandleStart(s, initial: false), null);
-        _source.Stopped += OnStopped;
+        StartSources();
 
         // Processes that were already running (service restart, user logged on before us).
         ThreadPool.UnsafeQueueUserWorkItem(_ => RescanAll(), null);
@@ -113,22 +136,58 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         return Task.CompletedTask;
     }
 
-    private IProcessEventSource CreateSource()
+    /// <summary>
+    /// ETW (Kernel-Process, ~200 ms) as the primary source plus a process-list poll as a safety net: at
+    /// <see cref="MonitoringOptions.BackupPollIntervalMs"/> (≤ 1 s) while ETW runs, at <see cref="MonitoringOptions.PollIntervalMs"/>
+    /// when ETW cannot start. A pid reported by both is evaluated once. If the ETW session dies later the poll keeps going.
+    /// </summary>
+    private void StartSources()
     {
-        var etw = new EtwProcessEventSource(_options, _loggerFactory.CreateLogger<EtwProcessEventSource>());
+        var etwOk = false;
+        var primary = PrimarySourceFactory?.Invoke() ?? new EtwProcessEventSource(_options, _loggerFactory.CreateLogger<EtwProcessEventSource>());
         try
         {
-            etw.Start();
-            return etw;
+            Wire(primary);
+            primary.Faulted += OnPrimaryFaulted;
+            primary.Start();
+            _sources.Add(primary);
+            etwOk = true;
         }
         catch (Exception ex)
         {
-            etw.Dispose();
-            _log.LogWarning(ex, "ETW process session unavailable, falling back to polling");
-            var poll = new PollingProcessEventSource(_options);
-            poll.Start();
-            return poll;
+            primary.Dispose();
+            SourceError = ex.Message;
+            _log.LogWarning(ex, "ETW process session unavailable, falling back to polling every {Ms} ms", _options.PollIntervalMs);
         }
+
+        var interval = etwOk ? Math.Min(1000, Math.Max(100, _options.BackupPollIntervalMs)) : Math.Min(1000, Math.Max(100, _options.PollIntervalMs));
+        var poll = PollSourceFactory?.Invoke(interval) ?? new PollingProcessEventSource(interval);
+        try
+        {
+            Wire(poll);
+            poll.Start();
+            _sources.Add(poll);
+            PollIntervalMs = interval;
+        }
+        catch (Exception ex)
+        {
+            poll.Dispose();
+            _log.LogError(ex, "Process polling failed to start");
+        }
+        SourceMode = etwOk ? "etw+poll" : "poll";
+        _log.LogInformation("Process monitor started: {Mode}, poll every {Ms} ms", SourceMode, PollIntervalMs);
+    }
+
+    private void Wire(IProcessEventSource source)
+    {
+        source.Started += s => ThreadPool.UnsafeQueueUserWorkItem(_ => SafeHandleStart(s, initial: false), null);
+        source.Stopped += OnStopped;
+    }
+
+    private void OnPrimaryFaulted(Exception? ex)
+    {
+        SourceMode = "poll (etw stopped)";
+        SourceError = ex?.Message ?? "ETW session ended";
     }
 
     public Task StopAsync()
@@ -137,8 +196,12 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         _policy.PolicyChanged -= OnPolicyChanged;
         _sweep?.Dispose();
         try { _services.GetService<Inventory.InventoryService>()?.Stop(); } catch { }
-        _source?.Dispose();
-        _source = null;
+        foreach (var s in _sources)
+        {
+            try { s.Dispose(); } catch (Exception ex) { _log.LogDebug(ex, "Disposing process source"); }
+        }
+        _sources.Clear();
+        SourceMode = "stopped";
         foreach (var c in _components)
         {
             try { c.Stop(); } catch (Exception ex) { _log.LogWarning(ex, "Stopping {Component}", c.GetType().Name); }
@@ -171,6 +234,8 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private void HandleStart(ProcessStarted s, bool initial)
     {
         if (s.Pid <= 4) return;
+        if (initial) _handled[s.Pid] = 0;
+        else if (!_handled.TryAdd(s.Pid, 0)) return;   // already evaluated (the other source reported it first)
         var sid = _users.SidOfProcess(s.Pid);
         if (sid is null || !_users.IsManaged(sid)) return;          // I1: never touch other SIDs
         var up = UserPolicyFor(sid);
@@ -208,6 +273,7 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
 
     private void OnStopped(int pid)
     {
+        _handled.TryRemove(pid, out _);
         if (_tracked.TryRemove(pid, out var t) && t.Emitted)
         {
             try { _sink.Emit(EventTypes.ProcessStop, t.Sid, EventData.Process(t.Path, t.Pid, t.ParentPid)); }
@@ -220,8 +286,9 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
         var sw = Stopwatch.StartNew();
         bool killed = _control.Terminate(pid, path);
         _tracked.TryRemove(pid, out _);
-        _log.LogInformation("Blocked {Path} (pid {Pid}, rule {Rule}) killed={Killed} in {Ms} ms",
-            path, pid, decision.Rule, killed, sw.ElapsedMilliseconds);
+        _log.LogInformation("Blocked {Path} (pid {Pid}, rule {Rule}) for {Sid} killed={Killed} in {Ms} ms",
+            path, pid, decision.Rule, sid, killed, sw.ElapsedMilliseconds);
+        RecordBlock(sid, path, pid, decision.Rule ?? "unknown", killed);
 
         EmitProcess(EventTypes.ProcessBlocked, sid, path, pid, parentPid, decision.Rule ?? "unknown", enrich: true);
 
@@ -338,9 +405,32 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     private void BlockQuiet(Tracked t, RuleDecision decision, bool notify)
     {
         if (notify) { Block(t.Pid, t.ParentPid, t.Sid, t.Path, decision); return; }
-        _control.Terminate(t.Pid, t.Path);
+        var killed = _control.Terminate(t.Pid, t.Path);
         _tracked.TryRemove(t.Pid, out _);
+        RecordBlock(t.Sid, t.Path, t.Pid, decision.Rule ?? "unknown", killed);
     }
+
+    private void RecordBlock(string sid, string path, int pid, string rule, bool killed)
+    {
+        Interlocked.Increment(ref _blockCount);
+        lock (_recentBlocks)
+        {
+            _recentBlocks.Enqueue(new BlockRecord(_clock.UtcNow, sid, Path.GetFileName(path), pid, rule, killed));
+            while (_recentBlocks.Count > 50) _recentBlocks.Dequeue();
+        }
+    }
+
+    /// <summary>Most recent first (diagnostics).</summary>
+    internal IReadOnlyList<BlockRecord> RecentBlocks()
+    {
+        lock (_recentBlocks) return _recentBlocks.Reverse().ToList();
+    }
+
+    internal long BlockCount => Interlocked.Read(ref _blockCount);
+
+    /// <summary>Tracked (allowed, running) managed processes per SID (diagnostics).</summary>
+    internal IReadOnlyDictionary<string, int> TrackedPerSid() =>
+        _tracked.Values.GroupBy(t => t.Sid).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>"msedge" / "chrome" for those images, else null (browser names used by IExtensionHealth).</summary>
     internal static string? BrowserKey(string path) => Path.GetFileName(path).ToLowerInvariant() switch
@@ -386,14 +476,12 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     /// <summary>Evaluates every running process (startup, policy change, user newly managed).</summary>
     private void RescanAll()
     {
-        Process[] procs;
-        try { procs = Process.GetProcesses(); }
+        List<int> pids;
+        try { pids = (ProcessIds ?? AllProcessIds)().ToList(); }
         catch (Exception ex) { _log.LogWarning(ex, "Process enumeration failed"); return; }
 
-        foreach (var p in procs)
+        foreach (var pid in pids)
         {
-            int pid = p.Id;
-            p.Dispose();
             if (_tracked.TryGetValue(pid, out var t))
             {
                 // re-evaluate already tracked processes against the new rules
@@ -409,6 +497,14 @@ internal sealed class AppMonitor : IAppMonitor, IDisposable
     }
 
     // ------------------------------------------------------------------ helpers
+
+    private static IEnumerable<int> AllProcessIds()
+    {
+        var procs = Process.GetProcesses();
+        var ids = new List<int>(procs.Length);
+        foreach (var p in procs) { ids.Add(p.Id); p.Dispose(); }
+        return ids;
+    }
 
     private UserPolicy? UserPolicyFor(string sid)
         => _policy.Current?.Users is { } users && users.TryGetValue(sid, out var up) ? up : null;

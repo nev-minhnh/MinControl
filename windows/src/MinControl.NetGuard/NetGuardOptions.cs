@@ -34,7 +34,7 @@ public sealed class NetGuardOptions
     public TimeSpan DomainWindow { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>Best-effort bypass scan (listeners on proxy-like ports, VPN adapters, direct connections).</summary>
-    public TimeSpan BypassScanInterval { get; set; } = TimeSpan.FromSeconds(30);
+    public TimeSpan BypassScanInterval { get; set; } = TimeSpan.FromSeconds(15);
 
     /// <summary>Same (sid, host) web.blocked is emitted at most once per this period (browsers retry a lot).</summary>
     public TimeSpan BlockedEventDedup { get; set; } = TimeSpan.FromSeconds(60);

@@ -1,6 +1,7 @@
 using MinControl.Core.Abstractions;
 using Microsoft.Extensions.Logging;
 using MinControl.Core.Cloud;
+using MinControl.Core.Diagnostics;
 using MinControl.Core.Storage;
 using MinControl.Monitoring.Acl;
 using MinControl.Monitoring.Inventory;
@@ -42,6 +43,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<InventoryService>()));
         services.TryAddSingleton<AppMonitor>();
         services.TryAddSingleton<IAppMonitor>(sp => sp.GetRequiredService<AppMonitor>());
+        services.AddSingleton<IDiagnosticsSection>(sp => new MonitorDiagnostics(sp.GetRequiredService<AppMonitor>(),
+            sp.GetRequiredService<IPolicyProvider>(), sp.GetRequiredService<IUserDirectory>(), sp.GetRequiredService<MonitoringOptions>()));
         return services;
     }
 }

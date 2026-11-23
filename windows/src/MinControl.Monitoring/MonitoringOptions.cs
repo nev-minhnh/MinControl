@@ -15,6 +15,10 @@ public sealed class MonitoringOptions
     /// <summary>Fallback when the ETW session cannot be started: process list polling interval.</summary>
     public int PollIntervalMs { get; set; } = 500;
 
+    /// <summary>Backup process-list poll that runs even while ETW works (an ETW session that silently delivers nothing
+    /// must not disable app control). Must stay ≤ 1000 ms.</summary>
+    public int BackupPollIntervalMs { get; set; } = 1000;
+
     /// <summary>Re-check of running managed processes against exhausted groups.</summary>
     public TimeSpan GroupSweepInterval { get; set; } = TimeSpan.FromSeconds(10);
 

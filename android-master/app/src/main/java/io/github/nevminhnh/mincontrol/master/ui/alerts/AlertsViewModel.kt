@@ -11,6 +11,8 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.AlertItem
 import io.github.nevminhnh.mincontrol.master.data.protocol.Command
 import io.github.nevminhnh.mincontrol.master.data.protocol.Decision
 import io.github.nevminhnh.mincontrol.master.graph
+import io.github.nevminhnh.mincontrol.master.refresh.AutoRefresher
+import io.github.nevminhnh.mincontrol.master.refresh.RefreshIntervals
 import io.github.nevminhnh.mincontrol.master.security.BiometricCancelledException
 import io.github.nevminhnh.mincontrol.master.ui.Fmt
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,7 +69,7 @@ class AlertsViewModel(app: Application) : AndroidViewModel(app) {
     val unackedCount: StateFlow<Int> = combine(repo.alerts, filter) { a, _ -> a.count { !it.acked } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
-    init { refresh() }
+    val refresher = AutoRefresher(viewModelScope, RefreshIntervals.DEFAULT_MS) { repo.refreshAlerts() }
 
     fun refresh() = viewModelScope.launch {
         refreshing.value = true

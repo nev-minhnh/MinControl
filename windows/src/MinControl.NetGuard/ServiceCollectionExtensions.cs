@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using MinControl.Core.Abstractions;
+using MinControl.Core.Diagnostics;
 using MinControl.NetGuard.Bypass;
 using MinControl.NetGuard.Categories;
 using MinControl.NetGuard.Proxy;
@@ -37,6 +38,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<BypassDetector>();
         services.AddSingleton<NetGuardService>();
         services.AddSingleton<INetGuard>(sp => sp.GetRequiredService<NetGuardService>());
+        // diag.report sections (API.md §14)
+        services.AddSingleton<IDiagnosticsSection>(sp => new WfpDiagnostics(sp.GetRequiredService<IWfpManager>(), sp.GetRequiredService<NetGuardService>()));
+        services.AddSingleton<IDiagnosticsSection>(sp => new ProxyDiagnostics(sp.GetRequiredService<FilteringProxy>(), sp.GetRequiredService<NetGuardService>(),
+            sp.GetRequiredService<IClock>()));
+        services.AddSingleton<IDiagnosticsSection>(sp => new CategoryDiagnostics(sp.GetRequiredService<CategoryStore>(), sp.GetRequiredService<CategoryUpdater>(),
+            sp.GetRequiredService<NetGuardOptions>()));
         return services;
     }
 }

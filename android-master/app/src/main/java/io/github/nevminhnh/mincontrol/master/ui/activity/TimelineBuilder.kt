@@ -8,7 +8,7 @@ import kotlinx.serialization.json.intOrNull
 
 enum class DotKind { LIVE, INFO, BLOCK, APP, NEUTRAL }
 
-data class TimelineRow(val ts: String, val dot: DotKind, val title: String, val sub: String, val red: Boolean = false, val approve: Boolean = false, val device: Boolean = false)
+data class TimelineRow(val ts: String, val dot: DotKind, val title: String, val sub: String, val red: Boolean = false, val approve: Boolean = false, val device: Boolean = false, val exe: String? = null)
 
 /** Turns raw events (newest first, as returned by the API) into timeline rows (newest first). */
 object TimelineBuilder {
@@ -47,6 +47,7 @@ object TimelineBuilder {
                     s.ts, if (group == "games") DotKind.APP else DotKind.INFO,
                     "$name · ${Fmt.duration(min)}",
                     listOfNotNull(groupText, sessionTitle?.takeIf { it.isNotBlank() }).joinToString(" · ").ifEmpty { exe ?: "" },
+                    exe = exe,
                 )
             }
             sessionStart = null; sessionSec = 0; sessionTitle = null
@@ -73,7 +74,7 @@ object TimelineBuilder {
             "session.lock" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Khóa màn hình", "")
             "session.unlock" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Mở khóa màn hình", "")
             "process.blocked" -> TimelineRow(e.ts, DotKind.BLOCK, "Chặn: ${d.str("exe") ?: "ứng dụng"}",
-                listOfNotNull(d.str("path"), d.str("rule")).joinToString(" · "), red = true)
+                listOfNotNull(d.str("path"), d.str("rule")).joinToString(" · "), red = true, exe = d.str("exe"))
             "request.exe_approval" -> {
                 val exe = d.str("exe") ?: "ứng dụng"
                 val state = d.str("sha256")?.let { decided[it] }

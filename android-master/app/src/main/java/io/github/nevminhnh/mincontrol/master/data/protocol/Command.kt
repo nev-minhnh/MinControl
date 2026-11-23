@@ -60,6 +60,10 @@ sealed interface Command {
 
     @Serializable @SerialName("refresh")
     data class Refresh(override val commandId: String) : Command
+
+    /** Remote diagnostics (API.md §14): the device answers with one `diag.report` event. */
+    @Serializable @SerialName("diagnose")
+    data class Diagnose(override val commandId: String) : Command
 }
 
 @Serializable

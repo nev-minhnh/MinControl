@@ -219,3 +219,14 @@ The parent only ever scans the QR shown by `MinControl-Setup.exe` / `MinControl.
 the same secret again), so the parent needs a new recovery code afterwards (`scripts/deploy-cloud.ps1 -RotateBootstrap`
 regenerates it and the QR). Every PC must then be re-paired ("Kết nối MinControl với điện thoại" → "Ghép nối lại"),
 because devices cannot verify keys no old phone vouched for.
+
+## 14. Remote diagnostics (decided 2026-11-23)
+Command `diagnose` (signed like every command) → the device answers with ONE event `diag.report`
+`{commandId, sections:{<name>:{...}}}` (≤ 256 KB) and acks `applied`. Sections (Windows): `service` (version, uptime,
+hosted services state), `users` (managed SIDs, admin flags, sessions), `policy` (version, seq, stored ok),
+`wfp` (provider/sublayer present, per-SID filter list with layer/action/weight/conditions, last apply result/error),
+`proxy` (listening, port, active tunnels per sid/host, last decisions sample), `browser` (per SID: values of the
+policies MinControl wrote: ProxyMode/ProxyServer, InPrivate, DoH, AllowDeletingBrowserHistory; history reader cursors),
+`categories` (per list: file, bytes, entries, lastModified, lastError), `monitor` (ETW running or polling fallback,
+rules count, last blocks), `logs` (last 200 warning/error lines). The master app shows it in "Chẩn đoán máy" and the
+lead reads it from D1 (`events` type `diag.report`). No secrets (no keys, no tokens) may appear in a report.

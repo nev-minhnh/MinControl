@@ -14,6 +14,7 @@ namespace MinControl.Core.Protocol;
 [JsonDerivedType(typeof(KillProcessCommand), "kill_process")]
 [JsonDerivedType(typeof(LogoffCommand), "logoff")]
 [JsonDerivedType(typeof(RefreshCommand), "refresh")]
+[JsonDerivedType(typeof(DiagnoseCommand), "diagnose")]
 public abstract record Command(string CommandId);
 
 public sealed record LockNowCommand(string CommandId, string UserSid, string? Until = null) : Command(CommandId);
@@ -26,6 +27,8 @@ public sealed record ApproveExeCommand(string CommandId, string UserSid, string 
 public sealed record KillProcessCommand(string CommandId, string UserSid, int Pid, string? Exe = null) : Command(CommandId);
 public sealed record LogoffCommand(string CommandId, string UserSid) : Command(CommandId);
 public sealed record RefreshCommand(string CommandId) : Command(CommandId);
+/// <summary>API.md §14: answer with one <c>diag.report</c> event.</summary>
+public sealed record DiagnoseCommand(string CommandId) : Command(CommandId);
 
 public static class ProtocolJson
 {
