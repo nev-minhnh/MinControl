@@ -205,6 +205,12 @@ FIXTURES = {
                   "tamper-state-tampered": STATE_TAMPERED, "diag-report": DIAG, "web-blocked-doh": DOH_BLOCKED,
                   "web-blocked-keyword": mutate(DOH_BLOCKED, lambda e: e.update(id="01JDQ500000000000000000KWD", data={
                       "host": "www.google.com", "source": "extension", "reason": "keyword", "keyword": "cờ bạc"})),
+                  "web-blocked-keyword-full": mutate(DOH_BLOCKED, lambda e: e.update(id="01JDQ5000000000000000KWDFUL", data={
+                      "host": "www.google.com", "url": "https://www.google.com/search?q=c%E1%BB%9D+b%E1%BA%A1c", "source": "extension",
+                      "reason": "keyword", "keyword": "cờ bạc", "action": "closed_tab", "title": "cờ bạc online - Google Search",
+                      "query": "cờ bạc online", "engine": "google", "exe": "chrome.exe", "count": 3, "rule": "Từ khóa: cờ bạc"})),
+                  "process-blocked-killed": mutate(BLOCKED, lambda e: e.update(id="01JDQ5000000000000000000PKL", data=dict(
+                      e["data"], action="killed", count=2, title="Roblox", rule="Dịch vụ: Roblox"))),
                   "web-blocked-service": mutate(DOH_BLOCKED, lambda e: e.update(id="01JDQ500000000000000000SVC", data={
                       "host": "www.tiktok.com", "source": "proxy", "reason": "service", "service": "tiktok"})),
                   "process-blocked-service": mutate(BLOCKED, lambda e: e.update(id="01JDQ500000000000000000PSV", data=dict(
@@ -212,6 +218,9 @@ FIXTURES = {
                   "web-blocked-port": mutate(DOH_BLOCKED, lambda e: e.update(id="01JDQ500000000000000000PRT", data={
                       "host": "203.0.113.7", "source": "proxy", "reason": "port", "exe": "game.exe"}))},
         "invalid": {
+            "web-blocked-bad-action": mutate(DOH_BLOCKED, lambda e: e["data"].update(action="killed")),
+            "web-blocked-count-zero": mutate(DOH_BLOCKED, lambda e: e["data"].update(count=0)),
+            "process-blocked-bad-action": mutate(BLOCKED, lambda e: e["data"].update(action="closed_tab")),
             "web-blocked-service-bad-id": mutate(DOH_BLOCKED, lambda e: e["data"].update(reason="service", service="TikTok")),
             "web-blocked-keyword-too-long": mutate(DOH_BLOCKED, lambda e: e["data"].update(reason="keyword", keyword="x" * 65)),
             "web-visit-missing-userSid": mutate(VISIT, lambda e: e.pop("userSid")),

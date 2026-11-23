@@ -1,0 +1,22 @@
+{
+  "id": "01JDQ5000000000000000KWDFUL",
+  "deviceId": "01JDQ3Z8K4M2N6P8R0S2T4V6W8",
+  "userSid": "S-1-5-21-1111111111-2222222222-3333333333-1001",
+  "ts": "2026-11-22T08:42:00Z",
+  "monoMs": 3500000,
+  "type": "web.blocked",
+  "data": {
+    "host": "www.google.com",
+    "url": "https://www.google.com/search?q=c%E1%BB%9D+b%E1%BA%A1c",
+    "source": "extension",
+    "reason": "keyword",
+    "keyword": "cờ bạc",
+    "action": "closed_tab",
+    "title": "cờ bạc online - Google Search",
+    "query": "cờ bạc online",
+    "engine": "google",
+    "exe": "chrome.exe",
+    "count": 3,
+    "rule": "Từ khóa: cờ bạc"
+  }
+}

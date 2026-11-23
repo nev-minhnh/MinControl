@@ -422,6 +422,20 @@
           "type": "string",
           "pattern": "^[a-z0-9-]{2,32}$",
           "description": "catalog service that caused the block (process.blocked)"
+        },
+        "action": {
+          "enum": ["killed", "denied"],
+          "description": "process.blocked: what the agent did"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "attempts folded into this event within its rate-limit window"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "window title at block time, if any"
         }
       }
     },
@@ -516,6 +530,32 @@
         "keyword": {
           "type": "string",
           "maxLength": 64
+        },
+        "action": {
+          "enum": ["refused", "closed_tab", "closed_window"]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "page/video/window title at block time"
+        },
+        "query": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "search query when relevant"
+        },
+        "engine": {
+          "enum": ["google", "bing", "youtube", "coccoc", "other"]
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "attempts folded into this event within its rate-limit window"
+        },
+        "rule": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "human-readable rule label, e.g. \"Dịch vụ: TikTok\""
         },
         "service": {
           "type": "string",

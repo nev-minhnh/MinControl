@@ -291,6 +291,12 @@ Every kind of blocking supports two modes: **blocklist** (default allow, block w
 - **Events**: `web.blocked.reason` adds `"keyword"`, `"service"`; `web.blocked` data adds optional `keyword`,
   `service`; `process.blocked` data adds optional `service`. A `web.blocked` / `process.blocked` is emitted for
   EVERY attempt (rate limit: same host/exe at most once per 10 s), so the timeline always shows "Đã chặn".
+- **Fully described blocks** (so the timeline shows exactly what happened): `web.blocked` data adds optional
+  `action` ("refused"|"closed_tab"|"closed_window"), `title` (≤512, page/video/window title at block time), `query`
+  (≤512, search query when relevant), `engine` (google|bing|youtube|coccoc|other), `count` (int ≥ 1, attempts folded
+  into this event within its rate-limit window) and `rule` (≤128, human-readable label, e.g. "Danh mục: Mạng xã hội",
+  "Dịch vụ: TikTok", "Từ khóa: xxx", "Danh sách chặn: *.youtube.com"). `process.blocked` data adds optional `action`
+  ("killed"|"denied"), `count`, `title` (window title if any); `rule` already exists.
 
 ## 18. No recovery code; uninstall and reinstall leave no garbage (decided by Minh 2026-11-23)
 Supersedes §13B and the "Đổi điện thoại / khôi phục" path of §12 for the normal product.
