@@ -82,7 +82,7 @@ for (const stem of readdirSync(join(root, "fixtures"))) {
       const key = JSON.stringify([m.exe?.toLowerCase(), m.path?.toLowerCase(), m.publisher?.toLowerCase(), m.sha256]);
       if (seen.has(key)) { failures++; console.error(`FAIL app-groups.json ${JSON.stringify(m)} in both ${seen.get(key)} and ${g.id}`); }
       seen.set(key, g.id);
-      if (m.exe && /[\/]/.test(m.exe)) { failures++; console.error(`FAIL app-groups.json exe must be a file name: ${m.exe}`); }
+      if (m.exe && /[\\/]/.test(m.exe)) { failures++; console.error(`FAIL app-groups.json exe must be a file name: ${m.exe}`); }
       if (m.exe?.toLowerCase() === "javaw.exe" && !m.path) { failures++; console.error("FAIL app-groups.json javaw.exe needs a path pattern"); }
       if (m.publisher && !/[A-Za-z]{3}/.test(m.publisher.replace(/\*/g, ""))) { failures++; console.error(`FAIL app-groups.json publisher too broad: ${m.publisher}`); }
     }
