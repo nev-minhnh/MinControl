@@ -30,6 +30,9 @@ public sealed class EventSink : IEventSink
     /// <summary>Raised after an event was queued (CloudLink uses it to flush early when the batch is full).</summary>
     public event Action<string>? Emitted;
 
+    /// <summary>Raised with (outbox row id, event id, event json, type) right after the event was queued (live WS push).</summary>
+    public event Action<long, string, string, string>? Queued;
+
     public void Emit(string type, string? userSid, JsonObject data) => Emit(type, userSid, data, null);
 
     /// <summary>Emit with a caller-chosen id (screenshot.taken uses the id inside its blob key). Returns the event, or null if not enrolled.</summary>
@@ -46,15 +49,19 @@ public sealed class EventSink : IEventSink
         var now = _clock.UtcNow;
         var ev = new TelemetryEvent(id ?? _ids.New(now), deviceId, userSid, Time.Utc(at ?? now), Math.Max(0, _clock.MonotonicMs), type,
             (JsonObject)data.DeepClone());
+        string json; long rowId;
         try
         {
-            _store.EnqueueOutbox(type, JsonSerializer.Serialize(ev, ProtocolJson.Options));
+            json = JsonSerializer.Serialize(ev, ProtocolJson.Options);
+            rowId = _store.EnqueueOutbox(type, json);
         }
         catch (Exception e)
         {
             _log.LogError(e, "outbox write failed for {Type}", type);
             return null;
         }
+        try { Queued?.Invoke(rowId, ev.Id, json, type); }
+        catch (Exception e) { _log.LogDebug(e, "live push subscriber failed"); }
         Emitted?.Invoke(type);
         return ev;
     }

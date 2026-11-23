@@ -29,7 +29,8 @@ internal sealed class Enforcer(
     IEventSink events,
     IClock clock,
     IServiceProvider services,
-    ILogger<Enforcer> log) : BackgroundService
+    ILogger<Enforcer> log,
+    IStateChangeNotifier? stateNotifier = null) : BackgroundService
 {
     private const long GroupCheckMs = 5_000, OverlayRefreshMs = 5_000, MaxTickDeltaMs = 2_000;
 
@@ -38,6 +39,7 @@ internal sealed class Enforcer(
         public readonly WarningScheduler Warnings = new();
         public readonly UsageAggregator Usage = new();
         public bool TotalExhaustedSent;
+        public string? LastForegroundExe;
         public HashSet<string> ExhaustedGroups = new(StringComparer.Ordinal);
         public long LastGroupCheckMono = long.MinValue / 2;
         public long LastScreenshotMono;
@@ -91,6 +93,11 @@ internal sealed class Enforcer(
             if (s.SessionId == console && !s.Locked && countedSids.Add(sid))
             {
                 fg = foreground.Current(sid);
+                if (!string.Equals(us.LastForegroundExe, fg?.ExePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    us.LastForegroundExe = fg?.ExePath;
+                    stateNotifier?.Notify(); // foreground app changed
+                }
                 // Helper silent => count anyway (fail closed); idle => count only when countIdle.
                 var counting = fg is null || user.ScreenTime.CountIdle || !fg.Value.Idle;
                 if (counting && delta > 0) engine.RecordUsage(sid, fg?.ExePath, delta);
@@ -125,10 +132,12 @@ internal sealed class Enforcer(
         var warn = us.Warnings.Update(user.ScreenTime.WarnAtMin, state.Allowed ? state.RemainingMin : null);
         if (warn is int remaining)
         {
+            stateNotifier?.Notify(); // quota threshold crossed
             await actions.ShowWarningAsync(sid, remaining, ct).ConfigureAwait(false);
             events.Emit(EventTypes.QuotaWarning, sid, new JsonObject { ["scope"] = "total", ["remainingMin"] = remaining });
         }
         var exhausted = state.Reason == "quota_exhausted";
+        if (exhausted != us.TotalExhaustedSent) stateNotifier?.Notify();
         if (exhausted && !us.TotalExhaustedSent)
             events.Emit(EventTypes.QuotaExhausted, sid, new JsonObject { ["scope"] = "total", ["remainingMin"] = 0 });
         us.TotalExhaustedSent = exhausted;

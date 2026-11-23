@@ -17,6 +17,7 @@ public sealed class DomainAggregator
     private sealed class Counter
     {
         public long Connections, BytesIn, BytesOut;
+        public int FirstSent;
     }
 
     private readonly record struct Key(string Sid, string Exe, string Host, bool Allowed, long WindowStartTicks);
@@ -39,6 +40,10 @@ public sealed class DomainAggregator
     {
         var c = _counters.GetOrAdd(KeyFor(sid, exe, host, allowed), static _ => new Counter());
         Interlocked.Increment(ref c.Connections);
+        // First connection to this host in the current window: emit at once (API.md section 15); the window
+        // record at flush time only carries the remaining connections.
+        if (Interlocked.Exchange(ref c.FirstSent, 1) == 0)
+            EmitRecord(KeyFor(sid, exe, host, allowed), 1, 0, 0);
     }
 
     public void RecordBytes(string sid, string exe, string host, bool allowed, long bytesOut, long bytesIn)
@@ -60,20 +65,30 @@ public sealed class DomainAggregator
         foreach (var key in _counters.Keys)
         {
             if (!due(key) || !_counters.TryRemove(key, out var c)) continue;
-            var data = new JsonObject
-            {
-                ["host"] = Truncate(key.Host, 253),
-                ["exe"] = Truncate(key.Exe, 260),
-                ["windowStart"] = new DateTime(key.WindowStartTicks, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
-                ["connections"] = Math.Max(1, Interlocked.Read(ref c.Connections)),
-                ["bytesOut"] = Interlocked.Read(ref c.BytesOut),
-                ["bytesIn"] = Interlocked.Read(ref c.BytesIn),
-                ["allowed"] = key.Allowed,
-            };
-            _sink.Emit(EventTypes.NetDomain, key.Sid, data);
+            var first = Volatile.Read(ref c.FirstSent);
+            var conns = Interlocked.Read(ref c.Connections) - first;
+            var bout = Interlocked.Read(ref c.BytesOut);
+            var bin = Interlocked.Read(ref c.BytesIn);
+            if (first == 1 && conns <= 0 && bout == 0 && bin == 0) continue; // fully covered by the first-seen record
+            EmitRecord(key, Math.Max(1, conns), bout, bin);
             n++;
         }
         return n;
+    }
+
+    private void EmitRecord(Key key, long connections, long bytesOut, long bytesIn)
+    {
+        var data = new JsonObject
+        {
+            ["host"] = Truncate(key.Host, 253),
+            ["exe"] = Truncate(key.Exe, 260),
+            ["windowStart"] = new DateTime(key.WindowStartTicks, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+            ["connections"] = connections,
+            ["bytesOut"] = bytesOut,
+            ["bytesIn"] = bytesIn,
+            ["allowed"] = key.Allowed,
+        };
+        _sink.Emit(EventTypes.NetDomain, key.Sid, data);
     }
 
     private Key KeyFor(string sid, string exe, string host, bool allowed)

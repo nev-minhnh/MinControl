@@ -31,7 +31,7 @@ public sealed class NetGuardOptions
     public TimeSpan WatchdogInterval { get; set; } = TimeSpan.FromSeconds(60);
 
     /// <summary>net.domain aggregation window.</summary>
-    public TimeSpan DomainWindow { get; set; } = TimeSpan.FromMinutes(5);
+    public TimeSpan DomainWindow { get; set; } = TimeSpan.FromMinutes(1);
 
     /// <summary>Best-effort bypass scan (listeners on proxy-like ports, VPN adapters, direct connections).</summary>
     public TimeSpan BypassScanInterval { get; set; } = TimeSpan.FromSeconds(15);

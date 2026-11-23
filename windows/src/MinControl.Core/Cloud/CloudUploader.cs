@@ -40,6 +40,9 @@ public sealed class CloudUploader
     private readonly Func<string?> _serverUrl;
     private readonly ILogger _log;
 
+    /// <summary>Rows currently sent over the WebSocket and awaiting an ack are skipped by the batch path.</summary>
+    public InFlightEvents? InFlight { get; set; }
+
     public CloudUploader(HttpClient http, StateStore store, UploadTokenHolder token, IClock clock, Func<string?> serverUrl, ILogger<CloudUploader>? log = null)
     {
         _http = http; _store = store; _token = token; _clock = clock; _serverUrl = serverUrl;
@@ -75,7 +78,8 @@ public sealed class CloudUploader
         var result = UploadResult.NothingToDo;
         while (true)
         {
-            var items = _store.PeekOutbox(MaxBatch);
+            var items = _store.PeekOutbox(MaxBatch + (InFlight?.Count ?? 0));
+            if (InFlight is { } inflight) items = items.Where(x => !inflight.IsInFlight(x.Id)).Take(MaxBatch).ToList();
             if (items.Count == 0) return result;
             var token = _token.Valid(_clock.UtcNow);
             var baseUrl = _serverUrl();

@@ -12,7 +12,8 @@ internal sealed record SessionSnapshot(int SessionId, string? Sid, bool Locked, 
 
 /// <summary>Tracks interactive sessions from SERVICE_CONTROL_SESSIONCHANGE (forwarded by the service lifetime)
 /// plus an initial WTS enumeration. Emits session.* events for managed SIDs only (I1).</summary>
-internal sealed class SessionTracker(UserDirectory users, IEventSink events, IClock clock, ILogger<SessionTracker> log)
+internal sealed class SessionTracker(UserDirectory users, IEventSink events, IClock clock, ILogger<SessionTracker> log,
+    IStateChangeNotifier? stateNotifier = null)
 {
     private readonly object _gate = new();
     private readonly Dictionary<int, SessionSnapshot> _sessions = new();
@@ -64,6 +65,8 @@ internal sealed class SessionTracker(UserDirectory users, IEventSink events, ICl
         catch (Exception e) { log.LogError(e, "session change {Kind} {Session} failed", kind, sessionId); }
         try { Changed?.Invoke(); }
         catch (Exception e) { log.LogError(e, "session change subscriber failed"); }
+        if (kind is SessionChangeKind.Logon or SessionChangeKind.Logoff or SessionChangeKind.Lock or SessionChangeKind.Unlock)
+            stateNotifier?.Notify(); // state goes to the cloud at once (API.md section 15)
     }
 
     private void Handle(SessionChangeKind kind, int sessionId)
