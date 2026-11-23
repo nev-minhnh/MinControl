@@ -29,7 +29,16 @@ public sealed record UserPolicy(
     IReadOnlyList<AppRule> AppRules,
     string NewExecutable,            // allow | block | ask
     WebPolicy Web,
-    MonitoringPolicy Monitoring);
+    MonitoringPolicy Monitoring,
+    string? AppMode = null,          // blocklist (default) | allowlist (API.md §17)
+    KeywordPolicy? Keywords = null)
+{
+    /// <summary>True when only allowed apps may run (<c>appMode: "allowlist"</c>).</summary>
+    public bool IsAppAllowlist => string.Equals(AppMode, "allowlist", StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>Banned words (API.md §17): matched case- and diacritics-insensitively on word boundaries.</summary>
+public sealed record KeywordPolicy(IReadOnlyList<string> Words, bool MatchSearches, bool MatchTitles);
 
 public sealed record ScreenTimePolicy(
     WeekdayMap<int> DailyQuotaMin,
@@ -59,7 +68,9 @@ public sealed record WebPolicy(
     string Youtube,                                // off | moderate | strict
     IReadOnlyList<string> AllowedBrowsers,         // msedge.exe | chrome.exe
     IReadOnlyList<AppMatch> NetExemptApps,
-    IReadOnlyDictionary<string, WeekdayMap<IReadOnlyList<string>>>? CategorySchedules = null);
+    IReadOnlyDictionary<string, WeekdayMap<IReadOnlyList<string>>>? CategorySchedules = null,
+    IReadOnlyList<string>? BlockedServices = null,  // service ids from protocol/services.json
+    IReadOnlyList<string>? AllowedServices = null);
 
 public sealed record MonitoringPolicy(
     bool ForegroundTitles,

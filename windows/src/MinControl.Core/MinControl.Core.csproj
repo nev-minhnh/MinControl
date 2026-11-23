@@ -12,6 +12,9 @@
   <ItemGroup>
     <!-- protocol/*.schema.json are the source of truth; embedded so the device validates bodies offline -->
     <EmbeddedResource Include="..\..\..\protocol\*.schema.json" LogicalName="MinControl.Schemas.%(Filename)%(Extension)" />
+    <!-- API.md §17 service catalog, read at build time; a YouTube-only placeholder until protocol/services.json exists -->
+    <EmbeddedResource Include="..\..\..\protocol\services.json" LogicalName="MinControl.Services.json" Condition="Exists('..\..\..\protocol\services.json')" />
+    <EmbeddedResource Include="Catalog\services.placeholder.json" LogicalName="MinControl.Services.json" Condition="!Exists('..\..\..\protocol\services.json')" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="MinControl.Core.Tests" />

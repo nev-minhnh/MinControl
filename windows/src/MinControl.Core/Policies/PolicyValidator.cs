@@ -36,8 +36,12 @@ public static class PolicyValidator
                 }
             foreach (var d in web.BlockDomains.Intersect(web.AllowDomains, StringComparer.OrdinalIgnoreCase))
                 errors.Add($"{sid}.web domain '{d}' is both blocked and allowed");
-            if (web.Mode == "allowlist" && web.AllowDomains.Count == 0)
+            if (web.Mode == "allowlist" && web.AllowDomains.Count == 0 && (web.AllowedServices?.Count ?? 0) == 0)
                 errors.Add($"{sid}.web allowlist mode with no allowDomains blocks every site");
+            foreach (var id in (web.BlockedServices ?? []).Intersect(web.AllowedServices ?? [], StringComparer.OrdinalIgnoreCase))
+                errors.Add($"{sid}.web service '{id}' is both blocked and allowed");
+            if (u.IsAppAllowlist && !u.AppRules.Any(r => r.Action == "allow") && (web.AllowedServices?.Count ?? 0) == 0)
+                errors.Add($"{sid}.appMode allowlist needs at least one allow appRule or allowed service");
         }
         return errors;
     }

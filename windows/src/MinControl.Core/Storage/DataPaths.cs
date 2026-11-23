@@ -17,6 +17,8 @@ public sealed class DataPaths
     public string DeviceKey => Path.Combine(Root, "device.key");
     public string Screens => Path.Combine(Root, "screens");
     public string Logs => Path.Combine(Root, "logs");
+    /// <summary>Written by Setup / the MSI right before they stop the service on purpose (see <see cref="ExpectedStopMarker"/>).</summary>
+    public string ExpectedStop => Path.Combine(Root, ExpectedStopMarker.FileName);
 
     public void EnsureExists() => Directory.CreateDirectory(Root);
 
