@@ -249,3 +249,20 @@ Goal: while the parent has the app open and the PC is online, what the child doe
 - **App**: holds one live socket per device only while in the foreground (lifecycle-aware), merges pushed events into the
   visible lists and state instantly; polling (§ auto-refresh) stays as fallback with a slower interval (60 s) while the
   socket is healthy. In the background only FCM is used.
+
+## 16. Lean storage + logon notifications + free-tier meter (decided by Minh 2026-11-23)
+- **Ingest**: `net.domain` and `usage.tick` events are **not** inserted into `events` any more; they only update the
+  aggregates `domains_daily` (new columns `first_seen`, `last_seen` RFC3339 Z; migration 0005) and `usage_daily`.
+  They are still fanned out live to master sockets (§15) and still acked to the device. Existing rows of these two
+  types in `events` are purged by the migration. `GET …/events?type=net.domain|usage.tick` returns an empty list.
+- **New** `GET /v1/master/devices/:id/domains?user=<sid>&day=YYYY-MM-DD` (day in policy timezone, default today) →
+  `{"items":[{"host","apps":[exe…],"connections","bytesOut","bytesIn","blocked":bool,"firstSeen","lastSeen"}]}`
+  grouped by host (blocked = any blocked row for that host), sorted by connections desc, ≤ 2000 items.
+- **Indexes**: keep only indexes used by real queries; every index costs one extra written row per insert.
+- **Logon notifications**: `GET/PUT /v1/master/settings` → `{"notifyLogon":bool,"notifyLogoff":bool}` (account-wide,
+  default false). When on, a `session.logon` / `session.logoff` event of a managed user produces an FCM push
+  (severity info, title "CK vừa đăng nhập PC-NAME" / "… đã đăng xuất", body with local time) — no alert row.
+- **Free-tier meter**: the Worker sums D1 `meta.rows_written` of its own statements per UTC day in `config`
+  (`usage:<yyyy-mm-dd>` → rows; one extra row write per batch). `GET /v1/master/usage` →
+  `{"day","rowsWritten","limit":100000,"percent"}`. Crossing 70 % and 90 % sends one FCM push each per day
+  ("Sắp chạm hạn mức miễn phí của Cloudflare hôm nay (70 %)…").
