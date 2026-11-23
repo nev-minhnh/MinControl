@@ -53,6 +53,9 @@ data class ServiceCatalog(val services: List<Service>) {
 
 enum class ServiceState { NONE, BLOCKED, ALLOWED }
 
+/** One entry of the per-service dropdown ("Không áp dụng / Chặn / Cho phép"). */
+data class ServiceOption(val state: ServiceState, val label: String, val note: String?)
+
 /** Pure policy edits for blocking v2 (modes, services, keywords). */
 object BlockingV2 {
     const val APP_BLOCKLIST_TITLE = "Cho phép tất cả, chặn theo danh sách"
@@ -83,6 +86,48 @@ object BlockingV2 {
         ServiceState.NONE -> if (allowlist) ServiceState.ALLOWED else ServiceState.BLOCKED
         ServiceState.ALLOWED -> ServiceState.BLOCKED
         ServiceState.BLOCKED -> ServiceState.NONE
+    }
+
+    // ---------- "Dịch vụ" sheet: grouped list + per-service dropdown ----------
+
+    const val SERVICES_HELP = "Chọn cho từng dịch vụ: “Chặn” chặn cả ứng dụng lẫn trang web của dịch vụ đó. " +
+        "“Cho phép” chỉ có tác dụng khi Ứng dụng hoặc Web đang ở chế độ “Chặn tất cả, chỉ cho phép theo danh sách”: " +
+        "dịch vụ được phép vẫn dùng được dù mọi thứ khác bị chặn."
+    const val ALLOW_ONLY_IN_ALLOWLIST = "Chỉ có tác dụng ở chế độ “Chặn tất cả, chỉ cho phép theo danh sách”"
+
+    /** Category order of the grouped list; unknown categories follow alphabetically. */
+    val SERVICE_CATEGORY_ORDER = listOf("social", "chat", "video", "music", "games", "ai")
+
+    fun stateLabel(st: ServiceState) = when (st) {
+        ServiceState.NONE -> "Không áp dụng"; ServiceState.BLOCKED -> "Chặn"; ServiceState.ALLOWED -> "Cho phép"
+    }
+
+    /** The three dropdown options. "Cho phép" carries a note when no allowlist mode is active (it would do nothing yet). */
+    fun serviceOptions(allowlist: Boolean): List<ServiceOption> = listOf(
+        ServiceOption(ServiceState.NONE, stateLabel(ServiceState.NONE), null),
+        ServiceOption(ServiceState.BLOCKED, stateLabel(ServiceState.BLOCKED), "Chặn cả ứng dụng và trang web"),
+        ServiceOption(ServiceState.ALLOWED, stateLabel(ServiceState.ALLOWED), if (allowlist) "Luôn được dùng" else ALLOW_ONLY_IN_ALLOWLIST),
+    )
+
+    fun setServiceState(up: UserPolicy, id: String, state: ServiceState): UserPolicy = up.copy(web = setService(up.web, id, state))
+
+    /** Services grouped by category (fixed order), names sorted inside each group. */
+    fun groupedServices(catalog: ServiceCatalog): List<Pair<String, List<Service>>> {
+        val byCat = catalog.services.groupBy { it.category.lowercase() }
+        val order = SERVICE_CATEGORY_ORDER.filter { it in byCat } + byCat.keys.filterNot { it in SERVICE_CATEGORY_ORDER }.sorted()
+        return order.map { c -> c to byCat.getValue(c).sortedBy { it.name.lowercase() } }
+    }
+
+    /** Subtitle of the "Dịch vụ" row. */
+    fun servicesSummary(w: WebPolicy): String {
+        val b = w.blockedServices.orEmpty().size
+        val a = w.allowedServices.orEmpty().size
+        return when {
+            b == 0 && a == 0 -> "Chưa chặn dịch vụ nào"
+            a == 0 -> "Đang chặn $b dịch vụ"
+            b == 0 -> "Cho phép $a dịch vụ"
+            else -> "Chặn $b · cho phép $a dịch vụ"
+        }
     }
 
     /** Puts [id] in exactly one list (or none). Empty lists become null so the field is omitted. */

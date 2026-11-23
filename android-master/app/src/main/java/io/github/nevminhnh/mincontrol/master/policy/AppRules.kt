@@ -55,6 +55,10 @@ object AppRules {
         return out
     }
 
+    /** "Ứng dụng được phép" / "Ứng dụng bị chặn": rules split by action, keeping their index (= evaluation order). */
+    fun sections(rules: List<AppRule>): Pair<List<IndexedValue<AppRule>>, List<IndexedValue<AppRule>>> =
+        rules.withIndex().partition { it.value.action == RuleAction.ALLOW }
+
     fun remove(rules: List<AppRule>, index: Int): List<AppRule> = rules.filterIndexed { i, _ -> i != index }
 
     /** Moves the rule at [index] by [delta] (-1 up, +1 down); out-of-range moves are ignored. */

@@ -111,7 +111,7 @@ fun SetupScreen() {
             try {
                 val deviceId = graph.repo.registerWithClaim(activity, url, p.claimId)
                 graph.settings.serverUrl = url
-                PairLink.afterRegister.value = AfterRegister(p.claimId, deviceId)
+                PairLink.afterRegister.value = AfterRegister(p.claimId, deviceId, p.fp)
                 graph.settings.setRegistered(true)
                 graph.push.syncToken()
             } catch (e: BiometricCancelledException) {

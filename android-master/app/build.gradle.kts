@@ -49,29 +49,37 @@ android {
 }
 
 /**
- * Copies the blocking-v2 service catalog (API.md §17) from ../protocol/services.json into the app assets.
- * Falls back to an empty catalog when the file does not exist yet.
+ * Copies the protocol catalogs into the app assets: services.json (API.md §17), app-groups.json and
+ * search-engines.json (§19). A missing file becomes an empty catalog; the app then uses its built-in fallback.
  */
-abstract class CopyServiceCatalog : DefaultTask() {
-    @get:Internal abstract val sourceFile: Property<String>
+abstract class CopyProtocolAssets : DefaultTask() {
+    @get:Internal abstract val protocolDir: Property<String>
     @get:OutputDirectory abstract val outputDir: DirectoryProperty
 
     @TaskAction
     fun copy() {
-        val src = File(sourceFile.get())
-        val out = outputDir.get().file("services.json").asFile
-        out.parentFile.mkdirs()
-        if (src.isFile) src.copyTo(out, overwrite = true) else out.writeText("{\"version\":0,\"services\":[]}")
+        val fallbacks = mapOf(
+            "services.json" to "{\"version\":0,\"services\":[]}",
+            "app-groups.json" to "{\"version\":0,\"groups\":[]}",
+            "search-engines.json" to "{\"version\":0,\"engines\":[]}",
+        )
+        val dir = outputDir.get().asFile
+        dir.mkdirs()
+        for ((name, empty) in fallbacks) {
+            val src = File(protocolDir.get(), name)
+            val out = File(dir, name)
+            if (src.isFile) src.copyTo(out, overwrite = true) else out.writeText(empty)
+        }
     }
 }
 
-val copyServiceCatalog = tasks.register<CopyServiceCatalog>("copyServiceCatalog") {
-    sourceFile.set(rootDir.resolve("../protocol/services.json").canonicalPath)
+val copyProtocolAssets = tasks.register<CopyProtocolAssets>("copyProtocolAssets") {
+    protocolDir.set(rootDir.resolve("../protocol").canonicalPath)
     outputs.upToDateWhen { false }
 }
 
 androidComponents {
-    onVariants { v -> v.sources.assets?.addGeneratedSourceDirectory(copyServiceCatalog, CopyServiceCatalog::outputDir) }
+    onVariants { v -> v.sources.assets?.addGeneratedSourceDirectory(copyProtocolAssets, CopyProtocolAssets::outputDir) }
 }
 
 kotlin {
