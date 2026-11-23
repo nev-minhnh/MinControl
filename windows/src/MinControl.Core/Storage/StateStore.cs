@@ -307,14 +307,17 @@ public sealed class StateStore : IDisposable
     public long OutboxCount { get { lock (_gate) return Scalar<long>("SELECT COUNT(*) FROM outbox"); } }
 
     /// <summary>Appends an event. Over the cap, drops oldest usage.tick first, then oldest non-tamper events; never tamper.*.</summary>
-    public void EnqueueOutbox(string type, string json)
+    /// <returns>The outbox row id.</returns>
+    public long EnqueueOutbox(string type, string json)
     {
         lock (_gate)
         {
             var size = (long)System.Text.Encoding.UTF8.GetByteCount(json);
             Exec("INSERT INTO outbox(type,json,size) VALUES($t,$j,$z)", ("$t", type), ("$j", json), ("$z", size));
             _outboxBytes += size;
+            var rowId = Scalar<long>("SELECT last_insert_rowid()");
             if (_outboxBytes > OutboxCapBytes) EnforceOutboxCap();
+            return rowId;
         }
     }
 
