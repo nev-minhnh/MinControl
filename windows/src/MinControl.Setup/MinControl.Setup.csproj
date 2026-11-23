@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
     <!-- Setup runs elevated; the manifest makes Windows prompt for UAC when started from a normal prompt. -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\mincontrol.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\MinControl.Core\MinControl.Core.csproj" />

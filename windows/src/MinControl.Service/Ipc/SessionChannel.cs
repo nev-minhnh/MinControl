@@ -11,7 +11,8 @@ using Microsoft.Extensions.Logging;
 namespace MinControl.Service.Ipc;
 
 /// <param name="StartedUtc">When this app (same exe + pid) got the focus; title updates keep it.</param>
-internal sealed record ForegroundInfo(string ExePath, string? Title, int Pid, long Mono, DateTimeOffset StartedUtc);
+/// <param name="Hwnd">Foreground top-level window (0 when the helper is older than the keyword feature).</param>
+internal sealed record ForegroundInfo(string ExePath, string? Title, int Pid, long Mono, DateTimeOffset StartedUtc, long Hwnd = 0);
 
 internal sealed record CaptureFrame(byte[] Jpeg, int Width, int Height);
 
@@ -27,6 +28,7 @@ internal sealed class SessionChannel : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly ConcurrentDictionary<long, TaskCompletionSource<CaptureFrame?>> _captures = new();
+    private readonly ConcurrentDictionary<long, TaskCompletionSource<bool>> _closes = new();
     private Task _loop = Task.CompletedTask;
     private volatile NamedPipeServerStream? _pipe;
     private long _requestId;
@@ -46,6 +48,10 @@ internal sealed class SessionChannel : IAsyncDisposable
     public long LastSeenMono => Interlocked.Read(ref _lastSeenMono);
     public long IdleMs => Interlocked.Read(ref _idleMs);
     public ForegroundInfo? Foreground { get; private set; }
+
+    /// <summary>Raised (on the pipe reader thread) for every foreground report (the helper sends one per change of
+    /// window, exe or title). Handlers must not block.</summary>
+    public event Action<SessionChannel, ForegroundInfo>? ForegroundChanged;
 
     public void Start() => _loop = Task.Run(() => RunAsync(_cts.Token));
 
@@ -93,6 +99,7 @@ internal sealed class SessionChannel : IAsyncDisposable
                 _pipe = null;
                 if (pipe is not null) await pipe.DisposeAsync().ConfigureAwait(false);
                 foreach (var (id, tcs) in _captures) if (_captures.TryRemove(id, out _)) tcs.TrySetResult(null);
+                foreach (var (id, tcs) in _closes) if (_closes.TryRemove(id, out _)) tcs.TrySetResult(false);
             }
         }
     }
@@ -114,7 +121,14 @@ internal sealed class SessionChannel : IAsyncDisposable
                 var started = previous is not null && previous.Pid == pid
                     && string.Equals(previous.ExePath, exe, StringComparison.OrdinalIgnoreCase)
                     ? previous.StartedUtc : _clock.UtcNow;
-                Foreground = new ForegroundInfo(exe, title, pid, _clock.MonotonicMs, started);
+                var info = new ForegroundInfo(exe, title, pid, _clock.MonotonicMs, started, m.Long("hwnd") ?? 0);
+                Foreground = info;
+                try { ForegroundChanged?.Invoke(this, info); }
+                catch (Exception e) { _log.LogWarning(e, "session {Session}: foreground handler failed", SessionId); }
+                break;
+            case IpcTypes.CloseResult:
+                if (_closes.TryRemove(m.Long("requestId") ?? -1, out var closeTcs))
+                    closeTcs.TrySetResult(m.Data["ok"] is JsonValue ok && ok.TryGetValue<bool>(out var b) && b);
                 break;
             case IpcTypes.Idle:
                 Interlocked.Exchange(ref _idleMs, Math.Max(0, m.Long("idleMs") ?? 0));
@@ -176,6 +190,28 @@ internal sealed class SessionChannel : IAsyncDisposable
         finally { _captures.TryRemove(id, out _); }
     }
 
+    /// <summary>Asks the helper to close the browser tab (Ctrl+W, only while <paramref name="hwnd"/> is the foreground
+    /// window of <paramref name="pid"/>) or the window (WM_CLOSE) and show the toast. True when the helper did it.</summary>
+    public async Task<bool> CloseWindowAsync(long hwnd, int pid, bool tab, string toastTitle, string toastReason, TimeSpan timeout, CancellationToken ct)
+    {
+        var id = Interlocked.Increment(ref _requestId);
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _closes[id] = tcs;
+        try
+        {
+            var request = IpcMessage.Of(IpcTypes.CloseWindow, new JsonObject
+            {
+                ["requestId"] = id, ["hwnd"] = hwnd, ["pid"] = pid, ["mode"] = tab ? "tab" : "window",
+                ["title"] = toastTitle.Length > 200 ? toastTitle[..200] : toastTitle,
+                ["reason"] = toastReason.Length > 300 ? toastReason[..300] : toastReason,
+            });
+            if (!await SendAsync(request, ct).ConfigureAwait(false)) return false;
+            return await tcs.Task.WaitAsync(timeout, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException) { return false; }
+        finally { _closes.TryRemove(id, out _); }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _cts.CancelAsync().ConfigureAwait(false);
@@ -189,6 +225,9 @@ internal sealed class SessionChannel : IAsyncDisposable
 internal sealed class SessionChannelRegistry(IClock clock, ILoggerFactory loggers)
 {
     private readonly ConcurrentDictionary<int, SessionChannel> _channels = new();
+
+    /// <summary>Foreground reports of every session helper (session id, report).</summary>
+    public event Action<int, ForegroundInfo>? ForegroundChanged;
     private readonly ILogger _log = loggers.CreateLogger<SessionChannel>();
 
     private readonly object _gate = new();
@@ -199,6 +238,7 @@ internal sealed class SessionChannelRegistry(IClock clock, ILoggerFactory logger
         {
             if (_channels.TryGetValue(sessionId, out var existing)) return existing;
             var c = new SessionChannel(sessionId, expectedClientPid, clock, _log);
+            c.ForegroundChanged += (ch, info) => ForegroundChanged?.Invoke(ch.SessionId, info);
             _channels[sessionId] = c;
             c.Start();
             return c;

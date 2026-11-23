@@ -9,6 +9,7 @@ import { nowIso, parseAuthTs } from "../lib/time";
 import { ulid } from "../lib/ulid";
 import type { Ctx } from "../router";
 import { validateEnrollStartRequest, validateMasterRegisterWithClaim } from "../generated/validators";
+import { wipePreviousEra } from "../wipe";
 import { type EnrollDeviceFields, insertDevice, loadMasterInfo } from "./enroll";
 
 export const CLAIM_TTL_MS = 15 * 60_000;
@@ -264,5 +265,7 @@ export async function registerWithClaim(c: Ctx): Promise<Response> {
     const again = await loadClaim();
     throw again ? claimGone(again) : notFound("claim not found");
   }
+  // Section 18.5: leftovers of an earlier master era (other devices, alerts, push subs, notify flags) are wiped.
+  await wipePreviousEra(env, deviceId);
   return json({ deviceId, keys: body.keys.map((k) => ({ keyId: k.keyId, role: k.role })) }, 201);
 }

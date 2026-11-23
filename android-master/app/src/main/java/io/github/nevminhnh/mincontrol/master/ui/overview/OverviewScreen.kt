@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -74,6 +75,7 @@ import io.github.nevminhnh.mincontrol.master.ui.theme.DangerContainer
 import io.github.nevminhnh.mincontrol.master.ui.theme.DangerText
 import io.github.nevminhnh.mincontrol.master.ui.theme.Outline
 import io.github.nevminhnh.mincontrol.master.ui.theme.OfflineDot
+import io.github.nevminhnh.mincontrol.master.ui.components.RoundIconButton
 import io.github.nevminhnh.mincontrol.master.ui.theme.Primary
 import io.github.nevminhnh.mincontrol.master.ui.theme.QuickActionBg
 import io.github.nevminhnh.mincontrol.master.ui.theme.QuickActionBorder
@@ -123,7 +125,7 @@ fun OverviewScreen(
                     Row(Modifier.fillMaxWidth().padding(top = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(Fmt.headerNow(now), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                            Text("Xin chào, ${vm.parentName}", style = MaterialTheme.typography.titleLarge)
+                            Text("Xin chào, ${vm.parentName}", style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                         RoundIconButton(Icons.Outlined.Settings, "Cài đặt", onSettings)
                         Spacer(Modifier.width(8.dp))
@@ -171,14 +173,6 @@ fun OverviewScreen(
             onConfirm = { vm.unlock(activity, child) },
         )
     }
-}
-
-@Composable
-private fun RoundIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    Box(
-        Modifier.size(44.dp).clip(CircleShape).background(Surface).border(1.dp, Outline, CircleShape).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { Icon(icon, contentDescription = label, tint = TextPrimary, modifier = Modifier.size(20.dp)) }
 }
 
 @Composable
@@ -238,7 +232,7 @@ private fun ChildCard(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Avatar(child.label, avatar.first, avatar.second)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(child.label, style = MaterialTheme.typography.titleLarge)
+                    Text(child.label, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     StatusLine(OfflineDot, "${child.hostname} · Offline từ ${Fmt.relativeDayTime(child.lastSeen)}")
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -270,7 +264,7 @@ private fun ChildCard(
                 else -> Triple("Chưa đăng nhập", SegmentBg, TextSecondary)
             }
             Text(
-                pillText, style = MaterialTheme.typography.titleSmall, color = pillFg,
+                pillText, style = MaterialTheme.typography.titleSmall, color = pillFg, maxLines = 1,
                 modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(pillBg).padding(horizontal = 10.dp, vertical = 4.dp),
             )
         }
@@ -342,7 +336,28 @@ private fun QuickAction(
     val shape = RoundedCornerShape(14.dp)
     Row(
         modifier.height(48.dp).clip(shape).background(bg).border(BorderStroke(1.dp, border), shape)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick).then(if (enabled) Modifier else Modifier.alpha(0.55f)),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
     ) { content() }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Tổng quan · 3 máy · 1.3x", widthDp = 360, heightDp = 1400, fontScale = 1.3f, showBackground = true, backgroundColor = 0xFFF4F6FA)
+@Composable
+private fun OverviewPreview() {
+    io.github.nevminhnh.mincontrol.master.ui.theme.MinControlTheme {
+        val kids = listOf(
+            Child("d1", "PC-PHONG-KHACH", "S-1", "Minh Anh", true, null,
+                io.github.nevminhnh.mincontrol.master.data.protocol.UserState("S-1", loggedOn = true, active = true, remainingMin = 95, usedMin = 85,
+                    foregroundExe = "RobloxPlayerBeta.exe", foregroundTitle = "Roblox — Blox Fruits phiên bản rất dài")),
+            Child("d2", "LAPTOP-HOC-TAP-CUA-CON-RAT-DAI", "S-2", "Bảo Ngọc Nguyễn Hoàng", true, null,
+                io.github.nevminhnh.mincontrol.master.data.protocol.UserState("S-2", loggedOn = true, locked = true, usedMin = 120, remainingMin = 0)),
+            Child("d3", "PC-GAMING", "S-3", "Khang", false, "2026-11-23T08:00:00Z", null),
+        )
+        Column(Modifier.background(Background).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            AlertBanner(3) {}
+            kids.forEachIndexed { i, c ->
+                ChildCard(c, AvatarColors[i % AvatarColors.size], 180, "21:30", false, {}, {}, {}, {})
+            }
+        }
+    }
 }

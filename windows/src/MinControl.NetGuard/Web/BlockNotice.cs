@@ -27,6 +27,26 @@ public static class BlockNoticeText
 
     public static string Title(string what) => $"MinControl đã chặn {what}";
 
+    /// <summary>Human-readable rule of a proxy block for the parent's timeline (<c>web.blocked.rule</c>):
+    /// "Danh mục: Mạng xã hội", "Dịch vụ: TikTok", "Danh sách chặn: *.youtube.com", "Ngoài giờ cho phép",
+    /// "Chế độ chỉ cho phép", "Chặn DNS mã hoá", "Cổng không được phép".</summary>
+    public static string Rule(WebDecision d, MinControl.Core.Catalog.ServiceCatalog? catalog = null) => d.Reason switch
+    {
+        BlockReasons.Category when d.Service is { } s => $"Danh mục: {CategoryName(d.Category)} ({ServiceName(s, catalog)})",
+        BlockReasons.Category => $"Danh mục: {CategoryName(d.Category)}",
+        BlockReasons.Service => $"Dịch vụ: {ServiceName(d.Service, catalog)}",
+        BlockReasons.Schedule => $"Ngoài giờ cho phép · {CategoryName(d.Category)}",
+        BlockReasons.AllowlistMiss => "Chế độ chỉ cho phép",
+        BlockReasons.Doh => "Chặn DNS mã hoá",
+        BlockReasons.Port => "Cổng không được phép",
+        BlockReasons.Blocklist when d.Category == "ip" => "Danh sách chặn: địa chỉ IP",
+        BlockReasons.Blocklist when d.Pattern is { } p => $"Danh sách chặn: {p}",
+        _ => "Danh sách chặn",
+    };
+
+    public static string ServiceName(string? id, MinControl.Core.Catalog.ServiceCatalog? catalog = null) =>
+        (catalog ?? MinControl.Core.Catalog.ServiceCatalog.Shared).Find(id)?.Name ?? id ?? "Không rõ";
+
     /// <summary>Reason line for a proxy decision (<see cref="BlockReasons"/>).</summary>
     public static string Reason(string? reason, string? category) => reason switch
     {
@@ -58,7 +78,8 @@ public sealed class SessionBlockNotifier(IServiceProvider services, ILogger<Sess
         catch (Exception ex) { _log.LogDebug(ex, "ISessionActions unavailable"); return; }
         if (actions is null) return;
         var title = BlockNoticeText.Title(host);
-        var reason = BlockNoticeText.Reason(decision.Reason, decision.Category);
+        var reason = decision.Reason is BlockReasons.Service or BlockReasons.Blocklist
+            ? BlockNoticeText.Rule(decision) : BlockNoticeText.Reason(decision.Reason, decision.Category);
         _ = Task.Run(async () =>
         {
             try { await actions.ShowBlockedNoticeAsync(sid, title, reason, CancellationToken.None).ConfigureAwait(false); }

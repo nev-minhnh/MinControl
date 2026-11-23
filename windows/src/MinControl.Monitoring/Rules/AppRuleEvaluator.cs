@@ -1,3 +1,4 @@
+using MinControl.Core.Catalog;
 using MinControl.Core.Policy;
 
 namespace MinControl.Monitoring.Rules;
@@ -7,10 +8,11 @@ public enum Verdict { Allow, Block }
 /// <summary>Outcome of evaluating one process image for one managed user.</summary>
 /// <param name="Rule">Which rule decided (used as <c>process.blocked.rule</c>): <c>appRules[i]</c>,
 /// <c>group:&lt;name&gt;</c>, <c>allowedBrowsers</c>, <c>newExecutable</c>, <c>newExecutable:ask</c>,
-/// <c>approval</c>, <c>system</c>, or null for the default allow.</param>
+/// <c>approval</c>, <c>system</c>, <c>service:&lt;id&gt;</c>, <c>appMode:allowlist</c>, or null for the default allow.</param>
 /// <param name="RequestApproval">newExecutable=ask with no stored decision: block now and send
 /// <c>request.exe_approval</c> (the caller de-duplicates per sha256).</param>
-public sealed record RuleDecision(Verdict Verdict, string? Rule, bool RequestApproval = false, string? Sha256 = null)
+/// <param name="Service">Catalog service whose app entry decided (blockedServices / allowedServices).</param>
+public sealed record RuleDecision(Verdict Verdict, string? Rule, bool RequestApproval = false, string? Sha256 = null, string? Service = null)
 {
     public static readonly RuleDecision DefaultAllow = new(Verdict.Allow, null);
     public bool IsBlock => Verdict == Verdict.Block;
@@ -37,15 +39,23 @@ public sealed class EvaluationContext
     public string? WindowsDir { get; init; }
     /// <summary>Machine env-var lookup for path globs (tests inject a fake).</summary>
     public Func<string, string?>? MachineVar { get; init; }
+    /// <summary>MinControl's own install folder (always allowed in app allowlist mode).</summary>
+    public string? OwnInstallDir { get; init; }
+    /// <summary>%ProgramFiles% (its WindowsApps folder holds the Microsoft shell packages allowed in app allowlist mode).</summary>
+    public string? ProgramFilesDir { get; init; }
 }
 
 /// <summary>
 /// Pure app-control decision logic (SPEC §5, §8.3). Order:
 /// <list type="number">
 /// <item>critical Windows shell processes under %windir% are never blocked (a bad rule must not brick the session);</item>
+/// <item>app allowlist mode (API.md §17): the always-allowed system set (<see cref="IsAlwaysAllowedSystem"/>) runs;</item>
 /// <item><c>appRules</c>, first match wins, a rule matches when its <c>match</c> matches and no <c>except</c> entry does;
 ///   block wins immediately, allow exempts from the browser and newExecutable checks;</item>
 /// <item>app group currently exhausted → block (applies even to explicitly allowed apps: quota is time, not trust);</item>
+/// <item>(no allow rule matched) an app of a <c>web.blockedServices</c> service → block; of a <c>web.allowedServices</c>
+///   service → allowed like an allow rule;</item>
+/// <item>app allowlist mode: anything not allowed above → block (<c>appMode:allowlist</c>); newExecutable is not used;</item>
 /// <item>a browser that is not a genuine member of <c>web.allowedBrowsers</c> → block;</item>
 /// <item>exe under a user-writable location (profile/temp fast path, removable/network, or writable per DACL) → <c>newExecutable</c> (allow | block | ask + IApprovalStore).</item>
 /// </list>
@@ -63,9 +73,24 @@ public sealed class AppRuleEvaluator
         "systemsettings.exe", "shellhost.exe", "widgets.exe", "useroobebroker.exe", "credentialuibroker.exe",
     };
 
-    private readonly IFileFacts _facts;
+    /// <summary>Microsoft shell/system packages under %ProgramFiles%\WindowsApps allowed in app allowlist mode
+    /// (package folder name prefix; the exe must also be Microsoft-signed).</summary>
+    private static readonly string[] ShellPackagePrefixes =
+    [
+        "MicrosoftWindows.Client.CBS_", "MicrosoftWindows.Client.Core_", "MicrosoftWindows.Client.WebExperience_",
+        "Microsoft.Windows.StartMenuExperienceHost_", "Microsoft.Windows.ShellExperienceHost_", "Microsoft.Windows.Search_",
+        "Microsoft.LockApp_", "Microsoft.Windows.ContentDeliveryManager_", "Microsoft.SecHealthUI_",
+        "Microsoft.UI.Xaml.", "Microsoft.VCLibs.", "Microsoft.WindowsAppRuntime.", "MicrosoftWindows.CrossDevice_",
+    ];
 
-    public AppRuleEvaluator(IFileFacts facts) => _facts = facts;
+    private readonly IFileFacts _facts;
+    private readonly ServiceCatalog _catalog;
+
+    public AppRuleEvaluator(IFileFacts facts, ServiceCatalog? catalog = null)
+    {
+        _facts = facts;
+        _catalog = catalog ?? ServiceCatalog.Shared;
+    }
 
     public RuleDecision Evaluate(UserPolicy policy, string exePath, EvaluationContext ctx)
     {
@@ -73,8 +98,11 @@ public sealed class AppRuleEvaluator
         exePath = PathExpander.Normalize(exePath);
 
         if (IsCriticalShell(exePath, ctx)) return new RuleDecision(Verdict.Allow, "system");
+        var allowlist = policy.IsAppAllowlist;
+        if (allowlist && IsAlwaysAllowedSystem(exePath, ctx)) return new RuleDecision(Verdict.Allow, "system");
 
         bool explicitlyAllowed = false;
+        string? allowedService = null;
         for (int i = 0; i < policy.AppRules.Count; i++)
         {
             var rule = policy.AppRules[i];
@@ -87,6 +115,17 @@ public sealed class AppRuleEvaluator
             break;
         }
 
+        if (!explicitlyAllowed)
+        {
+            if (ServiceOf(policy.Web.BlockedServices, exePath, ctx) is { } blocked)
+                return new RuleDecision(Verdict.Block, "service:" + blocked, Service: blocked);
+            if (ServiceOf(policy.Web.AllowedServices, exePath, ctx) is { } allowed)
+            {
+                explicitlyAllowed = true;
+                allowedService = allowed;
+            }
+        }
+
         if (ctx.ExhaustedGroups.Count > 0)
         {
             var group = GroupOf(policy, exePath, ctx);
@@ -94,7 +133,12 @@ public sealed class AppRuleEvaluator
                 return new RuleDecision(Verdict.Block, "group:" + group);
         }
 
-        if (explicitlyAllowed) return new RuleDecision(Verdict.Allow, "appRules");
+        if (explicitlyAllowed)
+            return allowedService is null
+                ? new RuleDecision(Verdict.Allow, "appRules")
+                : new RuleDecision(Verdict.Allow, "service:" + allowedService, Service: allowedService);
+
+        if (allowlist) return new RuleDecision(Verdict.Block, "appMode:allowlist");
 
         var kind = KnownBrowsers.Classify(exePath, _facts, out var canonical);
         if (kind != KnownBrowsers.Kind.NotBrowser)
@@ -129,6 +173,40 @@ public sealed class AppRuleEvaluator
             default: // "block" and anything unknown: fail closed
                 return new RuleDecision(Verdict.Block, "newExecutable");
         }
+    }
+
+    /// <summary>Id of the first catalog service of <paramref name="ids"/> one of whose apps matches the exe, or null.</summary>
+    public string? ServiceOf(IReadOnlyList<string>? ids, string exePath, EvaluationContext ctx)
+    {
+        if (ids is not { Count: > 0 }) return null;
+        foreach (var s in _catalog.FindAll(ids))
+            foreach (var m in s.Apps)
+                if (Matches(m, exePath, ctx)) return s.Id;
+        return null;
+    }
+
+    /// <summary>
+    /// The always-allowed set of app allowlist mode (API.md §17): anything under %windir% that the user cannot write
+    /// (System32, SysWOW64, WinSxS, SystemApps, ImmersiveControlPanel… but not %windir%\Temp, \Tasks or other
+    /// user-writable corners), MinControl's own folder, and Microsoft-signed exes of the Windows shell packages under
+    /// %ProgramFiles%\WindowsApps (Start, Search, widgets, ShellExperienceHost, LockApp…).
+    /// </summary>
+    public bool IsAlwaysAllowedSystem(string exePath, EvaluationContext ctx)
+    {
+        exePath = PathExpander.Normalize(exePath);
+        if (ctx.OwnInstallDir is { Length: > 0 } own && IsUnder(exePath, own)) return true;
+        if (ctx.WindowsDir is { Length: > 0 } win && IsUnder(exePath, win))
+            return !IsUnderUserWritable(exePath, ctx);
+        if (ctx.ProgramFilesDir is not { Length: > 0 } pf) return false;
+        var apps = PathExpander.Normalize(pf).TrimEnd('\\') + @"\WindowsApps";
+        if (!IsUnder(exePath, apps)) return false;
+        var rest = exePath[(apps.Length + 1)..];
+        var slash = rest.IndexOf('\\');
+        if (slash <= 0) return false;
+        var package = rest[..slash];
+        if (!ShellPackagePrefixes.Any(p => package.StartsWith(p, StringComparison.OrdinalIgnoreCase))) return false;
+        var sig = _facts.Signature(exePath);
+        return sig.Signed && sig.Publisher is { } pub && pub.Contains("Microsoft", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>First app group (ordinal key order, deterministic) whose match list matches.</summary>

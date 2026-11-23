@@ -1,0 +1,154 @@
+{
+  "version": 7,
+  "timezone": "Asia/Ho_Chi_Minh",
+  "users": {
+    "S-1-5-21-1111111111-2222222222-3333333333-1001": {
+      "label": "Bin",
+      "screenTime": {
+        "dailyQuotaMin": {
+          "mon": 120,
+          "tue": 120,
+          "wed": 120,
+          "thu": 120,
+          "fri": 120,
+          "sat": 180,
+          "sun": 180
+        },
+        "allowedWindows": {
+          "mon": [
+            "15:00-21:00"
+          ],
+          "tue": [
+            "15:00-21:00"
+          ],
+          "wed": [
+            "15:00-21:00"
+          ],
+          "thu": [
+            "15:00-21:00"
+          ],
+          "fri": [
+            "15:00-21:00"
+          ],
+          "sat": [
+            "08:00-21:30"
+          ],
+          "sun": [
+            "08:00-21:30"
+          ]
+        },
+        "warnAtMin": [
+          5,
+          1
+        ],
+        "graceSec": 60,
+        "countIdle": false,
+        "idleThresholdSec": 300
+      },
+      "appGroups": {
+        "games": {
+          "label": "Game",
+          "match": [
+            {
+              "publisher": "Mojang*"
+            },
+            {
+              "exe": "Minecraft*.exe"
+            }
+          ],
+          "dailyQuotaMin": {
+            "mon": 60,
+            "tue": 60,
+            "wed": 60,
+            "thu": 60,
+            "fri": 60,
+            "sat": 90,
+            "sun": 90
+          }
+        }
+      },
+      "appRules": [
+        {
+          "action": "block",
+          "match": {
+            "exe": "firefox*.exe"
+          }
+        },
+        {
+          "action": "block",
+          "match": {
+            "pathUnderUserWritable": true
+          },
+          "except": [
+            {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        }
+      ],
+      "newExecutable": "ask",
+      "web": {
+        "mode": "blocklist",
+        "blockedCategories": [
+          "adult",
+          "gambling",
+          "proxy-vpn"
+        ],
+        "categorySchedules": {
+          "games": {
+            "mon": [
+              "15:00-17:00"
+            ],
+            "tue": [
+              "15:00-17:00"
+            ],
+            "wed": [
+              "15:00-17:00"
+            ],
+            "thu": [
+              "15:00-17:00"
+            ],
+            "fri": [
+              "15:00-17:00"
+            ],
+            "sat": [],
+            "sun": []
+          }
+        },
+        "blockDomains": [
+          "*.example-bad.com"
+        ],
+        "allowDomains": [
+          "*.edu.vn",
+          "olm.vn"
+        ],
+        "safeSearch": true,
+        "youtube": "strict",
+        "allowedBrowsers": [
+          "msedge.exe",
+          "chrome.exe"
+        ],
+        "netExemptApps": []
+      },
+      "monitoring": {
+        "foregroundTitles": true,
+        "browserHistory": true,
+        "domainLog": true,
+        "downloads": true,
+        "usb": true,
+        "screenshots": {
+          "intervalMin": 5,
+          "onlyWhenActive": true,
+          "maxWidth": 1280,
+          "jpegQuality": 60
+        }
+      },
+      "appMode": "denylist"
+    }
+  },
+  "retentionDays": {
+    "events": 180,
+    "web": 180,
+    "screenshots": 30
+  }
+}

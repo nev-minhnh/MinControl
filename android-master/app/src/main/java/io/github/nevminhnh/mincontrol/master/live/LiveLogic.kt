@@ -100,10 +100,12 @@ object LiveMerge {
             ts = e.ts, kind = kind, url = d.s("url"), host = d.s("host"), title = d.s("title"),
             durationSec = (d["durationSec"] as? JsonPrimitive)?.intOrNull, category = d.s("category"),
             query = d.s("query"), engine = d.s("engine"), reason = d.s("reason"),
+            action = d.s("action"), count = (d["count"] as? JsonPrimitive)?.intOrNull, rule = d.s("rule"),
+            keyword = d.s("keyword"), service = d.s("service"), exe = d.s("exe"),
         )
     }
 
-    private fun webKey(w: WebItem) = listOf(w.ts, w.kind, w.url, w.host, w.query).joinToString("|")
+    private fun webKey(w: WebItem) = listOf(w.ts, w.kind, w.url, w.host, w.query, w.title, w.keyword, w.service, w.action, w.exe, w.count).joinToString("|")
 
     /** Prepends matching new web rows (query = substring of url/host/title/query, kind = filter or null), deduped, newest first. */
     fun mergeWeb(existing: List<WebItem>, incoming: List<EventItem>, sid: String, query: String, kind: String?, dayPrefix: (String) -> Boolean): List<WebItem> {

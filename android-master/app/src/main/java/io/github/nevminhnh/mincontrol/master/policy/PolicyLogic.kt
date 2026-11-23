@@ -142,6 +142,20 @@ object PolicyDiff {
                 "${b.appRules.size} quy tắc" + if (added.isNotEmpty()) " (thêm: $added)" else "")
         }
         add("Ứng dụng lạ", newExeLabel(a.newExecutable), newExeLabel(b.newExecutable))
+        add("Chế độ ứng dụng", appModeLabel(a.effectiveAppMode), appModeLabel(b.effectiveAppMode))
+        val ka = a.keywords
+        val kb = b.keywords
+        if (ka?.words.orEmpty() != kb?.words.orEmpty()) {
+            val added = kb?.words.orEmpty().filterNot { w -> ka?.words.orEmpty().any { it.equals(w, true) } }
+            val removed = ka?.words.orEmpty().filterNot { w -> kb?.words.orEmpty().any { it.equals(w, true) } }
+            out += PolicyChange(who, "Từ khóa bị cấm",
+                "${ka?.words.orEmpty().size} từ" + if (removed.isNotEmpty()) " (bỏ: ${removed.joinToString()})" else "",
+                "${kb?.words.orEmpty().size} từ" + if (added.isNotEmpty()) " (thêm: ${added.joinToString()})" else "")
+        }
+        if (kb != null || ka != null) {
+            add("Chặn khi tìm kiếm từ khóa", onOff(ka?.matchSearches ?: true), onOff(kb?.matchSearches ?: true))
+            add("Chặn khi tiêu đề chứa từ khóa", onOff(ka?.matchTitles ?: true), onOff(kb?.matchTitles ?: true))
+        }
 
         val wa = a.web
         val wb = b.web
@@ -158,6 +172,10 @@ object PolicyDiff {
         add("SafeSearch", onOff(wa.safeSearch), onOff(wb.safeSearch))
         add("YouTube", youtubeLabel(wa.youtube), youtubeLabel(wb.youtube))
         if (wa.allowedBrowsers.toSet() != wb.allowedBrowsers.toSet()) add("Trình duyệt được phép", wa.allowedBrowsers.joinToString(), wb.allowedBrowsers.joinToString())
+        if (wa.blockedServices.orEmpty().toSet() != wb.blockedServices.orEmpty().toSet())
+            out += PolicyChange(who, "Dịch vụ bị chặn", services(wa.blockedServices), services(wb.blockedServices))
+        if (wa.allowedServices.orEmpty().toSet() != wb.allowedServices.orEmpty().toSet())
+            out += PolicyChange(who, "Dịch vụ được phép", services(wa.allowedServices), services(wb.allowedServices))
         if (wa.netExemptApps != wb.netExemptApps) out += PolicyChange(who, "Ứng dụng miễn lọc mạng", "${wa.netExemptApps.size}", "${wb.netExemptApps.size}")
 
         val ma = a.monitoring
@@ -193,6 +211,11 @@ object PolicyDiff {
     fun webModeLabel(v: WebMode) = when (v) {
         WebMode.BLOCKLIST -> "Chặn theo danh sách"; WebMode.ALLOWLIST -> "Chỉ trang cho phép"
     }
+    fun appModeLabel(v: io.github.nevminhnh.mincontrol.master.data.protocol.AppMode) = when (v) {
+        io.github.nevminhnh.mincontrol.master.data.protocol.AppMode.BLOCKLIST -> "Chặn theo danh sách"
+        io.github.nevminhnh.mincontrol.master.data.protocol.AppMode.ALLOWLIST -> "Chỉ ứng dụng cho phép"
+    }
+    fun services(list: List<String>?) = list.orEmpty().ifEmpty { null }?.joinToString(", ") ?: "Không"
     fun youtubeLabel(v: YouTubeMode) = when (v) {
         YouTubeMode.OFF -> "Tắt"; YouTubeMode.MODERATE -> "Hạn chế vừa phải"; YouTubeMode.STRICT -> "Hạn chế nghiêm ngặt"
     }
@@ -252,6 +275,7 @@ object PolicyValidation {
                 else pathError(path)?.let { out += "${u.label}: $it" }
             }
             AppRules.errors(u.appRules).forEach { out += "${u.label}: $it" }
+            out += BlockingV2.errors(u)
             val both = u.web.categorySchedules.orEmpty().keys.intersect(u.web.blockedCategories.toSet())
             if (both.isNotEmpty()) out += "${u.label}: danh mục vừa chặn hẳn vừa chặn theo giờ"
             val overlap = u.web.blockDomains.toSet().intersect(u.web.allowDomains.toSet())

@@ -2,6 +2,11 @@ package io.github.nevminhnh.mincontrol.master.policy
 
 import io.github.nevminhnh.mincontrol.master.data.protocol.AppMatch
 import io.github.nevminhnh.mincontrol.master.data.protocol.InventoryApp
+import io.github.nevminhnh.mincontrol.master.data.protocol.AppRule
+import io.github.nevminhnh.mincontrol.master.data.protocol.RuleAction
+
+/** What the picker shows: [apps] plus how many were hidden (and why). */
+data class PickerList(val apps: List<InventoryApp>, val hiddenOpposite: Int, val hiddenSystem: Int)
 
 /** Pure logic behind the "Chọn từ máy tính" picker (API.md §11). */
 object AppPicker {
@@ -53,5 +58,33 @@ object AppPicker {
         when (k) {
             "publisher" -> AppMatch(publisher = v); "path" -> AppMatch(path = v); "sha256" -> AppMatch(sha256 = v.lowercase()); else -> AppMatch(exe = v)
         }
+    }
+
+    /** Matches of the rules on the OTHER list (adding to "Chặn" → the "Cho phép" rules, and vice versa). */
+    fun oppositeMatches(rules: List<AppRule>, action: RuleAction): List<AppMatch> = rules.filter { it.action != action }.map { it.match }
+
+    /** Is [a] covered by one of [matches] (same match, exe glob, path glob, or publisher glob when the match is only a publisher)? */
+    fun covered(a: InventoryApp, matches: List<AppMatch>): Boolean {
+        val own = toMatch(a)
+        val exe = a.exe ?: a.exePath?.substringAfterLast('\\')?.substringAfterLast('/')
+        val dir = a.installDir?.trimEnd('\\', '/')
+        return matches.any { m ->
+            m == own ||
+                (m.exe != null && exe != null && BlockingV2.glob(m.exe, exe) && (m.publisher == null || (a.publisher != null && BlockingV2.glob(m.publisher, a.publisher)))) ||
+                (m.path != null && ((dir != null && (BlockingV2.glob(m.path, dir) || BlockingV2.glob(m.path, "$dir\\x"))) || (a.exePath != null && BlockingV2.glob(m.path, a.exePath)))) ||
+                (m.exe == null && m.path == null && m.publisher != null && a.publisher != null && BlockingV2.glob(m.publisher, a.publisher))
+        }
+    }
+
+    /**
+     * Picker contents for adding to the [action] list: sorted/filtered by [query], never showing apps already on the
+     * opposite list (even with [showAll]); without [showAll] system apps are hidden too.
+     */
+    fun pickerList(apps: List<InventoryApp>, query: String, rules: List<AppRule>, action: RuleAction?, showAll: Boolean): PickerList {
+        val sorted = sortFilter(apps, query)
+        val opposite = if (action == null) emptyList() else oppositeMatches(rules, action)
+        val notOpposite = sorted.filterNot { opposite.isNotEmpty() && covered(it, opposite) }
+        val shown = if (showAll) notOpposite else notOpposite.filterNot { it.category == "system" }
+        return PickerList(shown, sorted.size - notOpposite.size, notOpposite.size - shown.size)
     }
 }

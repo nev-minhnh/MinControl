@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="96dp" android:height="96dp" android:viewportWidth="512" android:viewportHeight="512">
+    <group android:pivotX="256" android:pivotY="253" android:translateY="3" android:scaleX="1.5" android:scaleY="1.5">
+        <path android:strokeWidth="34" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M108,214 L256,104 L404,214"><aapt:attr name="android:strokeColor"><gradient android:type="linear" android:startX="90" android:startY="85" android:endX="420" android:endY="415"><item android:offset="0" android:color="#FF2DD4BF" /><item android:offset="1" android:color="#FF0D9488" /></gradient></aapt:attr></path>
+        <path android:strokeWidth="16" android:strokeLineJoin="round" android:pathData="M256,166 L352,238 V282 C352,342 310,382 256,404 C202,382 160,342 160,282 V238 Z"><aapt:attr name="android:fillColor"><gradient android:type="linear" android:startX="90" android:startY="85" android:endX="420" android:endY="415"><item android:offset="0" android:color="#FF2DD4BF" /><item android:offset="1" android:color="#FF0D9488" /></gradient></aapt:attr><aapt:attr name="android:strokeColor"><gradient android:type="linear" android:startX="90" android:startY="85" android:endX="420" android:endY="415"><item android:offset="0" android:color="#FF2DD4BF" /><item android:offset="1" android:color="#FF0D9488" /></gradient></aapt:attr></path>
+        <group android:pivotX="256" android:pivotY="284" android:translateY="46" android:scaleX="0.8" android:scaleY="0.8">
+            <path android:fillColor="#FFFFFFFF" android:pathData="M256 276 C256 238 230 220 198 222 C198 260 222 276 256 276 Z" />
+            <path android:fillColor="#FFFFFFFF" android:pathData="M256 254 C256 210 288 188 324 192 C324 232 296 254 256 254 Z" />
+            <path android:strokeColor="#FFFFFFFF" android:strokeWidth="18" android:strokeLineCap="round" android:pathData="M256,346 V248" />
+        </group>
+    </group>
+</vector>

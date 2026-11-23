@@ -135,9 +135,17 @@ class Repository(
     suspend fun cachedDevices(): List<DeviceInfo> =
         dao.devices().mapNotNull { runCatching { ApiJson.decodeFromString(DeviceInfo.serializer(), it.json) }.getOrNull() }
 
-    suspend fun revokeDevice(deviceId: String) {
-        api.revokeDevice(deviceId)
+    suspend fun deleteDevice(deviceId: String) {
+        api.deleteDevice(deviceId)
         refreshDevices()
+    }
+
+    /** "Đặt lại toàn bộ": `POST /v1/master/reset` signed with the biometric sign key. The caller wipes local data. */
+    suspend fun resetAll(activity: FragmentActivity) {
+        api.resetAll { data ->
+            val s = signer.sign(activity, "Đặt lại toàn bộ MinControl", "Xóa mọi dữ liệu trên máy chủ", data)
+            s.session.keyId to s.signature
+        }
     }
 
     suspend fun createPairingCode() = api.createPairingCode()

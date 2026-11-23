@@ -141,6 +141,10 @@ data class WebPolicy(
     val youtube: YouTubeMode = YouTubeMode.STRICT,
     val allowedBrowsers: List<String> = listOf("msedge.exe", "chrome.exe"),
     val netExemptApps: List<AppMatch> = emptyList(),
+    /** API.md §17: service ids (protocol/services.json) blocked (apps + domains). Null = omitted (older schema). */
+    val blockedServices: List<String>? = null,
+    /** API.md §17: service ids allowed in allowlist mode. Null = omitted. */
+    val allowedServices: List<String>? = null,
 )
 
 @Serializable
@@ -170,4 +174,20 @@ data class UserPolicy(
     val newExecutable: NewExecutable = NewExecutable.ASK,
     val web: WebPolicy = WebPolicy(),
     val monitoring: Monitoring = Monitoring(),
+    /** API.md §17. Null = omitted = blocklist (keeps policies valid against an older schema). */
+    val appMode: AppMode? = null,
+    /** API.md §17 banned keywords. Null = omitted. */
+    val keywords: Keywords? = null,
+) {
+    val effectiveAppMode: AppMode get() = appMode ?: AppMode.BLOCKLIST
+}
+
+@Serializable
+enum class AppMode { @SerialName("blocklist") BLOCKLIST, @SerialName("allowlist") ALLOWLIST }
+
+@Serializable
+data class Keywords(
+    val words: List<String> = emptyList(),
+    val matchSearches: Boolean = true,
+    val matchTitles: Boolean = true,
 )

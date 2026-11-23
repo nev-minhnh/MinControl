@@ -29,6 +29,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinControl.Connect", "src\M
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinControl.Bootstrapper", "src\MinControl.Bootstrapper\MinControl.Bootstrapper.csproj", "{8954ED77-D853-49EF-A0D1-BA02333F48AB}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{07C2787E-EAC7-C090-1BA3-A61EC2A24D84}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinControl.CategorySeed", "tools\MinControl.CategorySeed\MinControl.CategorySeed.csproj", "{B3039F16-A5CD-4C7D-BB7B-C231F667897A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -171,6 +175,18 @@ Global
 		{8954ED77-D853-49EF-A0D1-BA02333F48AB}.Release|x64.Build.0 = Release|Any CPU
 		{8954ED77-D853-49EF-A0D1-BA02333F48AB}.Release|x86.ActiveCfg = Release|Any CPU
 		{8954ED77-D853-49EF-A0D1-BA02333F48AB}.Release|x86.Build.0 = Release|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Debug|x64.Build.0 = Debug|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Debug|x86.Build.0 = Debug|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Release|x64.ActiveCfg = Release|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Release|x64.Build.0 = Release|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Release|x86.ActiveCfg = Release|Any CPU
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -187,5 +203,6 @@ Global
 		{B175568E-7B1F-484A-8902-7FF54E4DDF1C} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{588C817C-8831-4AD4-95CB-1FF0C8EAC2B7} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{8954ED77-D853-49EF-A0D1-BA02333F48AB} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{B3039F16-A5CD-4C7D-BB7B-C231F667897A} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 	EndGlobalSection
 EndGlobal
