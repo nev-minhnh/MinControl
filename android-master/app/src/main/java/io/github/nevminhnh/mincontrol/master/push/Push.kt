@@ -46,7 +46,7 @@ object Notifications {
     }
 
     fun parse(data: Map<String, String>): PushAlert? {
-        if (data["type"] != "alert") return null
+        if (data["type"] != "alert" && data["title"].isNullOrBlank()) return null
         return PushAlert(
             alertId = data["alertId"],
             deviceId = data["deviceId"],
