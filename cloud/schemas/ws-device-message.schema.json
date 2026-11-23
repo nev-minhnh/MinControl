@@ -4,7 +4,7 @@
   "title": "Device -> server WebSocket frame (API.md section 2)",
   "type": "object",
   "required": ["t"],
-  "properties": { "t": { "enum": ["auth", "ack", "policy_applied", "policy_rejected", "master_keys_applied", "master_keys_rejected", "state", "blob_missing", "ping", "pong"] } },
+  "properties": { "t": { "enum": ["auth", "ack", "policy_applied", "policy_rejected", "master_keys_applied", "master_keys_rejected", "state", "blob_missing", "events", "ping", "pong"] } },
   "oneOf": [
     {
       "type": "object",
@@ -73,6 +73,13 @@
       "additionalProperties": false,
       "required": ["t", "reqId"],
       "properties": { "t": { "const": "blob_missing" }, "reqId": { "$ref": "https://mincontrol.local/protocol/common.schema.json#/$defs/ulid" } }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "events"],
+      "description": "Live events (API.md section 15). Each event is validated on its own by the hub (bad ones are rejected individually).",
+      "properties": { "t": { "const": "events" }, "events": { "type": "array", "minItems": 1, "maxItems": 50 } }
     },
     {
       "type": "object",

@@ -46,11 +46,13 @@ async function keypair() {
   return { pub: b64urlEncode(raw), sign, keyId: await keyIdOf(raw) };
 }
 const rand32 = () => b64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
-const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
+const pending: Promise<unknown>[] = [];
+const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} } as unknown as ExecutionContext;
 
 function fakeHubs() {
   const last = new Map<string, number>();
   const enq: { deviceId: string; kind: string; seq: number; transferId?: string }[] = [];
+  const closedLive: string[] = [];
   const ns = {
     idFromName: (n: string) => n,
     get: (id: string) => ({
@@ -60,9 +62,13 @@ function fakeHubs() {
         enq.push({ deviceId: id, kind: i.kind, seq: i.seq, transferId: i.masterKeys?.transferId });
         return { ok: true, delivered: false };
       },
+      closeMasterSockets: async () => {
+        closedLive.push(id);
+        return 1;
+      },
     }),
   };
-  return { ns, enq };
+  return { ns, enq, closedLive };
 }
 
 async function setup() {
@@ -144,6 +150,8 @@ describe("phone transfer (API.md section 13A)", () => {
     const sealed = rand32();
     const done = await s.call("POST", `/v1/master/transfers/${transferId}/complete`, { envelopes: await s.allEnvelopes(), sealedSealKey: sealed }, s.oldSign);
     expect(done.status).toBe(200);
+    await Promise.all(pending);
+    expect(s.hubs.closedLive.sort()).toEqual([...s.devs].sort()); // live sockets of the old phone closed (API.md 15)
 
     const active = (s.sql.prepare("SELECT key_id FROM master_keys WHERE revoked_at IS NULL").all() as any[]).map((r) => r.key_id).sort();
     expect(active).toEqual([s.newSign.keyId, s.newRead.keyId].sort());

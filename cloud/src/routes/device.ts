@@ -1,19 +1,16 @@
 // Device-facing routes: WebSocket hand-off to DeviceHub, event uploads, sealed blob uploads (API.md 2-3).
-import { saveAndPushAlerts } from "../alerts";
 import { verifyUploadToken } from "../auth/upload-token";
-import { type IngestEvent, ingestEvents } from "../ingest";
+import { intakeEvents } from "../ingest";
 import { HttpError, errorResponse, json, parseJsonBytes, readBytes, validateOrThrow } from "../lib/http";
 import { normTs } from "../lib/time";
 import { ULID_RE } from "../lib/ulid";
 import type { Ctx } from "../router";
 import { BLOB_KEY_RE } from "./master";
-import { validateEvent, validateInventory } from "../generated/validators";
+import { validateInventory } from "../generated/validators";
 
 export const MAX_BLOB_BYTES = 2 * 1024 * 1024;
 const MAX_BATCH_BYTES = 5 * 1024 * 1024;
-/** `diag.report` events may carry up to 256 KB of data (API.md section 14); every other type stays small. */
-export const MAX_DIAG_BYTES = 256 * 1024;
-const MAX_EVENT_BYTES = 64 * 1024;
+export { MAX_DIAG_BYTES } from "../ingest";
 const MAX_EVENTS = 500;
 
 interface DeviceRow {
@@ -72,36 +69,7 @@ export async function postEvents(c: Ctx): Promise<Response> {
   }
   if (batch.deviceId !== device.id) throw new HttpError(403, "wrong_device", "batch deviceId does not match the upload token");
 
-  const accepted: IngestEvent[] = [];
-  const rejected: { id: string | null; error: string }[] = [];
-  const ids = new Set<string>();
-  for (const raw of batch.events as unknown[]) {
-    const ev = raw as Partial<IngestEvent> | null;
-    const id = ev && typeof ev.id === "string" ? ev.id : null;
-    if (!validateEvent(raw)) {
-      const e = validateEvent.errors?.[0];
-      rejected.push({ id, error: `invalid_body${e ? `: ${e.instancePath} ${e.message ?? ""}`.trimEnd() : ""}` });
-      continue;
-    }
-    const e = raw as IngestEvent;
-    if (e.deviceId !== device.id) {
-      rejected.push({ id, error: "wrong_device" });
-      continue;
-    }
-    const size = new TextEncoder().encode(JSON.stringify(e.data)).length;
-    if (size > (e.type === "diag.report" ? MAX_DIAG_BYTES : MAX_EVENT_BYTES)) {
-      rejected.push({ id, error: "too_large" });
-      continue;
-    }
-    if (ids.has(e.id)) continue;
-    ids.add(e.id);
-    accepted.push({ ...e, ts: normTs(e.ts)! });
-  }
-
-  if (accepted.length > 0) {
-    const drafts = await ingestEvents(c.env, device, accepted);
-    await saveAndPushAlerts(c.env, drafts, (p) => c.exec.waitUntil(p));
-  }
+  const { accepted, rejected } = await intakeEvents(c.env, device, batch.events as unknown[], (p) => c.exec.waitUntil(p));
   return json(rejected.length ? { accepted: accepted.length, rejected } : { accepted: accepted.length });
 }
 

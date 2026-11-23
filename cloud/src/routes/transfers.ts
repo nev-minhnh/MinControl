@@ -13,6 +13,7 @@ import { ULID_RE, ulid } from "../lib/ulid";
 import { type Ctx, lookupMasterKey } from "../router";
 import { validateTransferClaim, validateTransferComplete } from "../generated/validators";
 import { checkClaimRate } from "./claims";
+import { closeMasterLiveSockets } from "./live";
 
 export const TRANSFER_TTL_MS = 10 * 60_000;
 /** master_keys envelopes are valid for 30 days (+1 day slack). */
@@ -230,6 +231,7 @@ export async function completeTransfer(c: Ctx): Promise<Response> {
   ];
   const results = await env.DB.batch(stmts);
   if ((results[0]?.meta?.changes ?? 0) !== 1) throw new HttpError(409, "not_claimed", "transfer is no longer claimable");
+  closeMasterLiveSockets(env, (p) => c.exec.waitUntil(p)); // the old phone's keys are revoked now
 
   // Queue to every DeviceHub (delivered before policy/commands). The keys are already switched, so a failure
   // here can only be a device revoked in between; log and carry on.

@@ -8,6 +8,7 @@ import { Router } from "./router";
 import { deviceWs, postEvents, putBlob, putInventory } from "./routes/device";
 import { approveClaim, enrollStart, getClaim, getClaimByCode, pollClaim, registerWithClaim, rejectClaim } from "./routes/claims";
 import { createPairingCode, enroll } from "./routes/enroll";
+import { masterLive } from "./routes/live";
 import * as m from "./routes/master";
 import { claimTransfer, completeTransfer, createTransfer, getTransfer } from "./routes/transfers";
 
@@ -36,6 +37,7 @@ export const router = new Router()
   .add("GET", "/v1/master/claims/:claimId", "master", getClaim)
   .add("POST", "/v1/master/claims/:claimId/approve", "master", approveClaim)
   .add("POST", "/v1/master/claims/:claimId/reject", "master", rejectClaim)
+  .add("GET", "/v1/master/live", "master", masterLive) // WebSocket upgrade (API.md section 15)
   .add("GET", "/v1/master/devices", "master", m.listDevices)
   .add("DELETE", "/v1/master/devices/:id", "master", m.revokeDevice)
   .add("GET", "/v1/master/devices/:id/seq", "master", m.getSeq)

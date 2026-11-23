@@ -1,9 +1,14 @@
 // Event batch ingestion: generic `events` plus denormalised tables, idempotent on event id.
 // D1 allows at most 100 bound parameters per statement, so rows are written as chunked multi-row inserts
 // inside one atomic batch (keeps the query count low on the Workers free plan).
-import { type AlertDraft, BURST_TYPES, BURST_WINDOW_MS, type RuleContext, alertForEvent, burstAlert, burstDetails, detectBurst } from "./alerts";
+import { type AlertDraft, BURST_TYPES, BURST_WINDOW_MS, type RuleContext, alertForEvent, burstAlert, burstDetails, detectBurst, saveAndPushAlerts } from "./alerts";
 import type { Env } from "./env";
-import { localDay, nowIso } from "./lib/time";
+import { localDay, normTs, nowIso } from "./lib/time";
+import { validateEvent } from "./generated/validators";
+
+/** `diag.report` events may carry up to 256 KB of data (API.md section 14); every other type stays small. */
+export const MAX_DIAG_BYTES = 256 * 1024;
+export const MAX_EVENT_BYTES = 64 * 1024;
 
 export interface IngestEvent {
   id: string;
@@ -244,4 +249,66 @@ async function evaluateAlerts(env: Env, device: DeviceInfo, fresh: IngestEvent[]
     }
   }
   return drafts;
+}
+
+export interface RejectedEvent {
+  id: string | null;
+  error: string;
+}
+
+export interface ScreenResult {
+  accepted: IngestEvent[];
+  rejected: RejectedEvent[];
+}
+
+/**
+ * Validates every event on its own (schema, device id, data size cap) so one bad event cannot block the
+ * agent's outbox forever. Duplicate ids inside one batch are dropped silently. Pure.
+ */
+export function screenEvents(raw: readonly unknown[], deviceId: string): ScreenResult {
+  const accepted: IngestEvent[] = [];
+  const rejected: RejectedEvent[] = [];
+  const ids = new Set<string>();
+  for (const r of raw) {
+    const ev = r as Partial<IngestEvent> | null;
+    const id = ev && typeof ev === "object" && typeof ev.id === "string" ? ev.id : null;
+    if (!validateEvent(r)) {
+      const e = validateEvent.errors?.[0];
+      rejected.push({ id, error: `invalid_body${e ? `: ${e.instancePath} ${e.message ?? ""}`.trimEnd() : ""}` });
+      continue;
+    }
+    const e = r as IngestEvent;
+    if (e.deviceId !== deviceId) {
+      rejected.push({ id, error: "wrong_device" });
+      continue;
+    }
+    const size = new TextEncoder().encode(JSON.stringify(e.data)).length;
+    if (size > (e.type === "diag.report" ? MAX_DIAG_BYTES : MAX_EVENT_BYTES)) {
+      rejected.push({ id, error: "too_large" });
+      continue;
+    }
+    if (ids.has(e.id)) continue;
+    ids.add(e.id);
+    accepted.push({ ...e, ts: normTs(e.ts)! });
+  }
+  return { accepted, rejected };
+}
+
+/**
+ * The single event intake used by HTTP `POST /v1/device/events` and the DeviceHub `events` frame (API.md 3, 15):
+ * screen -> store (idempotent on id, one D1 batch) -> `onStored` (ack / live fan-out) -> alerts + FCM.
+ * Throws when D1 fails; nothing is acknowledged then and the device retries.
+ */
+export async function intakeEvents(
+  env: Env,
+  device: DeviceInfo,
+  raw: readonly unknown[],
+  waitUntil: (p: Promise<unknown>) => void,
+  onStored?: (r: ScreenResult) => void,
+): Promise<ScreenResult> {
+  const r = screenEvents(raw, device.id);
+  const drafts = r.accepted.length > 0 ? await ingestEvents(env, device, r.accepted) : [];
+  onStored?.(r);
+  await saveAndPushAlerts(env, drafts, waitUntil);
+  return r;
 }
