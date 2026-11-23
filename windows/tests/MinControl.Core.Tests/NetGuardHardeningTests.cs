@@ -128,7 +128,10 @@ public class NetGuardHardeningTests
         var game = f.Open(Kid, "www.roblox.com");
         f.Policy.Change(Policy(blockedCategories: ["games"]));
 
-        for (var i = 0; i < 200 && f.AbortCount(game) == 0; i++) await Task.Delay(10);
+        // The re-evaluation runs on a thread-pool thread and closes the tunnel BEFORE it emits web.blocked,
+        // so wait for both effects (waiting for the abort alone raced with the event emission).
+        bool HasBlockedEvent() { lock (f.Sink.Events) return f.Sink.Events.Any(x => x.Type == EventTypes.WebBlocked); }
+        for (var i = 0; i < 500 && (f.AbortCount(game) == 0 || !HasBlockedEvent()); i++) await Task.Delay(10);
         Assert.Equal(1, f.AbortCount(game));
         var e = Assert.Single(f.Sink.Events, e => e.Type == EventTypes.WebBlocked);
         Assert.Equal("category", (string?)e.Data["reason"]);

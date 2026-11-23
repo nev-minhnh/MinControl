@@ -51,6 +51,7 @@ public sealed class FilteringProxy : IAsyncDisposable
     private Timer? _recheck;
     private int _active;
     private int _reevaluating;
+    private int _reevalPending;   // a trigger arrived while a pass was running → run once more right after it
 
     // per-minute summary + diagnostics
     private long _allowedMinute, _blockedMinute, _allowedTotal, _blockedTotal, _closedLiveTotal;
@@ -370,7 +371,13 @@ public sealed class FilteringProxy : IAsyncDisposable
     /// </summary>
     public (int Blocked, int Rerouted) ReevaluateTunnels(string trigger = "manual")
     {
-        if (Interlocked.Exchange(ref _reevaluating, 1) == 1) return (0, 0);
+        if (Interlocked.Exchange(ref _reevaluating, 1) == 1)
+        {
+            // Never drop a trigger (e.g. a policy change arriving during the 30 s safety-net pass): remember it and
+            // re-run as soon as the current pass finishes, so a new rule reaches live connections immediately.
+            Volatile.Write(ref _reevalPending, 1);
+            return (0, 0);
+        }
         try
         {
             int blocked = 0, rerouted = 0, checkedCount = 0;
@@ -402,6 +409,8 @@ public sealed class FilteringProxy : IAsyncDisposable
         finally
         {
             Volatile.Write(ref _reevaluating, 0);
+            if (Interlocked.Exchange(ref _reevalPending, 0) == 1)
+                ThreadPool.UnsafeQueueUserWorkItem(_ => SafeReevaluate("pending"), null);
         }
     }
 
