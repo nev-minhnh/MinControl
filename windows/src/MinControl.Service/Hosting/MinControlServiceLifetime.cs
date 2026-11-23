@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using MinControl.Core.Abstractions;
 using MinControl.Core.Events;
 using MinControl.Core.Storage;
+using MinControl.Service.Logic;
 using MinControl.Service.Sessions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
@@ -93,10 +94,4 @@ internal sealed class MinControlServiceLifetime : WindowsServiceLifetime
         else _log.LogInformation("Service stop (expected: {Expected}, OS shutdown: {Shutdown}): not reported", expected, osShutdown);
         base.OnStop();
     }
-}
-
-/// <summary>Whether a service stop is reported as tamper.service_stopped (pure, tested).</summary>
-internal static class StopClassifier
-{
-    public static bool ShouldReport(bool osShuttingDown, bool expectedStopMarkerFresh) => !osShuttingDown && !expectedStopMarkerFresh;
 }

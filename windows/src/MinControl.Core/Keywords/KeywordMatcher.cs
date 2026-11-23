@@ -68,11 +68,16 @@ public sealed partial class KeywordMatcher
 
     // ------------------------------------------------------------------ browser titles
 
-    // " - Google Chrome", " - Microsoft​ Edge" (Edge puts a zero-width space in its name), " - Personal - Microsoft Edge",
-    // " - Cốc Cốc", " - Brave", " - Mozilla Firefox", " — Opera"
-    [GeneratedRegex(@"\s+[-—–]\s+(?:[^-—–]{1,40}\s+[-—–]\s+)?(?:Google Chrome|Microsoft[\s​]*Edge|C[oố]c C[oố]c|Brave|Mozilla Firefox|Firefox|Opera|Vivaldi|Chromium)\s*$",
+    // " - Google Chrome", " - Microsoft(U+200B) Edge" (Edge puts a zero-width space in its name), " - Cốc Cốc", " - Brave",
+    // " - Mozilla Firefox", " — Opera"
+    [GeneratedRegex(@"\s+[-—–]\s+(?:Google Chrome|Microsoft[\s\u200b]*Edge|C[oố]c C[oố]c|Brave|Mozilla Firefox|Firefox|Opera|Vivaldi|Chromium)\s*$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex BrowserSuffix();
+
+    // Edge profile label before the browser name: " - Personal", " - Cá nhân", " - Work", " - Profile 2", " - Hồ sơ 1"
+    [GeneratedRegex(@"\s+[-—–]\s+(?:Personal|Cá nhân|Work|Công việc|Profile \d+|Hồ sơ(?: cá nhân| \d+)?|Default)\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ProfileSuffix();
 
     // Edge/Chrome tab-count suffix: "… and 3 more pages", "… và 3 trang khác"
     [GeneratedRegex(@"\s+(?:and \d+ more pages?|và \d+ trang khác)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
@@ -82,8 +87,9 @@ public sealed partial class KeywordMatcher
     public static string PageTitle(string windowTitle)
     {
         var t = BrowserSuffix().Replace(windowTitle.Trim(), "");
+        t = ProfileSuffix().Replace(t, "");
         t = MorePages().Replace(t, "");
-        return t.Replace("​", "").Trim();
+        return t.Replace('\u200b', ' ').Replace("  ", " ").Trim();
     }
 
     private static readonly (string Suffix, string Engine)[] SearchSuffixes =

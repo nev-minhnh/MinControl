@@ -34,8 +34,10 @@ public sealed class ServiceCatalog
     {
         Version = version;
         var list = services.ToList();
-        if (!list.Any(s => s.Id == YoutubeId))
-            list.Add(new CatalogService(YoutubeId, "YouTube", "video", BuiltInYoutubeDomains, []));
+        // YouTube must always cover all of its hosts (blocking youtube, API.md 17): union with the built-in list.
+        var yt = list.FindIndex(s => s.Id == YoutubeId);
+        if (yt < 0) list.Add(new CatalogService(YoutubeId, "YouTube", "video", BuiltInYoutubeDomains, []));
+        else list[yt] = list[yt] with { Domains = list[yt].Domains.Concat(BuiltInYoutubeDomains).Distinct(StringComparer.OrdinalIgnoreCase).ToList() };
         Services = list;
         _byId = new Dictionary<string, CatalogService>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in list) _byId.TryAdd(s.Id, s);
