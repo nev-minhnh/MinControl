@@ -179,7 +179,8 @@ public sealed class BlockingV2Tests
     {
         Assert.Equal("video", ServiceCatalog.PolicyCategoryOf("music"));
         Assert.Equal("social", ServiceCatalog.PolicyCategoryOf("chat"));
-        Assert.Null(ServiceCatalog.PolicyCategoryOf("ai"));
+        Assert.Equal("ai", ServiceCatalog.PolicyCategoryOf("ai"));
+        Assert.Null(ServiceCatalog.PolicyCategoryOf("other"));
         var engine = new WebDecisionEngine(CategoryIndex.Empty, null, Catalog);
         var web = User(blockedCategories: ["games", "social"]).Web;
         var d = engine.Decide(web, "www.roblox.com", DateTimeOffset.UtcNow, null);

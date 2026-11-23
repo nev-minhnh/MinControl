@@ -13,7 +13,7 @@ object WebLabels {
     private val categories = mapOf(
         "adult" to "Người lớn", "gambling" to "Cờ bạc", "proxy-vpn" to "VPN/Proxy", "games" to "Trò chơi",
         "social" to "Mạng xã hội", "video" to "Video", "violence" to "Bạo lực", "drugs" to "Chất cấm",
-        "dating" to "Hẹn hò", "malware" to "Mã độc",
+        "dating" to "Hẹn hò", "malware" to "Mã độc", "ai" to "Trí tuệ nhân tạo (AI)",
     )
     private val reasons = mapOf(
         "doh" to "DNS mã hoá", "port" to "Cổng không được phép", "blocklist" to "Danh sách chặn",
@@ -39,6 +39,7 @@ object WebLabels {
         WebCategory.DRUGS -> "Ma tuý, chất kích thích, thuốc lá"
         WebCategory.DATING -> "Trang và ứng dụng hẹn hò"
         WebCategory.MALWARE -> "Trang lừa đảo, phần mềm độc hại"
+        WebCategory.AI -> "ChatGPT, Claude, Gemini, Copilot, DeepSeek, Qwen, Kimi… và các trang AI khác"
     }
 
     const val CATEGORY_SOURCE_NOTE = "Danh sách tên miền: UT1 (Đại học Toulouse), tự cập nhật hằng ngày trên máy tính"

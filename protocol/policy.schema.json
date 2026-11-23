@@ -100,11 +100,11 @@
           "required": ["mode", "blockedCategories", "blockDomains", "allowDomains", "safeSearch", "youtube", "allowedBrowsers", "netExemptApps"],
           "properties": {
             "mode": { "enum": ["blocklist", "allowlist"] },
-            "blockedCategories": { "type": "array", "uniqueItems": true, "items": { "enum": ["adult", "gambling", "proxy-vpn", "games", "social", "video", "violence", "drugs", "dating", "malware"] } },
+            "blockedCategories": { "type": "array", "uniqueItems": true, "items": { "enum": ["adult", "gambling", "proxy-vpn", "games", "social", "video", "violence", "drugs", "dating", "malware", "ai"] } },
             "categorySchedules": {
               "type": "object",
               "description": "category blocked only inside these windows (e.g. games during study time); categories listed here must not also be in blockedCategories",
-              "propertyNames": { "enum": ["games", "social", "video"] },
+              "propertyNames": { "enum": ["games", "social", "video", "ai"] },
               "additionalProperties": { "$ref": "common.schema.json#/$defs/weekdayWindows" }
             },
             "blockDomains": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/domainPattern" } },

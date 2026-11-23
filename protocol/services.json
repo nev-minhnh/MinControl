@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "services": [
     {
       "id": "youtube",
@@ -571,6 +571,220 @@
         "*.oaistatic.com",
         "*.oaiusercontent.com"
       ],
+      "apps": [
+        {
+          "exe": "ChatGPT.exe"
+        }
+      ]
+    },
+    {
+      "id": "claude",
+      "name": "Claude (Anthropic)",
+      "category": "ai",
+      "domains": [
+        "*.claude.ai",
+        "*.claude.com",
+        "*.anthropic.com",
+        "*.claudeusercontent.com"
+      ],
+      "apps": [
+        {
+          "exe": "Claude.exe",
+          "publisher": "Anthropic*"
+        }
+      ]
+    },
+    {
+      "id": "gemini",
+      "name": "Google Gemini / AI Studio / NotebookLM",
+      "category": "ai",
+      "domains": [
+        "gemini.google.com",
+        "aistudio.google.com",
+        "notebooklm.google.com",
+        "bard.google.com",
+        "generativelanguage.googleapis.com",
+        "*.notebooklm.google"
+      ],
+      "apps": []
+    },
+    {
+      "id": "copilot",
+      "name": "Microsoft Copilot",
+      "category": "ai",
+      "domains": [
+        "copilot.microsoft.com",
+        "copilot.cloud.microsoft"
+      ],
+      "apps": []
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "category": "ai",
+      "domains": [
+        "*.perplexity.ai"
+      ],
+      "apps": []
+    },
+    {
+      "id": "metaai",
+      "name": "Meta AI",
+      "category": "ai",
+      "domains": [
+        "*.meta.ai"
+      ],
+      "apps": []
+    },
+    {
+      "id": "grok",
+      "name": "xAI Grok",
+      "category": "ai",
+      "domains": [
+        "*.grok.com",
+        "*.x.ai"
+      ],
+      "apps": []
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral Le Chat",
+      "category": "ai",
+      "domains": [
+        "*.mistral.ai"
+      ],
+      "apps": []
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "category": "ai",
+      "domains": [
+        "*.deepseek.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "qwen",
+      "name": "Qwen / Tongyi",
+      "category": "ai",
+      "domains": [
+        "*.qwen.ai",
+        "*.qwenlm.ai",
+        "qianwen.aliyun.com",
+        "tongyi.aliyun.com",
+        "dashscope.aliyuncs.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi / Moonshot",
+      "category": "ai",
+      "domains": [
+        "*.kimi.com",
+        "*.kimi.ai",
+        "*.moonshot.cn",
+        "*.moonshot.ai"
+      ],
+      "apps": []
+    },
+    {
+      "id": "doubao",
+      "name": "Doubao (ByteDance)",
+      "category": "ai",
+      "domains": [
+        "*.doubao.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "zhipu",
+      "name": "Zhipu GLM / Z.ai",
+      "category": "ai",
+      "domains": [
+        "*.chatglm.cn",
+        "*.bigmodel.cn",
+        "*.z.ai",
+        "*.zhipuai.cn"
+      ],
+      "apps": []
+    },
+    {
+      "id": "ernie",
+      "name": "Baidu ERNIE",
+      "category": "ai",
+      "domains": [
+        "yiyan.baidu.com",
+        "ernie.baidu.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "yuanbao",
+      "name": "Tencent Yuanbao / Hunyuan",
+      "category": "ai",
+      "domains": [
+        "yuanbao.tencent.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax / Hailuo",
+      "category": "ai",
+      "domains": [
+        "*.minimax.io",
+        "*.minimaxi.com",
+        "*.hailuoai.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "nvidia-ai",
+      "name": "NVIDIA Nemotron / NIM",
+      "category": "ai",
+      "domains": [
+        "build.nvidia.com",
+        "integrate.api.nvidia.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face",
+      "category": "ai",
+      "domains": [
+        "*.huggingface.co",
+        "*.hf.co"
+      ],
+      "apps": []
+    },
+    {
+      "id": "poe",
+      "name": "Poe",
+      "category": "ai",
+      "domains": [
+        "*.poe.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "youcom",
+      "name": "You.com",
+      "category": "ai",
+      "domains": [
+        "*.you.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "pi-ai",
+      "name": "Pi (Inflection)",
+      "category": "ai",
+      "domains": [
+        "*.pi.ai"
+      ],
       "apps": []
     },
     {
@@ -582,6 +796,123 @@
         "*.characterai.io"
       ],
       "apps": []
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "category": "ai",
+      "domains": [
+        "*.openrouter.ai"
+      ],
+      "apps": []
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "category": "ai",
+      "domains": [
+        "*.groq.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "togetherai",
+      "name": "Together AI",
+      "category": "ai",
+      "domains": [
+        "*.together.ai"
+      ],
+      "apps": []
+    },
+    {
+      "id": "cohere",
+      "name": "Cohere",
+      "category": "ai",
+      "domains": [
+        "*.cohere.com",
+        "*.cohere.ai"
+      ],
+      "apps": []
+    },
+    {
+      "id": "phind",
+      "name": "Phind",
+      "category": "ai",
+      "domains": [
+        "*.phind.com"
+      ],
+      "apps": []
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "category": "ai",
+      "domains": [
+        "*.ollama.com",
+        "*.ollama.ai"
+      ],
+      "apps": [
+        {
+          "exe": "ollama.exe"
+        },
+        {
+          "exe": "ollama app.exe"
+        }
+      ]
+    },
+    {
+      "id": "lmstudio",
+      "name": "LM Studio",
+      "category": "ai",
+      "domains": [
+        "*.lmstudio.ai"
+      ],
+      "apps": [
+        {
+          "exe": "LM Studio.exe"
+        }
+      ]
+    },
+    {
+      "id": "jan",
+      "name": "Jan",
+      "category": "ai",
+      "domains": [
+        "*.jan.ai"
+      ],
+      "apps": [
+        {
+          "exe": "Jan.exe"
+        }
+      ]
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "category": "ai",
+      "domains": [
+        "*.cursor.com",
+        "*.cursor.sh"
+      ],
+      "apps": [
+        {
+          "exe": "Cursor.exe"
+        }
+      ]
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf",
+      "category": "ai",
+      "domains": [
+        "*.windsurf.com",
+        "*.codeium.com"
+      ],
+      "apps": [
+        {
+          "exe": "Windsurf.exe"
+        }
+      ]
     },
     {
       "id": "onlyfans",
