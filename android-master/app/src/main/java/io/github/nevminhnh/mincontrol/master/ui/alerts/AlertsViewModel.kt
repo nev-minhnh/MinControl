@@ -69,7 +69,7 @@ class AlertsViewModel(app: Application) : AndroidViewModel(app) {
     val unackedCount: StateFlow<Int> = combine(repo.alerts, filter) { a, _ -> a.count { !it.acked } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
-    val refresher = AutoRefresher(viewModelScope, RefreshIntervals.DEFAULT_MS) { repo.refreshAlerts() }
+    val refresher = AutoRefresher(viewModelScope, RefreshIntervals.DEFAULT_MS, live = graph.live.healthy) { repo.refreshAlerts() }
 
     fun refresh() = viewModelScope.launch {
         refreshing.value = true

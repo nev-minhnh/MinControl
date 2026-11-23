@@ -1,5 +1,6 @@
 package io.github.nevminhnh.mincontrol.master.refresh
 
+import io.github.nevminhnh.mincontrol.master.live.PollingPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -32,6 +33,8 @@ class AutoRefresher(
     val intervalMs: Long,
     events: Flow<Unit> = AppEvents.alertArrived,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** True while a live socket is healthy: the poll interval then becomes [PollingPolicy.LIVE_INTERVAL_MS]. */
+    private val live: StateFlow<Boolean>? = null,
     private val action: suspend () -> Unit,
 ) {
     val lastUpdated: StateFlow<Long?> get() = _lastUpdated
@@ -64,7 +67,15 @@ class AutoRefresher(
             loop = scope.launch {
                 while (true) {
                     trigger()
-                    delay(intervalMs)
+                    // re-evaluated every tick so a socket going up/down changes the cadence at once
+                    var waited = 0L
+                    while (true) {
+                        val target = PollingPolicy.intervalMs(intervalMs, live?.value == true)
+                        if (waited >= target) break
+                        val tick = minOf(1_000L, target - waited)
+                        delay(tick)
+                        waited += tick
+                    }
                 }
             }
         }

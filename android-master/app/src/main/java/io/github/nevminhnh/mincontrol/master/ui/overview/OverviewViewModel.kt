@@ -38,7 +38,7 @@ class OverviewViewModel(app: Application) : AndroidViewModel(app) {
     val pending = MutableStateFlow<Set<String>>(emptySet())
 
     /** Resume + every 10 s while visible + FCM alert + pull-to-refresh. */
-    val refresher = AutoRefresher(viewModelScope, RefreshIntervals.OVERVIEW_MS) { load(quiet = true) }
+    val refresher = AutoRefresher(viewModelScope, RefreshIntervals.OVERVIEW_MS, live = graph.live.healthy) { load(quiet = true) }
 
     fun refresh(quiet: Boolean = false) = viewModelScope.launch { load(quiet) }
 
