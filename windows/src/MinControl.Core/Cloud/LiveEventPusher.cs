@@ -138,8 +138,17 @@ public sealed class LiveEventPusher
                 if (n is JsonValue v && v.TryGetValue<string>(out var id) && InFlight.TryTake(id, out var row)) rows.Add(row);
         if (msg["rejected"] is JsonArray rej && rej.Count > 0)
         {
+            // The cloud sends {"id","error"} objects (API.md §3/§15); plain id strings are accepted too.
             foreach (var n in rej)
-                if (n is JsonValue v && v.TryGetValue<string>(out var id) && InFlight.TryTake(id, out var row)) rows.Add(row);
+            {
+                string? id = n switch
+                {
+                    JsonValue v when v.TryGetValue<string>(out var s) => s,
+                    JsonObject o when o["id"] is JsonValue iv && iv.TryGetValue<string>(out var s2) => s2,
+                    _ => null,
+                };
+                if (id is not null && InFlight.TryTake(id, out var row)) rows.Add(row);
+            }
             _log.LogWarning("server rejected {Count} live events (dropped): {Ids}", rej.Count, string.Join(",", rej.Take(20)));
         }
         if (rows.Count > 0) _store.DeleteOutbox(rows);

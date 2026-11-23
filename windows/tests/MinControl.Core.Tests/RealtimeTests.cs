@@ -88,7 +88,7 @@ public class RealtimeTests
         using var _s = store;
         Add(store, pusher, "E1"); Add(store, pusher, "E2"); var r3 = Add(store, pusher, "E3");
         await pusher.FlushAsync();
-        var n = pusher.HandleAck(new JsonObject { ["t"] = "events_ack", ["ids"] = new JsonArray("E1"), ["rejected"] = new JsonArray("E2") });
+        var n = pusher.HandleAck(new JsonObject { ["t"] = "events_ack", ["ids"] = new JsonArray("E1"), ["rejected"] = new JsonArray(new JsonObject { ["id"] = "E2", ["error"] = "too_large" }) });
         Assert.Equal(2, n);
         Assert.Equal([r3], store.PeekOutbox(10).Select(x => x.Id).ToArray());
         Assert.Equal(0, pusher.HandleAck(new JsonObject { ["ids"] = new JsonArray("E1", "nope") })); // unknown / repeated ids are ignored
