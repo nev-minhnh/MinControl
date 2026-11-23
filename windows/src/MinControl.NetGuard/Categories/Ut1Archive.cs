@@ -40,6 +40,11 @@ public static class Ut1Archive
         throw new InvalidDataException($"{list}.tar.gz has no <dir>/domains entry");
     }
 
+    /// <summary>Hashes a plain UT1 <c>domains</c> file (one domain per line; same normalisation as the archive path).
+    /// Throws <see cref="InvalidDataException"/> when it holds no valid domain.</summary>
+    public static Task<Ut1Extract> HashDomainLinesAsync(Stream data, string entryName, int capacityHint, CancellationToken ct) =>
+        HashLinesAsync(data, entryName, capacityHint, ct);
+
     private static async Task<Ut1Extract> HashLinesAsync(Stream data, string entryName, int capacityHint, CancellationToken ct)
     {
         var hashes = new List<ulong>(Math.Clamp(capacityHint, 1024, 16_000_000));

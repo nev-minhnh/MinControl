@@ -89,7 +89,7 @@ public sealed class CategoryUpdaterTests : IDisposable
 
     private (CategoryUpdater Updater, CategoryStore Store) Create(FakeUt1 server, Policies policies)
     {
-        var options = new NetGuardOptions { CategoriesDirectory = _dir, CategorySourceBaseUrl = "https://ut1.test/blacklists/download/" };
+        var options = new NetGuardOptions { CategoriesDirectory = _dir, CategorySourceBaseUrl = "https://ut1.test/blacklists/download/", CategoryGitHubBaseUrl = "" };
         var store = new CategoryStore(options);
         return (new CategoryUpdater(options, store, policies, null, server, null), store);
     }
@@ -197,11 +197,15 @@ public sealed class CategoryUpdaterTests : IDisposable
     {
         string[] policyCats = ["adult", "gambling", "proxy-vpn", "games", "social", "video", "violence", "drugs", "dating", "malware"];
         Assert.Equal(policyCats.Order(), Ut1Catalog.Sources.Keys.Order());
-        Assert.Equal(["vpn", "redirector"], Ut1Catalog.Sources["proxy-vpn"]);
-        Assert.Equal(["phishing"], Ut1Catalog.Sources["malware"]);
+        Assert.Equal(["vpn", "redirector", "strict_redirector"], Ut1Catalog.Sources["proxy-vpn"]);
+        Assert.Equal(["malware", "phishing", "cryptojacking"], Ut1Catalog.Sources["malware"]);
+        Assert.Equal(["adult", "mixed_adult"], Ut1Catalog.Sources["adult"]);
         Assert.Equal(["agressif"], Ut1Catalog.Sources["violence"]);
         Assert.Equal(["social_networks"], Ut1Catalog.Sources["social"]);
-        Assert.Equal("adult.bin", Ut1Catalog.FileName("adult", "adult"));
+        Assert.Equal("adult.adult.bin", Ut1Catalog.FileName("adult", "adult"));
+        Assert.Equal("games.bin", Ut1Catalog.FileName("games", "games"));
+        Assert.Equal("https://raw.githubusercontent.com/olbat/ut1-blacklists/master/blacklists/adult/domains.1",
+            Ut1Catalog.GitHubUrlOf(Ut1Catalog.DefaultGitHubBaseUrl, "adult", 1).ToString());
         Assert.Equal("proxy-vpn.redirector.bin", Ut1Catalog.FileName("proxy-vpn", "redirector"));
         Assert.Equal("https://dsi.ut-capitole.fr/blacklists/download/audio-video.tar.gz",
             Ut1Catalog.UrlOf(Ut1Catalog.DefaultBaseUrl, "audio-video").ToString());
@@ -235,13 +239,14 @@ public sealed class CategoryUpdaterTests : IDisposable
         server.Archives["games"] = TarGz(("games/domains", "poki.com\nroblox.com\n"));
         server.Archives["vpn"] = TarGz(("vpn/domains", "nordvpn.com\n"));
         server.Archives["redirector"] = TarGz(("redirector/domains", "hidemyass.com\n"));
+        server.Archives["strict_redirector"] = TarGz(("strict_redirector/domains", "translate-proxy.test\n"));
         server.Archives["adult"] = TarGz(("adult/domains", "xxx.test\n"));
         var policies = new Policies(PolicyWith(["proxy-vpn"], scheduled: ["games"]));
         var (updater, store) = Create(server, policies);
         using var _ = updater;
 
         var r1 = await updater.UpdateOnceAsync(CancellationToken.None);
-        Assert.Equal(["games/games", "proxy-vpn/vpn", "proxy-vpn/redirector"], r1.Downloaded);
+        Assert.Equal(["games/games", "proxy-vpn/vpn", "proxy-vpn/redirector", "proxy-vpn/strict_redirector"], r1.Downloaded);
         Assert.Empty(r1.Failed);
         Assert.All(server.Requests, q => Assert.True(q.Headers.IfNoneMatch.Count == 0 && q.Headers.IfModifiedSince is null));
         Assert.True(File.Exists(Path.Combine(_dir, "games.bin")));
@@ -260,7 +265,7 @@ public sealed class CategoryUpdaterTests : IDisposable
         var before = File.GetLastWriteTimeUtc(Path.Combine(_dir, "games.bin"));
         var r2 = await updater.UpdateOnceAsync(CancellationToken.None);
         Assert.Empty(r2.Downloaded);
-        Assert.Equal(3, r2.NotModified.Count);
+        Assert.Equal(4, r2.NotModified.Count);
         Assert.All(server.Requests, q =>
         {
             Assert.Equal("\"v1\"", q.Headers.IfNoneMatch.Single().Tag);
@@ -272,13 +277,13 @@ public sealed class CategoryUpdaterTests : IDisposable
         server.ETag = "\"v2\"";
         server.Archives["games"] = TarGz(("games/domains", "poki.com\nroblox.com\ny8.com\n"));
         var r3 = await updater.UpdateOnceAsync(CancellationToken.None);
-        Assert.Equal(["games/games", "proxy-vpn/vpn", "proxy-vpn/redirector"], r3.Downloaded);
+        Assert.Equal(["games/games", "proxy-vpn/vpn", "proxy-vpn/redirector", "proxy-vpn/strict_redirector"], r3.Downloaded);
         Assert.Equal(["games"], store.CategoriesOf("y8.com"));
 
         // Policy drops proxy-vpn → its files are removed and the store forgets them.
         policies.Current = PolicyWith([], scheduled: ["games"]);
         var r4 = await updater.UpdateOnceAsync(CancellationToken.None);
-        Assert.Equal(["proxy-vpn.redirector.bin", "proxy-vpn.vpn.bin"], r4.Removed.Order());
+        Assert.Equal(["proxy-vpn.redirector.bin", "proxy-vpn.strict_redirector.bin", "proxy-vpn.vpn.bin"], r4.Removed.Order());
         Assert.Empty(store.CategoriesOf("nordvpn.com"));
         Assert.False(updater.LoadState().ContainsKey("proxy-vpn.vpn.bin"));
     }

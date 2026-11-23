@@ -23,7 +23,8 @@ public static class ServiceCollectionExtensions
         var options = new NetGuardOptions();
         configure?.Invoke(options);
         services.AddSingleton(options);
-        services.AddSingleton<CategoryStore>();
+        services.AddSingleton(sp => new CategoryStore(sp.GetRequiredService<NetGuardOptions>(), MinControl.Core.Catalog.ServiceCatalog.Shared,
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<CategoryStore>>()));
         services.AddSingleton<ICategoryStore>(sp => sp.GetRequiredService<CategoryStore>());
         services.AddSingleton<CategoryUpdater>();
         services.AddHostedService(sp => sp.GetRequiredService<CategoryUpdater>());
