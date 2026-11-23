@@ -266,3 +266,28 @@ Goal: while the parent has the app open and the PC is online, what the child doe
   (`usage:<yyyy-mm-dd>` → rows; one extra row write per batch). `GET /v1/master/usage` →
   `{"day","rowsWritten","limit":100000,"percent"}`. Crossing 70 % and 90 % sends one FCM push each per day
   ("Sắp chạm hạn mức miễn phí của Cloudflare hôm nay (70 %)…").
+
+## 17. Blocking model v2 (decided by Minh 2026-11-23)
+Every kind of blocking supports two modes: **blocklist** (default allow, block what is listed) and **allowlist**
+(default block, allow only what is listed).
+- **Apps**: new `userPolicy.appMode: "blocklist"|"allowlist"` (default blocklist). In allowlist mode an exe runs only
+  if an `allow` appRule (or an allowed service, below) matches — EXCEPT the always-allowed set: anything under
+  %windir% (System32, SysWOW64, WinSxS, SystemApps, ImmersiveControlPanel…), MinControl's own folder, and
+  Microsoft-signed exes under %ProgramFiles%\WindowsApps that are shell/system packages (Start, Search, Settings,
+  ShellExperienceHost, TextInputHost, LockApp). `newExecutable` only applies in blocklist mode.
+- **Web**: existing `web.mode` (blocklist|allowlist) unchanged.
+- **Services** (one switch = app + domains): `web.blockedServices[]` / `web.allowedServices[]` with ids from the
+  catalog `protocol/services.json` (`{"id","name","category","domains":[patterns],"apps":[AppMatch]}`; e.g. youtube,
+  tiktok, facebook, instagram, messenger, zalo, discord, telegram, roblox, minecraft, steam, epicgames, netflix,
+  spotify, twitch, garena, …). A blocked service blocks its apps AND domains; in allowlist mode an allowed service
+  allows both. The catalog is versioned and shipped with the agent and the app (same file).
+- **Keywords**: new `userPolicy.keywords: {"words":[string], "matchSearches":bool, "matchTitles":bool}`. Matching is
+  case- and diacritics-insensitive on word boundaries (Vietnamese folded to ASCII). `matchSearches`: query of any
+  search engine (Google, Bing, DuckDuckGo, Yandex, Yahoo, Cốc Cốc, YouTube search, Brave). `matchTitles`: browser tab
+  titles (incl. YouTube video titles) and window titles of other apps. On a hit the agent closes the offending tab
+  (browser) or window (other app) within ~1–2 s and emits `web.blocked` with `reason:"keyword"` and `keyword`.
+- **Category data shipped**: the installer embeds a snapshot of all category lists (UT1 + MinControl's curated
+  service domains) so categories work immediately; daily updates continue.
+- **Events**: `web.blocked.reason` adds `"keyword"`, `"service"`; `web.blocked` data adds optional `keyword`,
+  `service`; `process.blocked` data adds optional `service`. A `web.blocked` / `process.blocked` is emitted for
+  EVERY attempt (rate limit: same host/exe at most once per 10 s), so the timeline always shows "Đã chặn".
