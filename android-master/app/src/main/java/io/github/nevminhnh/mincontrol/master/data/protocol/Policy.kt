@@ -127,13 +127,14 @@ enum class WebCategory(val label: String) {
     @SerialName("drugs") DRUGS("Chất cấm"),
     @SerialName("dating") DATING("Hẹn hò"),
     @SerialName("malware") MALWARE("Mã độc"),
+    @SerialName("ai") AI("Trí tuệ nhân tạo (AI)"),
 }
 
 @Serializable
 data class WebPolicy(
     val mode: WebMode = WebMode.BLOCKLIST,
     val blockedCategories: List<WebCategory> = emptyList(),
-    /** Keys limited to games / social / video by the schema. */
+    /** Keys limited to games / social / video / ai by the schema. */
     val categorySchedules: Map<WebCategory, WeekdayWindows>? = null,
     val blockDomains: List<String> = emptyList(),
     val allowDomains: List<String> = emptyList(),

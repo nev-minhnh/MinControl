@@ -13,7 +13,7 @@ namespace MinControl.NetGuard.Categories;
 /// (Last-Modified + If-Modified-Since, slow ~27 KB/s). The installer ships a seed snapshot of all lists.
 /// Mapping: adult = adult + mixed_adult; proxy-vpn = vpn + redirector + strict_redirector (VPN services, web proxies,
 /// anonymisers); malware = malware + phishing + cryptojacking; "violence" = "agressif", "drugs" = "drogue",
-/// "video" = "audio-video", "social" = "social_networks".
+/// "video" = "audio-video", "social" = "social_networks", "ai" = "ai" (+ every catalog service of category ai).
 /// </summary>
 public static class Ut1Catalog
 {
@@ -32,6 +32,7 @@ public static class Ut1Catalog
         ["drugs"] = ["drogue"],
         ["dating"] = ["dating"],
         ["malware"] = ["malware", "phishing", "cryptojacking"],
+        ["ai"] = ["ai"],
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>Raw file of a list on the GitHub mirror: <c>&lt;list&gt;/domains</c> (part null) or <c>&lt;list&gt;/domains.&lt;part&gt;</c>.</summary>

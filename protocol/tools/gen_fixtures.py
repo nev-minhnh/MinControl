@@ -137,6 +137,8 @@ FIXTURES = {
                 user(p)["web"].update(blockedServices=["tiktok", "roblox"], allowedServices=["youtube"]))),
             "allowlist-via-allowed-service": mutate(POLICY, lambda p: (user(p).update(appMode="allowlist", appRules=[]),
                 user(p)["web"].update(allowedServices=["steam"]))),
+            "block-ai-category": mutate(POLICY, lambda p: user(p)["web"].update(
+                blockedCategories=["ai", "adult"], blockedServices=["chatgpt", "claude"])),
             "no-use-day-and-any-time-day": mutate(POLICY, lambda p: user(p)["screenTime"]["allowedWindows"].update(
                 sun=[], sat=["00:00-24:00"])),
         },

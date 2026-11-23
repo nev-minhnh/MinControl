@@ -88,12 +88,13 @@ public sealed class ServiceCatalog
     }
 
     /// <summary>Policy web category (blockedCategories id) a catalog service category belongs to, or null.
-    /// video→video, social→social, games→games, chat→social, music→video; ai/other → none.</summary>
+    /// video→video, social→social, games→games, chat→social, music→video; ai→ai; other → none.</summary>
     public static string? PolicyCategoryOf(string? serviceCategory) => serviceCategory?.ToLowerInvariant() switch
     {
         "video" or "music" => "video",
         "social" or "chat" => "social",
         "games" => "games",
+        "ai" => "ai",
         _ => null,
     };
 

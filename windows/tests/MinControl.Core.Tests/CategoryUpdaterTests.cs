@@ -195,7 +195,7 @@ public sealed class CategoryUpdaterTests : IDisposable
     [Fact]
     public void Mapping_covers_every_policy_category()
     {
-        string[] policyCats = ["adult", "gambling", "proxy-vpn", "games", "social", "video", "violence", "drugs", "dating", "malware"];
+        string[] policyCats = ["adult", "gambling", "proxy-vpn", "games", "social", "video", "violence", "drugs", "dating", "malware", "ai"];
         Assert.Equal(policyCats.Order(), Ut1Catalog.Sources.Keys.Order());
         Assert.Equal(["vpn", "redirector", "strict_redirector"], Ut1Catalog.Sources["proxy-vpn"]);
         Assert.Equal(["malware", "phishing", "cryptojacking"], Ut1Catalog.Sources["malware"]);

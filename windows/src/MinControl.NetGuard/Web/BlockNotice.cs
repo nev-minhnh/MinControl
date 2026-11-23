@@ -21,6 +21,7 @@ public static class BlockNoticeText
         "drugs" => "Chất cấm",
         "dating" => "Hẹn hò",
         "malware" => "Mã độc",
+        "ai" => "Trí tuệ nhân tạo (AI)",
         null or "" => "Không rõ",
         _ => category,
     };
