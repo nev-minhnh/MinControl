@@ -114,12 +114,23 @@ import io.github.nevminhnh.mincontrol.master.refresh.AutoRefreshEffect
 import io.github.nevminhnh.mincontrol.master.refresh.RefreshBox
 import io.github.nevminhnh.mincontrol.master.refresh.UpdatedLine
 import java.time.Instant
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import io.github.nevminhnh.mincontrol.master.data.protocol.UserPolicy
+import io.github.nevminhnh.mincontrol.master.policy.BlockingV2
+import io.github.nevminhnh.mincontrol.master.policy.ServiceState
+import io.github.nevminhnh.mincontrol.master.ui.components.TabHeader
+import io.github.nevminhnh.mincontrol.master.ui.components.BlockedBadge
 import java.time.LocalDate
 import java.time.ZoneOffset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ActivityScreen(vm: ActivityViewModel = viewModel()) {
+fun ActivityScreen(onSettings: (() -> Unit)? = null, vm: ActivityViewModel = viewModel()) {
     val child by vm.child.collectAsState()
     val children by vm.children.collectAsState()
     val tab by vm.tab.collectAsState()
@@ -136,21 +147,10 @@ fun ActivityScreen(vm: ActivityViewModel = viewModel()) {
 
     Box(Modifier.fillMaxSize().background(Background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(44.dp)) {
-                    val dayText = if (date == LocalDate.now()) "Hôm nay" else Fmt.dayMonth(date)
-                    Text("${child?.label ?: "Hoạt động"} · $dayText", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Row(
-                        Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).background(Surface)
-                            .border(1.dp, ChipBorder, RoundedCornerShape(18.dp)).clickable { pickDate = true }.padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(Fmt.dayMonth(date), style = MaterialTheme.typography.labelMedium)
-                        Icon(Icons.Outlined.ExpandMore, null, modifier = Modifier.size(16.dp))
-                    }
-                }
-                ChildSwitcher(children, child, { vm.select(it) })
+            val dayText = if (date == LocalDate.now()) "Hôm nay" else Fmt.dayMonth(date)
+            ActivityHeader("${child?.label ?: "Hoạt động"} · $dayText", Fmt.dayMonth(date), { pickDate = true }, onSettings)
+            ChildSwitcher(children, child, { vm.select(it) }, Modifier.padding(top = 12.dp))
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SegmentedTabs(ActivityTab.entries.map { it.label }, tab.ordinal, { vm.tab.value = ActivityTab.entries[it] })
                 if (tab == ActivityTab.Web) WebSearchHeader(vm)
                 UpdatedLine(vm.refresher)
@@ -190,6 +190,20 @@ fun ActivityScreen(vm: ActivityViewModel = viewModel()) {
     }
 }
 
+@Composable
+private fun ActivityHeader(title: String, dateText: String, onPickDate: () -> Unit, onSettings: (() -> Unit)?) {
+    TabHeader(title, onSettings) {
+        Row(
+            Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).background(Surface)
+                .border(1.dp, ChipBorder, RoundedCornerShape(18.dp)).clickable(onClickLabel = "Chọn ngày", onClick = onPickDate).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(dateText, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            Icon(Icons.Outlined.ExpandMore, null, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
 // ---------------- Timeline ----------------
 
 @Composable
@@ -201,7 +215,9 @@ private fun TimelineTab(vm: ActivityViewModel, child: Child) {
     val date by vm.date.collectAsState()
     val groupLabels = policy?.users?.get(child.sid)?.appGroups?.mapValues { it.value.label }.orEmpty()
     val decided by vm.decided.collectAsState()
-    val rows = remember(events, groupLabels, decided) { TimelineBuilder.build(events, child.hostname, groupLabels, decided) }
+    val rows = remember(events, groupLabels, decided) { TimelineBuilder.build(events, child.hostname, groupLabels, decided) { vm.catalog.byId(it)?.name } }
+    var detail by remember { mutableStateOf<BlockFields?>(null) }
+    detail?.let { BlockDetailSheet(vm, child, it) { detail = null } }
     val st = child.state
     val isToday = date == LocalDate.now()
     val usedMin = if (isToday && st != null) st.usedMin else (usage?.totalSec ?: 0) / 60
@@ -235,7 +251,8 @@ private fun TimelineTab(vm: ActivityViewModel, child: Child) {
                 }
                 all.forEachIndexed { i, r ->
                     TimelineRowView(r, last = i == all.lastIndex, onApprove = { vm.tab.value = ActivityTab.Apps },
-                        onBlock = r.exe?.takeIf { policy != null && !AppRules.isBlocked(rules, it) && !it.equals("explorer.exe", true) }?.let { e -> { blockExe = e } })
+                        onBlock = r.exe?.takeIf { !r.blocked && policy != null && !AppRules.isBlocked(rules, it) && !it.equals("explorer.exe", true) }?.let { e -> { blockExe = e } },
+                        onOpen = r.block?.let { b -> { detail = b } })
                 }
             }
         }
@@ -251,8 +268,9 @@ private fun StatTile(value: String, label: String, modifier: Modifier) {
 }
 
 @Composable
-private fun TimelineRowView(r: TimelineRow, last: Boolean, onApprove: () -> Unit, onBlock: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+private fun TimelineRowView(r: TimelineRow, last: Boolean, onApprove: () -> Unit, onBlock: (() -> Unit)? = null, onOpen: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)
+        .then(if (onOpen != null) Modifier.clickable(onClickLabel = "Xem chi tiết", onClick = onOpen) else Modifier)) {
         Text(Fmt.time(r.ts), style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = TextSecondary,
             modifier = Modifier.width(48.dp).padding(top = 2.dp))
         Spacer(Modifier.width(8.dp))
@@ -270,12 +288,14 @@ private fun TimelineRowView(r: TimelineRow, last: Boolean, onApprove: () -> Unit
         }
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (r.blocked) BlockHeadline(r.blockHeadline)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(r.title, style = MaterialTheme.typography.titleMedium, color = if (r.red) DangerText else TextPrimary, modifier = Modifier.weight(1f, fill = false))
+                Text(r.title, style = MaterialTheme.typography.titleMedium, color = if (r.red) DangerText else TextPrimary, modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (r.device) Text("Máy", style = MaterialTheme.typography.labelSmall, color = TextSecondary,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Background).padding(horizontal = 6.dp, vertical = 2.dp))
             }
-            if (r.sub.isNotBlank()) Text(r.sub, style = MaterialTheme.typography.bodySmall, color = TextBody)
+            if (r.sub.isNotBlank()) Text(r.sub, style = MaterialTheme.typography.bodySmall, color = TextBody, maxLines = 4, overflow = TextOverflow.Ellipsis)
             if (r.approve) {
                 Text("Duyệt ngay", style = MaterialTheme.typography.labelLarge, color = Primary,
                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onApprove).padding(top = 4.dp, bottom = 4.dp, end = 8.dp))
@@ -416,9 +436,18 @@ private fun WebTab(vm: ActivityViewModel) {
     val items by vm.webItems.collectAsState()
     val hasMore by vm.webHasMore.collectAsState()
     var picked by remember { mutableStateOf<WebItem?>(null) }
+    val policy by vm.policy.collectAsState()
+    val child by vm.child.collectAsState()
+    val up = child?.let { policy?.users?.get(it.sid) }
     picked?.let { p ->
+        val block = BlockFields.of(p)
         val h = DomainPolicy.hostOf(p.url, p.host)
-        if (h != null) DomainActionDialog(vm, h, p.url, null) { picked = null } else picked = null
+        val c = child
+        when {
+            block != null && c != null -> BlockDetailSheet(vm, c, block) { picked = null }
+            h != null -> DomainActionDialog(vm, h, p.url, null) { picked = null }
+            else -> picked = null
+        }
     }
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
         if (items.isEmpty()) item { McCard { EmptyState(WebLabels.WEB_EMPTY) } }
@@ -431,7 +460,9 @@ private fun WebTab(vm: ActivityViewModel) {
                 else -> RoundedCornerShape(0.dp)
             }
             Box(Modifier.fillMaxWidth().clip(shape).background(Surface).clickable { picked = it }.padding(horizontal = 16.dp, vertical = if (i == 0 || i == items.lastIndex) 4.dp else 0.dp)) {
-                WebRow(it, divider = i != items.lastIndex)
+                val host = DomainPolicy.hostOf(it.url, it.host)
+                WebRow(it, divider = i != items.lastIndex, serviceName = { id -> vm.catalog.byId(id)?.name },
+                    blockedNow = it.kind != "blocked" && up != null && host != null && BlockingV2.isHostBlockedNow(up, host, vm.catalog))
             }
             if (i == items.lastIndex && hasMore) LaunchedEffect(items.size) { vm.loadWeb() }
         }
@@ -439,21 +470,22 @@ private fun WebTab(vm: ActivityViewModel) {
 }
 
 @Composable
-private fun WebRow(it: WebItem, divider: Boolean) {
+private fun WebRow(it: WebItem, divider: Boolean, serviceName: (String) -> String?, blockedNow: Boolean) {
     val host = it.host ?: it.url?.substringAfter("://")?.substringBefore('/') ?: ""
+    val block = BlockFields.of(it)?.let { f -> BlockTextBuilder.build(f, serviceName) }
     val (bg, fg, badge) = when (it.kind) {
         "blocked" -> Triple(DangerContainer, DangerText, "⦸")
         "search" -> Triple(SearchBg, SearchFg, "G")
         else -> Triple(PrimaryContainer, Primary, host.removePrefix("www.").take(1).uppercase())
     }
-    val title = when (it.kind) {
-        "blocked" -> "Đã chặn: $host"
-        "search" -> it.query?.ifBlank { null } ?: it.title?.ifBlank { null } ?: host
+    val title = when {
+        block != null -> block.title
+        it.kind == "search" -> it.query?.ifBlank { null } ?: it.title?.ifBlank { null } ?: host
         else -> it.title?.ifBlank { null } ?: host
     }
-    val sub = when (it.kind) {
-        "blocked" -> WebLabels.blockedSubtitle(it.category, it.reason) ?: "Bị chặn"
-        "search" -> ("Tìm kiếm " + Fmt.engineLabel(it.engine, host)).trim()
+    val sub = when {
+        block != null -> block.details.joinToString(" · ").ifEmpty { "Bị chặn" }
+        it.kind == "search" -> ("Tìm kiếm " + Fmt.engineLabel(it.engine, host)).trim()
         else -> host + (it.durationSec?.takeIf { s -> s >= 60 }?.let { s -> " · ${s / 60} phút" } ?: "")
     }
     Row(
@@ -464,11 +496,89 @@ private fun WebRow(it: WebItem, divider: Boolean) {
             Text(badge, style = MaterialTheme.typography.titleSmall, color = fg)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = if (it.kind == "blocked") DangerText else TextPrimary,
+            if (block != null) BlockHeadline(block.headline)
+            Text(title, style = MaterialTheme.typography.titleMedium, color = if (block != null) DangerText else TextPrimary,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = if (block != null) 3 else 1, overflow = TextOverflow.Ellipsis)
+            if (blockedNow) NowBlockedChip()
         }
         Text(Fmt.time(it.ts), style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = TextSecondary)
+    }
+}
+
+/** Red "Đã chặn" badge + the action ("Đóng tab", "Tắt ứng dụng"…). */
+@Composable
+private fun BlockHeadline(headline: String?) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        BlockedBadge()
+        headline?.removePrefix("Đã chặn")?.removePrefix(" · ")?.takeIf { h -> h.isNotBlank() }?.let { h ->
+            Text(h, style = MaterialTheme.typography.labelMedium, color = DangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Neutral hint for something that was NOT blocked when it happened but is blocked by the current rules (never the red badge). */
+@Composable
+private fun NowBlockedChip(text: String = "Hiện đang bị chặn") {
+    Text(text, style = MaterialTheme.typography.labelSmall, color = TextSecondary, maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(8.dp)).border(1.dp, ChipBorder, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
+}
+
+/** Detail of one block event: every field, the time, and quick actions (unblock / always allow). */
+@Composable
+private fun BlockDetailSheet(vm: ActivityViewModel, child: Child, f: BlockFields, onDismiss: () -> Unit) {
+    val activity = rememberActivity()
+    val policy by vm.policy.collectAsState()
+    val applying by vm.blockApplying.collectAsState()
+    val up = policy?.users?.get(child.sid)
+    val svcName: (String) -> String? = { vm.catalog.byId(it)?.name }
+    val t = BlockTextBuilder.build(f, svcName)
+    val host = if (f.app) null else DomainPolicy.hostOf(f.url, f.host)
+    fun run(title: String, done: String, edit: (UserPolicy) -> UserPolicy) {
+        vm.editUser(activity, title, done, edit); onDismiss()
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = Surface) {
+        Column(
+            Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BlockedBadge(text = t.headline)
+            Text(t.title, style = MaterialTheme.typography.titleLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Text("${Fmt.time(f.ts)} · ${Fmt.dayMonth(runCatching { Instant.parse(f.ts).atZone(java.time.ZoneId.systemDefault()).toLocalDate() }.getOrDefault(LocalDate.now()))}",
+                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = TextSecondary)
+            t.details.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, color = TextBody) }
+            f.url?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis) }
+            if (up != null && !applying) {
+                HorizontalDivider(color = Divider)
+                if (host != null) {
+                    if (DomainPolicy.isBlocked(up.web, host)) TextButton(onClick = {
+                        run("Bỏ chặn tên miền $host", "Đã bỏ chặn $host.") { u -> u.copy(web = DomainPolicy.unblock(u.web, host)) }
+                    }) { Text("Bỏ chặn $host", maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                    TextButton(onClick = {
+                        run("Luôn cho phép tên miền $host", "Đã cho phép $host.") { u -> u.copy(web = DomainPolicy.allow(u.web, host)) }
+                    }) { Text("Thêm $host vào danh sách cho phép", maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                }
+                val exe = f.exe
+                if (f.app && exe != null) {
+                    if (BlockingV2.isExeBlockedNow(up.copy(web = up.web.copy(blockedServices = null)), exe, vm.catalog))
+                        TextButton(onClick = { run("Bỏ chặn ứng dụng $exe", "Đã bỏ chặn $exe.") { u -> AppRules.unblockExe(u, exe) } }) { Text("Bỏ chặn $exe") }
+                    TextButton(onClick = { run("Cho phép ứng dụng $exe", "Đã cho phép $exe.") { u -> AppRules.allowExe(u, exe) } }) {
+                        Text("Thêm $exe vào danh sách cho phép", maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                f.service?.takeIf { it in up.web.blockedServices.orEmpty() }?.let { id ->
+                    val name = svcName(id) ?: id
+                    TextButton(onClick = {
+                        run("Bỏ chặn dịch vụ $name", "Đã bỏ chặn $name.") { u -> u.copy(web = BlockingV2.setService(u.web, id, ServiceState.NONE)) }
+                    }) { Text("Bỏ chặn dịch vụ $name") }
+                }
+                f.keyword?.takeIf { k -> up.keywords?.words.orEmpty().any { it.equals(k, true) } }?.let { k ->
+                    TextButton(onClick = { run("Bỏ từ khóa “$k”", "Đã bỏ từ khóa “$k”.") { u -> BlockingV2.removeKeyword(u, k) } }) { Text("Bỏ từ khóa “$k”") }
+                }
+            }
+            if (applying) CircularProgressIndicator(color = Primary)
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Đóng", color = TextBody) }
+        }
     }
 }
 
@@ -490,8 +600,31 @@ private fun AppsTab(vm: ActivityViewModel, child: Child) {
     val day = Weekday.of(date.dayOfWeek)
     var blockExe by remember { mutableStateOf<String?>(null) }
     blockExe?.let { BlockAppDialog(it, { blockExe = null }) { vm.blockApp(activity, it) } }
+    val events by vm.events.collectAsState()
+    val appBlocks = remember(events) { events.filter { it.type == "process.blocked" }.sortedByDescending { it.ts }.mapNotNull { TimelineBuilder.blockRow(it) { id -> vm.catalog.byId(id)?.name } } }
+    var detail by remember { mutableStateOf<BlockFields?>(null) }
+    detail?.let { BlockDetailSheet(vm, child, it) { detail = null } }
 
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (appBlocks.isNotEmpty()) item {
+            McCard(spacing = 4.dp, padding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)) {
+                Text("Lần chặn ứng dụng · ${appBlocks.size}", style = MaterialTheme.typography.titleMedium)
+                appBlocks.forEachIndexed { i, r ->
+                    Row(
+                        Modifier.fillMaxWidth().then(if (i != appBlocks.lastIndex) Modifier.drawDivider() else Modifier)
+                            .clickable(onClickLabel = "Xem chi tiết") { detail = r.block }.padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            BlockHeadline(r.blockHeadline)
+                            Text(r.title, style = MaterialTheme.typography.titleMedium, color = DangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (r.sub.isNotBlank()) Text(r.sub, style = MaterialTheme.typography.bodySmall, color = TextBody, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text(Fmt.time(r.ts), style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = TextSecondary)
+                    }
+                }
+            }
+        }
         items(pending, key = { it.view.item.id }) { card ->
             McCard(spacing = 12.dp, border = QuickActionBorder, elevated = true) {
                 Text("CHỜ ANH DUYỆT", style = MaterialTheme.typography.titleSmall, color = Primary)
@@ -547,7 +680,7 @@ private fun AppsTab(vm: ActivityViewModel, child: Child) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(groupLabel, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
                             if (up != null && !a.exe.equals("explorer.exe", true)) {
-                                if (AppRules.isBlocked(up.appRules, a.exe)) Text("Đã chặn", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                                if (BlockingV2.isExeBlockedNow(up, a.exe, vm.catalog)) NowBlockedChip("Đang chặn")
                                 else Text("Chặn ứng dụng này", style = MaterialTheme.typography.labelMedium, color = DangerText,
                                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { blockExe = a.exe }.padding(horizontal = 6.dp, vertical = 4.dp))
                             }
@@ -662,4 +795,40 @@ private fun BlockAppDialog(exe: String, onDismiss: () -> Unit, onConfirm: () -> 
         dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
         containerColor = Surface,
     )
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Hoạt động · 3 máy · 1.3x", widthDp = 360, heightDp = 1300, fontScale = 1.3f, showBackground = true, backgroundColor = 0xFFF4F6FA)
+@Composable
+private fun ActivityPreview() {
+    io.github.nevminhnh.mincontrol.master.ui.theme.MinControlTheme {
+        val kids = listOf(
+            Child("d1", "PC-PHONG-KHACH", "S-1", "Minh Anh", true, null, null),
+            Child("d2", "LAPTOP-HOC-TAP-CUA-CON", "S-2", "Bảo Ngọc Nguyễn Hoàng", false, null, null),
+            Child("d3", "PC-GAMING", "S-3", "Minh Anh", true, null, null),
+        )
+        val webBlock = BlockFields(app = false, ts = "2026-11-23T08:15:00Z", host = "www.rat-dai-ten-mien-bi-chan-cua-mot-trang-web.example.com",
+            action = "close_tab", title = "Video rất dài về trò chơi", keyword = "đánh bài", exe = "msedge.exe", count = 5)
+        val appBlock = BlockFields(app = true, ts = "2026-11-23T08:10:00Z", exe = "RobloxPlayerBeta.exe", service = "roblox", rule = "Roblox*.exe")
+        val rows = listOf(
+            TimelineRow("2026-11-23T08:20:00Z", DotKind.INFO, "Chrome · 25 phút", "Nhóm Học tập · Google Docs"),
+            TimelineRow("2026-11-23T08:15:00Z", DotKind.BLOCK, BlockTextBuilder.build(webBlock).title, BlockTextBuilder.build(webBlock).details.joinToString(" · "),
+                red = true, block = webBlock, blockHeadline = BlockTextBuilder.build(webBlock).headline),
+            TimelineRow("2026-11-23T08:10:00Z", DotKind.BLOCK, BlockTextBuilder.build(appBlock).title, BlockTextBuilder.build(appBlock).details.joinToString(" · "),
+                red = true, exe = "RobloxPlayerBeta.exe", block = appBlock, blockHeadline = BlockTextBuilder.build(appBlock).headline),
+        )
+        Column(Modifier.background(Background)) {
+            ActivityHeader("Bảo Ngọc Nguyễn Hoàng · Hôm nay", "23/11", {}, {})
+            ChildSwitcher(kids, kids[1], {}, Modifier.padding(top = 12.dp))
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SegmentedTabs(ActivityTab.entries.map { it.label }, 0, {})
+                McCard(padding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp)) {
+                    rows.forEachIndexed { i, r -> TimelineRowView(r, i == rows.lastIndex, {}, onOpen = r.block?.let { { } }) }
+                }
+                McCard(padding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+                    WebRow(WebItem("2026-11-23T08:15:00Z", "blocked", host = webBlock.host, title = webBlock.title, keyword = "đánh bài", action = "close_tab", count = 5), true, { null }, false)
+                    WebRow(WebItem("2026-11-23T08:05:00Z", "visit", url = "https://poki.com/vi/g/subway", host = "poki.com", title = "Subway Surfers"), false, { null }, true)
+                }
+            }
+        }
+    }
 }

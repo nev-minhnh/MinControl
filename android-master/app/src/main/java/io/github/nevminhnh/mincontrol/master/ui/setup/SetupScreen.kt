@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -81,58 +82,17 @@ private fun Modifier.scrollOnFocus(): Modifier {
     return this.bringIntoViewRequester(requester).onFocusChanged { if (it.isFocused) scope.launch { kotlinx.coroutines.delay(350); requester.bringIntoView() } }
 }
 
-/** First run: server URL + bootstrap secret -> generate Keystore keys -> POST /v1/master/register. */
+/** First run: scan the QR on the PC (register-with-claim, API.md 12) or receive a transfer from the old phone (API.md 13). */
 @Composable
 fun SetupScreen() {
     val graph = LocalContext.current.graph
     val scope = rememberCoroutineScope()
-    var server by remember { mutableStateOf(graph.settings.serverUrl ?: "https://") }
-    var secret by remember { mutableStateOf("") }
-    var name by remember { mutableStateOf("") }
-    var restore by remember { mutableStateOf(false) }
-    var backup by remember { mutableStateOf("") }
-    var pass by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var manual by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val activity = rememberActivity()
 
-    fun doRegister(srv: String, sec: String) {
-        error = null
-        if (!srv.startsWith("https://") && !srv.startsWith("http://")) { error = "Địa chỉ phải bắt đầu bằng https://"; return }
-        if (sec.isBlank()) { error = "Nhập mã khôi phục."; return }
-        busy = true
-        scope.launch {
-            try {
-                if (restore && backup.isNotBlank()) {
-                    withContext(Dispatchers.Default) { graph.sealKeys.import(backup, pass.toCharArray()) }
-                }
-                graph.repo.register(srv.trimEnd('/'), sec)
-                graph.settings.serverUrl = srv.trimEnd('/')
-                if (name.isNotBlank()) graph.settings.parentName = name.trim()
-                SetupLink.justRegistered = true
-                graph.settings.setRegistered(true)
-                graph.push.syncToken()
-            } catch (e: KeySetupException) {
-                error = "Không tạo được khóa: hãy bật khóa màn hình (vân tay / mã PIN) rồi thử lại."
-            } catch (e: SealKeyBackup.BadPassphrase) {
-                error = "Sai mật khẩu sao lưu."
-            } catch (e: Exception) {
-                error = e.userMessage()
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    fun apply(p: SetupPayload) {
-        server = p.serverUrl; secret = p.secret
-        doRegister(p.serverUrl, p.secret)
-    }
-
     // First-run flow state (API.md 12).
-    var secondary by remember { mutableStateOf(false) }
     var pairing by remember { mutableStateOf<PairPayload?>(null) }
 
     fun handlePair(p: PairPayload) {
@@ -167,11 +127,6 @@ fun SetupScreen() {
         }
     }
 
-    // Deep link (mincontrol://setup?...) or scan result: fill and register immediately.
-    val pending by SetupLink.pending.collectAsState()
-    LaunchedEffect(pending) {
-        pending?.let { SetupLink.pending.value = null; secondary = true; if (!busy) apply(it) }
-    }
     // Deep link mincontrol://pair?... from the camera app on a phone that is not set up yet.
     val pendingPair by PairLink.pending.collectAsState()
     LaunchedEffect(pendingPair) {
@@ -265,8 +220,8 @@ fun SetupScreen() {
                 val pair = PairLink.parse(code.rawValue)
                 val transfer = TransferLink.parse(code.rawValue)
                 when {
-                    transfer != null -> { secondary = false; transferOffer = transfer }
-                    setup != null -> { secondary = true; apply(setup) }
+                    transfer != null -> transferOffer = transfer
+                    setup != null -> error = "Mã khôi phục không còn được dùng. Hãy quét mã QR đang hiện trên màn hình máy tính của con."
                     pair != null -> handlePair(pair)
                     else -> error = "Mã QR không phải mã MinControl. Hãy quét mã QR đang hiện trên màn hình máy tính của con."
                 }
@@ -274,7 +229,7 @@ fun SetupScreen() {
             .addOnFailureListener { e ->
                 // Cancel is silent; anything else (e.g. Play services missing) points to the secondary flow.
                 if (e !is com.google.android.gms.common.api.ApiException || e.statusCode != 16) {
-                    error = "Không mở được trình quét QR. Hãy thử lại hoặc chọn \"Mất điện thoại? Dùng mã khôi phục\"."
+                    error = "Không mở được trình quét QR. Hãy cập nhật Dịch vụ Google Play rồi thử lại."
                 }
             }
     }
@@ -284,7 +239,10 @@ fun SetupScreen() {
             .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        IconCircle(Icons.Outlined.Shield, PrimaryContainer, Primary, size = 56.dp, iconSize = 28.dp)
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(io.github.nevminhnh.mincontrol.master.R.drawable.ic_logo),
+            contentDescription = "MinControl", modifier = Modifier.size(72.dp),
+        )
         val p = pairing
         val tp = transferPending
         val offer = transferOffer
@@ -339,67 +297,15 @@ fun SetupScreen() {
                 PrimaryButton("Mã khớp, tiếp tục", onClick = { registerWithClaim(p) }, modifier = Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp, icon = Icons.Outlined.Shield)
                 TextButton(onClick = { pairing = null; error = null }, modifier = Modifier.fillMaxWidth()) { Text("Hủy") }
             }
-        } else if (!secondary) {
+        } else {
             Text("Thiết lập MinControl", style = MaterialTheme.typography.titleLarge)
             Text("Chạy MinControl-Setup trên máy tính của con, rồi quét mã QR hiện trên màn hình.",
                 style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-            error?.let { Text(it, color = DangerText, style = MaterialTheme.typography.bodySmall) }
+            error?.let { Text(it, color = DangerText, style = MaterialTheme.typography.bodyMedium) }
             if (busy) CircularProgressIndicator(color = Primary) else {
                 PrimaryButton("Quét mã trên máy tính", onClick = { scan() }, modifier = Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp, icon = Icons.Outlined.QrCodeScanner)
                 Text("Đổi điện thoại? Trên điện thoại cũ vào Cài đặt → \"Chuyển sang điện thoại mới\" rồi quét mã QR hiện ở đó.",
                     style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                TextButton(onClick = { secondary = true; error = null }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Mất điện thoại? Dùng mã khôi phục", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                }
-            }
-        } else {
-            Text("Mất điện thoại? Dùng mã khôi phục", style = MaterialTheme.typography.titleLarge)
-            Text(
-                "Quét mã khôi phục (file recovery-qr.png, tạo khi dựng máy chủ) hoặc nhập địa chỉ máy chủ và mã khôi phục.",
-                style = MaterialTheme.typography.bodyMedium, color = TextSecondary,
-            )
-            McCard(spacing = 4.dp) {
-                Text("Lưu ý", style = MaterialTheme.typography.titleSmall, color = DangerText)
-                Text("Điện thoại cũ sẽ mất quyền, và MỌI máy tính sẽ phải ghép nối lại (trên máy tính: \"Kết nối MinControl với điện thoại\" → \"Ghép nối lại\"). " +
-                    "Mã khôi phục chỉ dùng được một lần. Nếu còn điện thoại cũ, hãy dùng \"Chuyển sang điện thoại mới\" trên điện thoại cũ.",
-                    style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-            }
-            if (!manual) {
-                if (!busy) {
-                    PrimaryButton("Quét mã khôi phục", onClick = { scan() }, modifier = Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp, icon = Icons.Outlined.QrCodeScanner)
-                    OutlinedButton(onClick = { manual = true }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Nhập tay") }
-                    OutlinedTextField(name, { name = it.take(30) }, label = { Text("Tên của anh/chị (tùy chọn)") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth().scrollOnFocus())
-                }
-            } else {
-                McCard(spacing = 12.dp) {
-                    OutlinedTextField(server, { server = it.trim() }, label = { Text("Địa chỉ máy chủ") }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth().scrollOnFocus())
-                    OutlinedTextField(secret, { secret = it }, label = { Text("Mã khôi phục") }, singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().scrollOnFocus())
-                    OutlinedTextField(name, { name = it.take(30) }, label = { Text("Tên của anh/chị (hiển thị lời chào)") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth().scrollOnFocus())
-                }
-            }
-            TextButton(onClick = { restore = !restore }) {
-                Text(if (restore) "Không khôi phục" else "Khôi phục khóa ảnh màn hình từ bản sao lưu")
-            }
-            if (restore) {
-                McCard(spacing = 12.dp) {
-                    OutlinedTextField(backup, { backup = it }, label = { Text("Nội dung bản sao lưu") }, minLines = 3, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(pass, { pass = it }, label = { Text("Mật khẩu sao lưu") }, singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                }
-            }
-            error?.let { Text(it, color = DangerText, style = MaterialTheme.typography.bodySmall) }
-            if (busy) {
-                CircularProgressIndicator(color = Primary)
-            } else {
-                if (manual) {
-                    PrimaryButton("Đăng ký điện thoại này", onClick = { doRegister(server, secret) }, modifier = Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp)
-                    TextButton(onClick = { manual = false }, modifier = Modifier.fillMaxWidth()) { Text("Quay lại quét mã QR") }
-                }
-                TextButton(onClick = { secondary = false; manual = false; error = null }, modifier = Modifier.fillMaxWidth()) { Text("Quay lại") }
             }
         }
     }

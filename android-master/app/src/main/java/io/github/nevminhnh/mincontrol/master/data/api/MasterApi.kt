@@ -57,8 +57,8 @@ sealed class ApiException(message: String, cause: Throwable? = null) : Exception
 }
 
 const val MASTER_EXISTS_MESSAGE =
-    "Máy chủ đã có điện thoại quản lý. Trên điện thoại cũ, vào Cài đặt → Chuyển sang điện thoại mới. " +
-        "Nếu đã mất điện thoại cũ, chọn \"Mất điện thoại? Dùng mã khôi phục\"."
+    "Máy chủ đang có điện thoại quản lý khác. Dùng điện thoại đó để quét, hoặc gỡ MinControl trên các máy tính của con " +
+        "(bằng tài khoản admin) rồi cài lại và quét lại."
 
 const val RECOVERY_CODE_USED_MESSAGE = "Mã khôi phục đã được dùng. Tạo mã mới trên máy chủ."
 
@@ -149,7 +149,8 @@ class MasterApi(
     // --- §5 endpoints ---
     suspend fun createPairingCode(): PairingCode = call("POST", "v1/master/pairing-codes", body = ByteArray(0), out = PairingCode.serializer())
     suspend fun devices(): DeviceList = call("GET", "v1/master/devices", out = DeviceList.serializer())
-    suspend fun revokeDevice(id: String) { callUnit("DELETE", "v1/master/devices/$id") }
+    /** "Xóa máy": removes the device and all of its history on the server (API.md §18). */
+    suspend fun deleteDevice(id: String) { callUnit("DELETE", "v1/master/devices/$id") }
     suspend fun seq(id: String): SeqResponse = call("GET", "v1/master/devices/$id/seq", out = SeqResponse.serializer())
 
     /** null when the device has no policy yet (404). */
@@ -240,6 +241,9 @@ class MasterApi(
     suspend fun approveClaim(claimId: String, signWith: SignRoleSigner): ApproveResponse =
         ApiJson.decodeFromString(ApproveResponse.serializer(),
             signedPost(url("v1/master/claims/${claimId.encodeSeg()}/approve"), ByteArray(0), signWith).toString(Charsets.UTF_8))
+
+    /** API.md §18 "Đặt lại toàn bộ": wipes everything on the server (sign-key auth). */
+    suspend fun resetAll(signWith: SignRoleSigner) { signedPost(url("v1/master/reset"), ByteArray(0), signWith) }
 
     // --- §13 phone transfer ---
     /** Old phone: creates a transfer (sign-key auth). */

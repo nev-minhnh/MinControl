@@ -8,7 +8,16 @@ import kotlinx.serialization.json.intOrNull
 
 enum class DotKind { LIVE, INFO, BLOCK, APP, NEUTRAL }
 
-data class TimelineRow(val ts: String, val dot: DotKind, val title: String, val sub: String, val red: Boolean = false, val approve: Boolean = false, val device: Boolean = false, val exe: String? = null)
+data class TimelineRow(
+    val ts: String, val dot: DotKind, val title: String, val sub: String, val red: Boolean = false, val approve: Boolean = false,
+    val device: Boolean = false, val exe: String? = null,
+    /** Set only for an actual `web.blocked` / `process.blocked` event: drives the red "Đã chặn" badge and the detail sheet. */
+    val block: BlockFields? = null,
+    /** "Đã chặn · Đóng tab" */
+    val blockHeadline: String? = null,
+) {
+    val blocked: Boolean get() = block != null
+}
 
 /** Turns raw events (newest first, as returned by the API) into timeline rows (newest first). */
 object TimelineBuilder {
@@ -28,7 +37,10 @@ object TimelineBuilder {
         return listOfNotNull("Ứng dụng mới", sig, size).joinToString(" · ")
     }
 
-    fun build(events: List<EventItem>, hostname: String, groupLabels: Map<String, String>, decided: Map<String, ApprovalState> = emptyMap()): List<TimelineRow> {
+    fun build(
+        events: List<EventItem>, hostname: String, groupLabels: Map<String, String>, decided: Map<String, ApprovalState> = emptyMap(),
+        serviceName: (String) -> String? = { null },
+    ): List<TimelineRow> {
         val asc = events.sortedBy { it.ts }
         val rows = mutableListOf<TimelineRow>()
         // Collapse consecutive usage.tick events of the same exe into one "app session".
@@ -60,29 +72,34 @@ object TimelineBuilder {
                 e.data.str("title")?.let { sessionTitle = it }
                 continue
             }
-            row(e, hostname, decided)?.let { flush(); rows += it }
+            row(e, hostname, decided, serviceName)?.let { flush(); rows += it }
         }
         flush()
         return rows.sortedByDescending { it.ts }
     }
 
-    private fun row(e: EventItem, hostname: String, decided: Map<String, ApprovalState>): TimelineRow? {
+    /** Row for one block event (never merged with others). */
+    fun blockRow(e: EventItem, serviceName: (String) -> String? = { null }): TimelineRow? {
+        val f = BlockFields.of(e) ?: return null
+        val t = BlockTextBuilder.build(f, serviceName)
+        return TimelineRow(e.ts, DotKind.BLOCK, t.title, t.details.joinToString(" · "), red = true, exe = if (f.app) f.exe else null,
+            block = f, blockHeadline = t.headline)
+    }
+
+    private fun row(e: EventItem, hostname: String, decided: Map<String, ApprovalState>, serviceName: (String) -> String?): TimelineRow? {
         val d = e.data
         return when (e.type) {
             "session.logon" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Đăng nhập $hostname", "Phiên ${d["sessionId"] ?: ""}".trim())
             "session.logoff" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Đăng xuất $hostname", "")
             "session.lock" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Khóa màn hình", "")
             "session.unlock" -> TimelineRow(e.ts, DotKind.NEUTRAL, "Mở khóa màn hình", "")
-            "process.blocked" -> TimelineRow(e.ts, DotKind.BLOCK, "Chặn: ${d.str("exe") ?: "ứng dụng"}",
-                listOfNotNull(d.str("path"), d.str("rule")).joinToString(" · "), red = true, exe = d.str("exe"))
+            "process.blocked", "web.blocked" -> blockRow(e, serviceName)
             "request.exe_approval" -> {
                 val exe = d.str("exe") ?: "ứng dụng"
                 val state = d.str("sha256")?.let { decided[it] }
                 if (state != null) TimelineRow(e.ts, if (state == ApprovalState.BLOCKED) DotKind.BLOCK else DotKind.INFO, "${state.label}: $exe", newAppSub(d))
                 else TimelineRow(e.ts, DotKind.INFO, "Chờ duyệt: $exe", newAppSub(d), approve = true)
             }
-            "web.blocked" -> TimelineRow(e.ts, DotKind.BLOCK, "Chặn web: ${d.str("host") ?: ""}",
-                WebLabels.blockedSubtitle(d.str("category"), d.str("reason")) ?: "", red = true)
             "web.search" -> TimelineRow(e.ts, DotKind.INFO, "Tìm kiếm ${engineLabel(d.str("engine"))}", "“${d.str("query") ?: ""}”")
             "quota.warning" -> TimelineRow(e.ts, DotKind.INFO, "Sắp hết giờ", "Còn ${d["remainingMin"] ?: "?"} phút")
             "quota.exhausted" -> TimelineRow(e.ts, DotKind.BLOCK, "Hết giờ", "Đã đăng xuất tự động", red = true)

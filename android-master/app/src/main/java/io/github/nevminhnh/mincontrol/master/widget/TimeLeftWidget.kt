@@ -47,7 +47,7 @@ class TimeLeftWidget : GlanceAppWidget() {
             GlanceModifier.fillMaxSize().background(Color.White).cornerRadius(24.dp).padding(16.dp)
                 .clickable(actionStartActivity<MainActivity>()),
         ) {
-            Text("Thời gian còn lại", style = TextStyle(fontSize = 13.sp, color = ColorProvider(Color(0xFF5B6577))))
+            Text("Thời gian còn lại", style = TextStyle(fontSize = 13.sp, color = ColorProvider(Color(0xFF4A5568))))
             Spacer(GlanceModifier.height(8.dp))
             if (kids.isEmpty()) {
                 Text("Chưa có dữ liệu", style = TextStyle(fontSize = 15.sp, color = ColorProvider(Color(0xFF0E1726))))
@@ -61,7 +61,7 @@ class TimeLeftWidget : GlanceAppWidget() {
                     )
                     Text(
                         if (!c.online) "offline" else if (c.state?.locked == true) "đã khóa" else "",
-                        style = TextStyle(fontSize = 12.sp, color = ColorProvider(Color(0xFF5B6577))),
+                        style = TextStyle(fontSize = 12.sp, color = ColorProvider(Color(0xFF4A5568))),
                     )
                     Spacer(GlanceModifier.width(8.dp))
                     Text(

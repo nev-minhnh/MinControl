@@ -48,6 +48,32 @@ android {
     }
 }
 
+/**
+ * Copies the blocking-v2 service catalog (API.md §17) from ../protocol/services.json into the app assets.
+ * Falls back to an empty catalog when the file does not exist yet.
+ */
+abstract class CopyServiceCatalog : DefaultTask() {
+    @get:Internal abstract val sourceFile: Property<String>
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val src = File(sourceFile.get())
+        val out = outputDir.get().file("services.json").asFile
+        out.parentFile.mkdirs()
+        if (src.isFile) src.copyTo(out, overwrite = true) else out.writeText("{\"version\":0,\"services\":[]}")
+    }
+}
+
+val copyServiceCatalog = tasks.register<CopyServiceCatalog>("copyServiceCatalog") {
+    sourceFile.set(rootDir.resolve("../protocol/services.json").canonicalPath)
+    outputs.upToDateWhen { false }
+}
+
+androidComponents {
+    onVariants { v -> v.sources.assets?.addGeneratedSourceDirectory(copyServiceCatalog, CopyServiceCatalog::outputDir) }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)

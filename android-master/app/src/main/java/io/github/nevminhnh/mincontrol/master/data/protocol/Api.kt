@@ -153,8 +153,15 @@ data class WebItem(
     /** `kind=search` only. */
     val query: String? = null,
     val engine: String? = null,
-    /** `kind=blocked` only: doh, port, blocklist, allowlist_miss, schedule. */
+    /** `kind=blocked` only: doh, port, blocklist, allowlist_miss, schedule, keyword, service. */
     val reason: String? = null,
+    // `kind=blocked` extras (API.md §17, all optional).
+    val action: String? = null,
+    val count: Int? = null,
+    val rule: String? = null,
+    val keyword: String? = null,
+    val service: String? = null,
+    val exe: String? = null,
 )
 
 @Serializable

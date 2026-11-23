@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -111,11 +114,13 @@ fun MinControlApp(openTab: String? = null) {
 
     Scaffold(
         containerColor = Background,
+        // Top inset is handled by each screen (statusBarsPadding); bottom = bottom bar or the navigation bar.
+        contentWindowInsets = WindowInsets.navigationBars,
         bottomBar = {
             if (Destination.entries.any { it.route == current }) BottomBar(current, alertCount) { nav.switchTab(it) }
         },
     ) { inner ->
-        Box(Modifier.fillMaxSize().padding(inner)) {
+        Box(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)) {
         NavHost(nav, startDestination = Destination.Overview.route, modifier = Modifier.fillMaxSize()) {
             composable(Destination.Overview.route) {
                 OverviewScreen(
@@ -125,21 +130,22 @@ fun MinControlApp(openTab: String? = null) {
                     onActivity = { openActivity(ActivityTab.Timeline) },
                 )
             }
-            composable(Destination.Activity.route) { ActivityScreen() }
+            composable(Destination.Activity.route) { ActivityScreen(onSettings = { nav.navigate(Routes.SETTINGS) }) }
             composable(Destination.Alerts.route) {
                 AlertsScreen(
+                    onSettings = { nav.navigate(Routes.SETTINGS) },
                     onTimeline = { openActivity(ActivityTab.Timeline) },
                     onWeb = { openActivity(ActivityTab.Web) },
                 )
             }
-            composable(Destination.Rules.route) { PolicyScreen() }
+            composable(Destination.Rules.route) { PolicyScreen(onSettings = { nav.navigate(Routes.SETTINGS) }) }
             composable(Routes.PAIRING) { PairingScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }, onTransfer = { nav.navigate(Routes.TRANSFER) }, onDiagnose = { nav.navigate(Routes.DIAGNOSE) }) }
             composable(Routes.DIAGNOSE) { io.github.nevminhnh.mincontrol.master.ui.diagnose.DiagnoseScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.TRANSFER) { io.github.nevminhnh.mincontrol.master.ui.transfer.TransferScreen(onBack = { nav.popBackStack() }) }
         }
         val live by graph.live.healthy.collectAsState()
-        if (live) LiveBadge(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 4.dp, end = 64.dp))
+        if (live) LiveBadge(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 2.dp, end = 16.dp))
         }
     }
 }

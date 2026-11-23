@@ -36,29 +36,43 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.AppMatch
 import io.github.nevminhnh.mincontrol.master.data.protocol.InventoryApp
 import io.github.nevminhnh.mincontrol.master.policy.AppPicker
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextBody
+import io.github.nevminhnh.mincontrol.master.ui.theme.ChipBorder
+import io.github.nevminhnh.mincontrol.master.ui.components.PrimaryButton
+import io.github.nevminhnh.mincontrol.master.data.protocol.AppRule
+import io.github.nevminhnh.mincontrol.master.data.protocol.RuleAction
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.text.style.TextOverflow
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextSecondary
 
 /** "Chọn từ máy tính" picker + selected-match chips + "Nhập tay" fallback. Mutates [matches]. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun AppMatchEditor(vm: PolicyViewModel, activity: FragmentActivity, groupLabel: String, matches: MutableList<AppMatch>) {
+fun AppMatchEditor(
+    vm: PolicyViewModel, activity: FragmentActivity, groupLabel: String, matches: MutableList<AppMatch>,
+    action: RuleAction? = null, rules: List<AppRule> = emptyList(),
+) {
     val inv by vm.inventory.collectAsState()
     var picking by remember { mutableStateOf(false) }
     var manual by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var manualText by remember { mutableStateOf("") }
     val selected = remember { mutableStateListOf<String>() }
+    var showAll by remember { mutableStateOf(false) }
     LaunchedEffect(picking) { if (picking) vm.loadInventory() }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("Ứng dụng (${matches.size})", style = MaterialTheme.typography.titleSmall)
         if (matches.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             matches.toList().forEach { m ->
-                InputChip(selected = false, onClick = { matches.remove(m) }, label = { Text(AppPicker.describe(m), maxLines = 1) },
+                InputChip(selected = false, onClick = { matches.remove(m) },
+                    label = { Text(AppPicker.describe(m), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp)) },
                     trailingIcon = { Text("✕") })
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = { picking = !picking }) { Text(if (picking) "Đóng danh sách" else "Chọn từ máy tính") }
             TextButton(onClick = { manual = !manual }) { Text("Nhập tay") }
         }
@@ -76,20 +90,40 @@ fun AppMatchEditor(vm: PolicyViewModel, activity: FragmentActivity, groupLabel: 
                 TextButton(onClick = { vm.refreshInventory(activity) }) { Text("Làm mới") }
             }
             is InventoryState.Ready -> {
-                val shown = remember(s.apps, query) { AppPicker.sortFilter(s.apps, query) }
+                val list = remember(s.apps, query, showAll, action, rules) { AppPicker.pickerList(s.apps, query, rules, action, showAll) }
+                val shown = list.apps
                 OutlinedTextField(query, { query = it }, singleLine = true, label = { Text("Tìm ứng dụng") }, modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (AppPicker.isGameGroup(groupLabel)) TextButton(onClick = { selected.addAll(AppPicker.suggestGames(s.apps) - selected.toSet()) }) { Text("Gợi ý") }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (AppPicker.isGameGroup(groupLabel)) TextButton(onClick = { selected.addAll(AppPicker.suggestGames(shown) - selected.toSet()) }) { Text("Gợi ý") }
                     TextButton(onClick = { vm.refreshInventory(activity) }) { Text("Làm mới") }
+                    Row(Modifier.clickable { showAll = !showAll }.padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(showAll, { showAll = it })
+                        Text("Hiện tất cả", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
-                Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
-                    shown.take(150).forEach { a -> AppRow(a, a.id in selected) { if (it) selected.add(a.id) else selected.remove(a.id) } }
+                if (list.hiddenOpposite > 0) Text(
+                    "Đã ẩn ${list.hiddenOpposite} ứng dụng đang nằm trong danh sách “${if (action == RuleAction.BLOCK) "Cho phép" else "Chặn"}”. " +
+                        "Muốn đổi, hãy xóa quy tắc đó trước.",
+                    style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+                )
+                if (!showAll && list.hiddenSystem > 0) Text("Đã ẩn ${list.hiddenSystem} ứng dụng hệ thống — chọn “Hiện tất cả” để xem.",
+                    style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    shown.take(300).forEach { a -> AppRow(a, a.id in selected) { if (it) selected.add(a.id) else selected.remove(a.id) } }
                     if (shown.isEmpty()) Text("Không có ứng dụng phù hợp", color = TextSecondary)
                 }
-                TextButton(enabled = selected.isNotEmpty(), onClick = {
-                    val merged = AppPicker.merge(matches.toList(), s.apps.filter { it.id in selected })
-                    matches.clear(); matches.addAll(merged); selected.clear()
-                }) { Text("Thêm ${selected.size} ứng dụng đã chọn") }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (selected.isNotEmpty()) TextButton(onClick = { selected.clear() }) { Text("Bỏ chọn") }
+                    Spacer(Modifier.weight(1f))
+                    PrimaryButton(
+                        if (selected.isEmpty()) "Chọn ứng dụng" else "Chọn ${selected.size} ứng dụng",
+                        onClick = {
+                            val merged = AppPicker.merge(matches.toList(), s.apps.filter { it.id in selected })
+                            matches.clear(); matches.addAll(merged); selected.clear(); picking = false
+                        },
+                        enabled = selected.isNotEmpty(), height = 44.dp,
+                    )
+                }
             }
         }
         if (manual) {
@@ -107,10 +141,13 @@ private fun AppRow(a: InventoryApp, checked: Boolean, onChange: (Boolean) -> Uni
     Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }, verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked, onChange)
         Column(Modifier.weight(1f)) {
-            Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+            Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = listOfNotNull(a.publisher, a.minutes7d?.takeIf { it > 0 }?.let { "đã dùng $it phút / 7 ngày" }).joinToString(" · ")
-            if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1)
+            if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        AppPicker.categoryLabel(a.category)?.let { AssistChip(onClick = {}, label = { Text(it, style = MaterialTheme.typography.labelSmall) }) }
+        AppPicker.categoryLabel(a.category)?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = TextBody, maxLines = 1,
+                modifier = Modifier.padding(start = 4.dp).border(1.dp, ChipBorder, RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
+        }
     }
 }

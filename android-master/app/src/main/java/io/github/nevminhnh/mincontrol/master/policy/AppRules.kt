@@ -79,6 +79,20 @@ object AppRules {
         return up.copy(appRules = add(up.appRules, RuleAction.BLOCK, listOf(m)))
     }
 
+    /** Removes every plain block rule whose exe pattern matches [exe]. */
+    fun unblockExe(up: UserPolicy, exe: String): UserPolicy {
+        val name = matchForExe(exe)?.exe ?: return up
+        return up.copy(appRules = up.appRules.filterNot {
+            it.action == RuleAction.BLOCK && it.except.isNullOrEmpty() && it.match.exe != null && BlockingV2.glob(it.match.exe, name)
+        })
+    }
+
+    /** Adds an allow rule for [exe] (replacing a same-match block rule). */
+    fun allowExe(up: UserPolicy, exe: String): UserPolicy {
+        val m = matchForExe(exe) ?: return up
+        return up.copy(appRules = add(up.appRules, RuleAction.ALLOW, listOf(m)))
+    }
+
     fun describe(r: AppRule): String {
         val base = AppPicker.describe(r.match)
         return if (r.except.isNullOrEmpty()) base else "$base (trừ ${r.except.joinToString { AppPicker.describe(it) }})"

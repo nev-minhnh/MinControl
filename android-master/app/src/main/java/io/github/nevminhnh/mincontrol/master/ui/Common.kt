@@ -25,7 +25,11 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import io.github.nevminhnh.mincontrol.master.data.Child
 import io.github.nevminhnh.mincontrol.master.data.ChildKey
-import io.github.nevminhnh.mincontrol.master.ui.components.SegmentedTabs
+import io.github.nevminhnh.mincontrol.master.ui.components.FilterChip
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextPrimary
 
 tailrec fun Context.findFragmentActivity(): FragmentActivity = when (this) {
@@ -43,31 +47,25 @@ fun rememberActivity(): FragmentActivity {
 /** Picks the selected child, falling back to the first one. */
 fun List<Child>.pick(key: ChildKey?): Child? = firstOrNull { it.key == key } ?: firstOrNull()
 
+/** Chip labels: "label", or "label · hostname" when two children share a label. Pure (unit-tested). */
+fun switcherLabels(children: List<Child>): List<String> =
+    children.map { if (children.count { c -> c.label == it.label } > 1) "${it.label} · ${it.hostname}" else it.label }
+
 /**
- * Child switcher: a segmented control (Policy.dc.html header) for up to 3 children, otherwise a dropdown.
+ * Child/device switcher: its own full-width, horizontally scrollable row of chips (never shares a Row with the
+ * screen title, so the title cannot be squeezed). Hidden when there is only one child.
  */
 @Composable
 fun ChildSwitcher(children: List<Child>, selected: Child?, onSelect: (Child) -> Unit, modifier: Modifier = Modifier) {
     if (children.size <= 1) return
-    val labels = children.map { if (children.count { c -> c.label == it.label } > 1) "${it.label} · ${it.hostname}" else it.label }
-    if (children.size <= 3) {
-        SegmentedTabs(labels, children.indexOf(selected).coerceAtLeast(0), { onSelect(children[it]) }, modifier, fill = false)
-    } else {
-        var open by remember { mutableStateOf(false) }
-        Row(
-            modifier,
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            androidx.compose.material3.TextButton(onClick = { open = true }) {
-                Text(selected?.label ?: "", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
-                Icon(Icons.Outlined.ExpandMore, null, tint = TextPrimary, modifier = Modifier.size(18.dp))
-            }
-            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                children.forEachIndexed { i, c ->
-                    DropdownMenuItem(text = { Text(labels[i]) }, onClick = { open = false; onSelect(c) })
-                }
-            }
+    val labels = switcherLabels(children)
+    LazyRow(
+        modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        itemsIndexed(children, key = { _, c -> "${c.deviceId}/${c.sid}" }) { i, c ->
+            FilterChip(labels[i], c.key == selected?.key, { onSelect(c) })
         }
     }
 }
