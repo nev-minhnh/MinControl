@@ -25,7 +25,6 @@ internal sealed class SetupForm : Form
     public SetupForm()
     {
         Theme.Apply(this, "Cài đặt MinControl");
-        ClientSize = new Size(500, 600);
         Controls.Add(_host);
         ShowWelcome();
         FormClosing += OnClosing;
@@ -38,21 +37,14 @@ internal sealed class SetupForm : Form
         {
             var r = MessageBox.Show(this,
                 "MinControl đã được cài nhưng máy này chưa kết nối với điện thoại nên chưa dùng được.\n\n" +
-                "Có thể kết nối sau: menu Start > \"Kết nối MinControl với điện thoại\".\n\nVẫn đóng?",
+                "Có thể kết nối sau: mở \"MinControl Connect\" trên màn hình nền hoặc menu Start.\n\nVẫn đóng?",
                 Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (r != DialogResult.Yes) { e.Cancel = true; return; }
         }
         _pairing?.Stop();
     }
 
-    private static FlowLayoutPanel Page()
-    {
-        return new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false,
-            Padding = new Padding(28, 24, 28, 16), BackColor = Color.White,
-        };
-    }
+    private static CenteredPage Page() => new();
 
     private void Swap(Control c)
     {
@@ -69,17 +61,18 @@ internal sealed class SetupForm : Form
     private void ShowWelcome()
     {
         var page = Page();
-        var title = Theme.Text("Cài đặt MinControl", 16f, FontStyle.Bold);
-        title.Margin = new Padding(0, 0, 0, 12);
+        var logo = Theme.Logo(72);
+        var title = Theme.Text("Cài đặt MinControl", 17f, FontStyle.Bold);
+        title.Margin = Theme.Px(0, 0, 0, 12);
         var body = Theme.Text(
             "MinControl giúp cha mẹ quản lý thời gian dùng máy tính của con.\n\n" +
             "Cần chuẩn bị: điện thoại đã cài app MinControl và máy tính có Internet.\n\n" +
             "Sau khi cài xong, màn hình sẽ hiện một mã QR. Dùng app MinControl trên điện thoại quét mã đó và xác nhận là xong.",
             10.5f, color: Theme.Muted);
-        body.Margin = new Padding(0, 0, 0, 24);
+        body.Margin = Theme.Px(0, 0, 0, 24);
         var install = Theme.PrimaryButton("Cài đặt");
         install.Click += async (_, _) => await InstallAsync();
-        page.Controls.AddRange([title, body, install]);
+        page.Add(logo, title, body, CenteredPage.ButtonRow(install));
         // No AcceptButton here: a stray Enter (e.g. typed into another window that lost focus to this one)
         // must never start an installation. Installing needs an explicit click.
         Swap(page);
@@ -89,10 +82,13 @@ internal sealed class SetupForm : Form
     {
         var page = Page();
         var title = Theme.Text("Đang cài MinControl…", 16f, FontStyle.Bold);
-        title.Margin = new Padding(0, 0, 0, 16);
-        var bar = new ProgressBar { Style = ProgressBarStyle.Marquee, Width = 420, Height = 12, MarqueeAnimationSpeed = 30, Margin = new Padding(0, 0, 0, 12) };
+        title.Margin = Theme.Px(0, 0, 0, 16);
+        var bar = new ProgressBar
+        {
+            Style = ProgressBarStyle.Marquee, Size = Theme.Px(Theme.ColumnWidth - 40, 10), MarqueeAnimationSpeed = 30, Margin = Theme.Px(0, 0, 0, 12),
+        };
         var note = Theme.Text("Việc này mất khoảng một phút. Đừng tắt máy.", 10f, color: Theme.Muted);
-        page.Controls.AddRange([title, bar, note]);
+        page.Add(Theme.Logo(56), title, bar, note);
         AcceptButton = null;
         Swap(page);
 
@@ -147,12 +143,14 @@ internal sealed class SetupForm : Form
     {
         var page = Page();
         var title = Theme.Text("Chưa cài được MinControl", 16f, FontStyle.Bold, Theme.Bad);
-        title.Margin = new Padding(0, 0, 0, 12);
+        title.Margin = Theme.Px(0, 0, 0, 12);
         var body = Theme.Text(message + "\n\nNhật ký cài đặt: " + log, 10f, color: Theme.Muted);
-        body.Margin = new Padding(0, 0, 0, 24);
+        body.Margin = Theme.Px(0, 0, 0, 24);
         var retry = Theme.PrimaryButton("Thử lại");
         retry.Click += async (_, _) => await InstallAsync();
-        page.Controls.AddRange([title, body, retry]);
+        var close = Theme.SecondaryButton("Đóng");
+        close.Click += (_, _) => Close();
+        page.Add(Theme.Logo(56), title, body, CenteredPage.ButtonRow(retry, close));
         Swap(page);
     }
 }

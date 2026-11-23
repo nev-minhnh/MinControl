@@ -278,18 +278,16 @@ internal sealed class MessageForm : Form
     }
 }
 
-/// <summary>The MinControl app icon (installed next to the exes as <c>mincontrol-512.png</c> / <c>mincontrol.ico</c>);
-/// null when missing (dev builds) so the UI works without it.</summary>
+/// <summary>The MinControl app icon: embedded in this exe (<c>MinControl.Icon.ico</c> / <c>MinControl.Logo.png</c>), else the
+/// copies installed next to the exes; null when neither is there so the UI works without it.</summary>
 internal static class AppIcon
 {
     private static readonly Lazy<Image?> ImageLazy = new(() =>
     {
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "mincontrol-512.png");
-            if (!File.Exists(path)) return null;
-            using var src = Image.FromFile(path);
-            return new Bitmap(src, new Size(96, 96));
+            using var src = Load("MinControl.Logo.png", "mincontrol-512.png") is { } s ? Image.FromStream(s) : null;
+            return src is null ? null : new Bitmap(src, new Size(96, 96));
         }
         catch (Exception) { return null; }
     });
@@ -298,11 +296,26 @@ internal static class AppIcon
     {
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "mincontrol.ico");
-            return File.Exists(path) ? new Icon(path) : null;
+            using var s = Load("MinControl.Icon.ico", "mincontrol.ico");
+            return s is null ? null : new Icon(s);
         }
         catch (Exception) { return null; }
     });
+
+    /// <summary>The embedded resource, else the file next to the exe, as an in-memory stream (or null).</summary>
+    private static MemoryStream? Load(string resource, string file)
+    {
+        using var res = typeof(AppIcon).Assembly.GetManifestResourceStream(resource);
+        if (res is not null)
+        {
+            var ms = new MemoryStream();
+            res.CopyTo(ms);
+            ms.Position = 0;
+            return ms;
+        }
+        var path = Path.Combine(AppContext.BaseDirectory, file);
+        return File.Exists(path) ? new MemoryStream(File.ReadAllBytes(path)) : null;
+    }
 
     public static Image? Image => ImageLazy.Value;
     public static Icon? Icon => IconLazy.Value;

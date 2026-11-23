@@ -16,7 +16,13 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\..\assets\mincontrol.ico</ApplicationIcon>
     <Product>MinControl</Product>
+    <AssemblyTitle>Cài đặt MinControl</AssemblyTitle>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- window / toast icon (multi-size 16..256) and logo, loaded from the assembly so they never depend on files on disk -->
+    <EmbeddedResource Include="..\..\assets\mincontrol.ico" LogicalName="MinControl.Icon.ico" />
+    <EmbeddedResource Include="..\..\assets\mincontrol-512.png" LogicalName="MinControl.Logo.png" />
+  </ItemGroup>
   <ItemGroup>
     <Compile Include="..\MinControl.Connect\PairingPanel.cs" Link="Shared\PairingPanel.cs" />
     <Compile Include="..\MinControl.Connect\SetupRunner.cs" Link="Shared\SetupRunner.cs" />

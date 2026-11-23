@@ -40,10 +40,15 @@ public static class BlockNoticeText
         BlockReasons.AllowlistMiss => "Chế độ chỉ cho phép",
         BlockReasons.Doh => "Chặn DNS mã hoá",
         BlockReasons.Port => "Cổng không được phép",
+        BlockReasons.Blocklist when d.SearchEngine is not null => MinControl.Core.Catalog.SearchEngineCatalog.RuleText,
         BlockReasons.Blocklist when d.Category == "ip" => "Danh sách chặn: địa chỉ IP",
         BlockReasons.Blocklist when d.Pattern is { } p => $"Danh sách chặn: {p}",
         _ => "Danh sách chặn",
     };
+
+    /// <summary>Toast reason of a SafeSearch search-engine block (API.md §19).</summary>
+    public const string SafeSearchToast =
+        "Tìm kiếm an toàn đang bật: chỉ được tìm kiếm bằng Google hoặc Bing (đã lọc nội dung người lớn). Các công cụ tìm kiếm khác bị chặn.";
 
     public static string ServiceName(string? id, MinControl.Core.Catalog.ServiceCatalog? catalog = null) =>
         (catalog ?? MinControl.Core.Catalog.ServiceCatalog.Shared).Find(id)?.Name ?? id ?? "Không rõ";
@@ -79,7 +84,8 @@ public sealed class SessionBlockNotifier(IServiceProvider services, ILogger<Sess
         catch (Exception ex) { _log.LogDebug(ex, "ISessionActions unavailable"); return; }
         if (actions is null) return;
         var title = BlockNoticeText.Title(host);
-        var reason = decision.Reason is BlockReasons.Service or BlockReasons.Blocklist
+        var reason = decision.SearchEngine is not null ? BlockNoticeText.SafeSearchToast
+            : decision.Reason is BlockReasons.Service or BlockReasons.Blocklist
             ? BlockNoticeText.Rule(decision) : BlockNoticeText.Reason(decision.Reason, decision.Category);
         _ = Task.Run(async () =>
         {

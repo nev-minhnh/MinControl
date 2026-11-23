@@ -16,7 +16,7 @@
     PAIRCODE=XXXX-XXXX            runs "MinControl.Setup enroll" after install. A failed enrolment never rolls the
                                   install back: Setup records it (enroll-status.json + HKLM\SOFTWARE\MinControl) and
                                   the Finish dialog offers the QR connect screen (MinControl.Connect.exe, Start-menu
-                                  shortcut "Kết nối MinControl với điện thoại").
+                                  shortcut "MinControl Connect"; the installing admin also gets it on the desktop and, on Windows 11, pinned to the taskbar).
     CHROMEEXTID=<32 a-p>  EDGEEXTID=<32 a-p>   extension store ids written to %ProgramData%\MinControl\config.json
     KEEPDATA=1                    on uninstall KEEP %ProgramData%\MinControl (identity, state, logs, category lists).
                                   Default: uninstall purges it all (never on a major upgrade: UPGRADINGPRODUCTCODE).
@@ -168,8 +168,11 @@
     <Component Id="ConnectComponent" Directory="INSTALLFOLDER">
       <File Id="ConnectExe" Source="$(var.PublishDir)\MinControl.Connect.exe" KeyPath="yes">
         <Shortcut Id="ConnectStartMenu" Directory="ProgramMenuFolder" Name="!(loc.ShortcutName)"
-                  Description="!(loc.ShortcutDescription)" WorkingDirectory="INSTALLFOLDER" Advertise="no" />
+                  Description="!(loc.ShortcutDescription)" WorkingDirectory="INSTALLFOLDER" Advertise="no"
+                  Icon="MinControlIcon.ico" IconIndex="0" />
       </File>
+      <!-- Windows 11 taskbar pin of the Start-menu shortcut above, for the installing admin only (CA_AdminShortcuts) -->
+      <File Id="TaskbarLayoutXml" Source="$(sys.SOURCEFILEDIR)TaskbarLayout.xml" Name="TaskbarLayout.xml" />
     </Component>
 
     <!-- ============================================================ registry -->
@@ -240,6 +243,18 @@
     <CustomAction Id="CA_SetupUninstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
                   Execute="deferred" Impersonate="no" Return="ignore" />
 
+    <!-- "MinControl Connect" desktop shortcut + Windows 11 taskbar pin for the INSTALLING admin only ([UserSID]; children
+         never see them). The per-machine DesktopFolder would be the public desktop, hence Setup (AdminShortcuts.cs) as
+         SYSTEM. Removal runs before CA_SetupUninstall (which clears HKLM\SOFTWARE\MinControl holding the admin's SID). -->
+    <SetProperty Id="CA_AdminShortcuts" Sequence="execute" Before="CA_AdminShortcuts"
+                 Value="&quot;[#SetupExe]&quot; admin-shortcuts install --sid &quot;[UserSID]&quot;" />
+    <CustomAction Id="CA_AdminShortcuts" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <SetProperty Id="CA_AdminShortcutsRemove" Sequence="execute" Before="CA_AdminShortcutsRemove"
+                 Value="&quot;[#SetupExe]&quot; admin-shortcuts remove --sid &quot;[UserSID]&quot;" />
+    <CustomAction Id="CA_AdminShortcutsRemove" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
     <!-- expected-stop marker for upgrade / repair / uninstall; immediate, before RemoveExistingProducts (which is
          scheduled after InstallValidate) so it precedes the old product's StopServices; see CustomActions.cs -->
     <CustomAction Id="CA_WriteExpectedStop" BinaryRef="MinControlUiCA" DllEntry="WriteExpectedStop" Execute="immediate" Return="ignore" />
@@ -247,8 +262,11 @@
     <InstallExecuteSequence>
       <Custom Action="CA_WriteExpectedStop" Before="InstallValidate"
               Condition="Privileged AND (Installed OR WIX_UPGRADE_DETECTED)" />
-      <Custom Action="CA_SetupUninstall" After="StopServices"
+      <Custom Action="CA_AdminShortcutsRemove" After="StopServices"
               Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="CA_SetupUninstall" After="CA_AdminShortcutsRemove"
+              Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="CA_AdminShortcuts" After="CreateShortcuts" Condition="NOT REMOVE AND UserSID" />
       <Custom Action="CA_ScFailureFlag" After="InstallServices" Condition="NOT REMOVE" />
       <Custom Action="CA_ScSidType" After="CA_ScFailureFlag" Condition="NOT REMOVE" />
       <Custom Action="CA_SetupInstall" After="CA_ScSidType"
