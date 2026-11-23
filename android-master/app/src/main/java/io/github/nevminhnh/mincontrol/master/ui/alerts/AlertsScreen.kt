@@ -61,7 +61,7 @@ import io.github.nevminhnh.mincontrol.master.ui.theme.WarningBg
 import io.github.nevminhnh.mincontrol.master.ui.theme.WarningIcon
 
 @Composable
-fun AlertsScreen(onTimeline: () -> Unit, onWeb: () -> Unit, vm: AlertsViewModel = viewModel()) {
+fun AlertsScreen(onTimeline: () -> Unit, onWeb: () -> Unit, onSettings: (() -> Unit)? = null, vm: AlertsViewModel = viewModel()) {
     val activity = rememberActivity()
     val cards by vm.cards.collectAsState()
     val filter by vm.filter.collectAsState()
@@ -75,8 +75,8 @@ fun AlertsScreen(onTimeline: () -> Unit, onWeb: () -> Unit, vm: AlertsViewModel 
 
     Box(Modifier.fillMaxSize().background(Background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("Cảnh báo", style = MaterialTheme.typography.titleLarge)
+            io.github.nevminhnh.mincontrol.master.ui.components.TabHeader("Cảnh báo", onSettings)
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 ChipRow {
                     AlertFilter.entries.forEach { f ->
                         FilterChip(if (f == AlertFilter.ALL) "${f.label} · $unacked" else f.label, filter == f, { vm.filter.value = f })
@@ -150,7 +150,7 @@ private fun AlertCardView(
                     fontWeight = if (muted) FontWeight.Normal else FontWeight.SemiBold,
                     color = if (muted) TextBody else Color.Unspecified, modifier = Modifier.weight(1f),
                 )
-                Text(card.time, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Text(card.time, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1)
             }
             if (card.body.isNotBlank()) Text(card.body, style = MaterialTheme.typography.bodySmall, color = if (muted) TextSecondary else TextBody)
             if (!card.view.acked) {

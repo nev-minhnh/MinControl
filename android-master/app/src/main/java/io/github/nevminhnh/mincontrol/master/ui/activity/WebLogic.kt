@@ -18,6 +18,7 @@ object WebLabels {
     private val reasons = mapOf(
         "doh" to "DNS mã hoá", "port" to "Cổng không được phép", "blocklist" to "Danh sách chặn",
         "allowlist_miss" to "Ngoài danh sách cho phép", "schedule" to "Ngoài giờ cho phép",
+        "keyword" to "Từ khóa bị cấm", "service" to "Dịch vụ bị chặn", "category" to "Danh mục bị chặn",
     )
 
     fun category(key: String?): String? = key?.takeIf { it.isNotBlank() }?.let { categories[it] ?: it }

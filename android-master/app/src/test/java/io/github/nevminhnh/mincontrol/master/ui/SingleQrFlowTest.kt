@@ -73,7 +73,8 @@ class SingleQrFlowTest {
         val e = ApiException.Http(409, "master_exists", null)
         assertTrue(PairingRegister.isMasterExists(e))
         assertEquals(MASTER_EXISTS_MESSAGE, e.userMessage())
-        assertTrue(MASTER_EXISTS_MESSAGE.startsWith("Máy chủ đã có điện thoại quản lý."))
+        assertTrue(MASTER_EXISTS_MESSAGE.startsWith("Máy chủ đang có điện thoại quản lý khác."))
+        assertFalse(MASTER_EXISTS_MESSAGE.contains("khôi phục"))
         assertFalse(PairingRegister.isMasterExists(ApiException.Http(409, "stale_seq", null)))
         assertFalse(PairingRegister.isMasterExists(ApiException.Http(410, "expired", null)))
     }

@@ -229,6 +229,36 @@ class ActivityViewModel(app: Application) : AndroidViewModel(app) {
 
     val blockApplying = MutableStateFlow(false)
 
+    /** Service catalog (assets/services.json) for service names and "currently blocked" hints. */
+    val catalog: io.github.nevminhnh.mincontrol.master.policy.ServiceCatalog by lazy {
+        io.github.nevminhnh.mincontrol.master.policy.ServiceCatalog.load(getApplication())
+    }
+
+    /** Quick actions of the block detail sheet: edits the child's policy and runs the normal sign-and-apply flow. */
+    fun editUser(activity: FragmentActivity, title: String, done: String, f: (io.github.nevminhnh.mincontrol.master.data.protocol.UserPolicy) -> io.github.nevminhnh.mincontrol.master.data.protocol.UserPolicy) = viewModelScope.launch {
+        if (blockApplying.value) return@launch
+        val c = child.value ?: return@launch
+        blockApplying.value = true
+        try {
+            val loaded = repo.loadPolicy(c.deviceId)
+            val cur = loaded.policy ?: run { message.value = "Chưa có chính sách cho máy này. Hãy tạo ở tab Quy tắc."; return@launch }
+            val up = cur.users[c.sid] ?: run { message.value = "Không tìm thấy người dùng trong chính sách."; return@launch }
+            val edited = f(up)
+            if (edited == up) { message.value = "Không có gì để thay đổi."; return@launch }
+            val next = cur.copy(version = maxOf(cur.version, loaded.response?.version ?: 0) + 1, users = cur.users + (c.sid to edited))
+            val errs = PolicyValidation.errors(next)
+            if (errs.isNotEmpty()) { message.value = errs.first(); return@launch }
+            repo.applyPolicy(activity, c.deviceId, next, title)
+            policy.value = next
+            message.value = done
+        } catch (e: BiometricCancelledException) {
+        } catch (e: Exception) {
+            message.value = e.userMessage()
+        } finally {
+            blockApplying.value = false
+        }
+    }
+
     /** Quick action "Chặn ứng dụng này": adds `{action: block, match: {exe}}` to appRules and runs the sign-and-apply flow. */
     fun blockApp(activity: FragmentActivity, exe: String) = viewModelScope.launch {
         if (blockApplying.value) return@launch

@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +55,10 @@ import io.github.nevminhnh.mincontrol.master.ui.theme.TextBody
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextPrimary
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextSecondary
 import io.github.nevminhnh.mincontrol.master.ui.theme.Track
+import io.github.nevminhnh.mincontrol.master.ui.theme.SwitchOff
+import io.github.nevminhnh.mincontrol.master.ui.theme.Outline
+import io.github.nevminhnh.mincontrol.master.ui.theme.DangerText
+import io.github.nevminhnh.mincontrol.master.ui.theme.DangerContainer
 
 /** White rounded card; [elevated] adds the soft blue shadow of the main cards. */
 @Composable
@@ -98,7 +104,8 @@ fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit, height: Dp 
             style = if (large) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) Surface else TextPrimary,
-            maxLines = 1,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 220.dp),
         )
     }
 }
@@ -134,7 +141,7 @@ fun SegmentedTabs(items: List<String>, selected: Int, onSelect: (Int) -> Unit, m
                 Text(
                     label, style = MaterialTheme.typography.labelMedium,
                     fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (on) TextPrimary else TextBody, maxLines = 1,
+                    color = if (on) TextPrimary else TextBody, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -223,6 +230,7 @@ fun SettingRow(
     changed: Boolean = false,
     last: Boolean = false,
     onClick: (() -> Unit)? = null,
+    trailingMax: Dp = 184.dp,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
@@ -242,7 +250,8 @@ fun SettingRow(
             Text(title, style = MaterialTheme.typography.bodyMedium)
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
         }
-        trailing()
+        // Trailing content is capped so a long value never squeezes the title into a vertical column.
+        Row(Modifier.widthIn(max = trailingMax), verticalAlignment = Alignment.CenterVertically, content = trailing)
     }
 }
 
@@ -252,8 +261,7 @@ fun McSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
         checked = checked, onCheckedChange = onChange,
         colors = SwitchDefaults.colors(
             checkedTrackColor = Primary, checkedThumbColor = Surface, checkedBorderColor = Primary,
-            uncheckedTrackColor = io.github.nevminhnh.mincontrol.master.ui.theme.Handle, uncheckedThumbColor = Surface,
-            uncheckedBorderColor = io.github.nevminhnh.mincontrol.master.ui.theme.Handle,
+            uncheckedTrackColor = SegmentBg, uncheckedThumbColor = SwitchOff, uncheckedBorderColor = SwitchOff,
         ),
     )
 }
@@ -263,4 +271,48 @@ fun EmptyState(text: String, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
     }
+}
+
+/** 44 dp round outlined icon button (header actions). */
+@Composable
+fun RoundIconButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(CircleShape).background(Surface).border(1.dp, Outline, CircleShape).clickable(onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, contentDescription = label, tint = TextPrimary, modifier = Modifier.size(20.dp)) }
+}
+
+/**
+ * Tab header: title (wraps to 2 lines, then ellipsizes) + optional actions + the settings gear, so Settings is
+ * reachable from every tab. Switchers never share this row (they go in their own full-width row below).
+ */
+@Composable
+fun TabHeader(
+    title: String,
+    onSettings: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    overline: String? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    Row(
+        modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (overline != null) Text(overline, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        actions()
+        if (onSettings != null) RoundIconButton(Icons.Outlined.Settings, "Cài đặt", onSettings)
+    }
+}
+
+/** Red "Đã chặn" pill used on timeline, web and app rows. */
+@Composable
+fun BlockedBadge(modifier: Modifier = Modifier, text: String = "Đã chặn") {
+    Text(
+        text, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = DangerText, maxLines = 1,
+        modifier = modifier.clip(RoundedCornerShape(8.dp)).background(DangerContainer).padding(horizontal = 8.dp, vertical = 3.dp),
+    )
 }

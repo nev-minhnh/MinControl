@@ -82,6 +82,14 @@ import io.github.nevminhnh.mincontrol.master.policy.PolicyValidation
 import io.github.nevminhnh.mincontrol.master.policy.formatMinutes
 import io.github.nevminhnh.mincontrol.master.policy.formatWindows
 import io.github.nevminhnh.mincontrol.master.ui.ChildSwitcher
+import io.github.nevminhnh.mincontrol.master.ui.components.TabHeader
+import io.github.nevminhnh.mincontrol.master.data.Child
+import io.github.nevminhnh.mincontrol.master.data.protocol.AppMode
+import io.github.nevminhnh.mincontrol.master.policy.BlockingV2
+import io.github.nevminhnh.mincontrol.master.policy.ServiceCatalog
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.horizontalScroll
 import io.github.nevminhnh.mincontrol.master.ui.components.EmptyState
 import io.github.nevminhnh.mincontrol.master.ui.components.McCard
 import io.github.nevminhnh.mincontrol.master.ui.components.McSwitch
@@ -114,7 +122,7 @@ private sealed interface PolicyDialog {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
+fun PolicyScreen(onSettings: (() -> Unit)? = null, vm: PolicyViewModel = viewModel()) {
     val activity = rememberActivity()
     val children by vm.children.collectAsState()
     val child by vm.child.collectAsState()
@@ -134,16 +142,12 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
     val c = child
     val up = c?.let { current?.draft?.users?.get(it.sid) }
     val orig = c?.let { current?.original?.users?.get(it.sid) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val catalog = remember { ServiceCatalog.load(ctx) }
 
     Box(Modifier.fillMaxSize().background(Background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Quy tắc", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                ChildSwitcher(children, c, { vm.select(it) })
-            }
+            PolicyHeader(children, c, { vm.select(it) }, onSettings)
             if (up == null) {
                 if (loading) Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Primary) }
                 else EmptyState(if (c == null) "Chưa có máy tính nào được quản lý" else "Không tải được quy tắc")
@@ -154,7 +158,7 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         UpdatedLine(vm.refresher)
-                        Editor(up, orig, perDay, { perDay = !perDay }, vm::edit) { dialog = it }
+                        Editor(up, orig, perDay, { perDay = !perDay }, vm::edit, catalog) { dialog = it }
                     }
                 }
             }
@@ -195,7 +199,7 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
             vm.edit { u -> u.copy(web = if (d.block) u.web.copy(blockDomains = list) else u.web.copy(allowDomains = list)) }
             dialog = null
         }
-        PolicyDialog.AppRuleAdd -> AppRuleDialog(vm, activity, { dialog = null }) { action, matches ->
+        PolicyDialog.AppRuleAdd -> AppRuleDialog(vm, activity, up, { dialog = null }) { action, matches ->
             vm.edit { u -> u.copy(appRules = AppRules.add(u.appRules, action, matches)) }
             dialog = null
         }
@@ -239,7 +243,7 @@ fun PolicyScreen(vm: PolicyViewModel = viewModel()) {
 @Composable
 private fun Editor(
     up: UserPolicy, orig: UserPolicy?, perDay: Boolean, togglePerDay: () -> Unit,
-    edit: ((UserPolicy) -> UserPolicy) -> Unit, open: (PolicyDialog) -> Unit,
+    edit: ((UserPolicy) -> UserPolicy) -> Unit, catalog: ServiceCatalog, open: (PolicyDialog) -> Unit,
 ) {
     val st = up.screenTime
     val ost = orig?.screenTime
@@ -268,22 +272,26 @@ private fun Editor(
         }
         SettingRow("Khung giờ được dùng", subtitle = "Thứ 2 – Thứ 6", changed = changedWindows(WEEKDAYS),
             onClick = { open(PolicyDialog.Windows(WEEKDAYS, "Khung giờ · Thứ 2 – Thứ 6")) }) {
-            Text(windowsText(WEEKDAYS, st.allowedWindows), style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"))
+            Text(windowsText(WEEKDAYS, st.allowedWindows), style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
         }
         SettingRow("Khung giờ được dùng", subtitle = "Thứ 7 – Chủ nhật", changed = changedWindows(WEEKEND), last = !perDay,
             onClick = { open(PolicyDialog.Windows(WEEKEND, "Khung giờ · Cuối tuần")) }) {
-            Text(windowsText(WEEKEND, st.allowedWindows), style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"))
+            Text(windowsText(WEEKEND, st.allowedWindows), style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
         }
         if (perDay) Weekday.entries.forEachIndexed { i, d ->
             SettingRow("Khung giờ · ${d.label}", changed = changedWindows(listOf(d)), last = i == 6,
                 onClick = { open(PolicyDialog.Windows(listOf(d), "Khung giờ · ${d.label}")) }) {
-                Text(windowsText(listOf(d), st.allowedWindows), style = MaterialTheme.typography.bodySmall)
+                Text(windowsText(listOf(d), st.allowedWindows), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             }
         }
     }
 
+    val allowApps = up.effectiveAppMode == AppMode.ALLOWLIST
     SectionLabel("Ứng dụng", Modifier.padding(top = 8.dp))
     PolicyCard {
+        ModeChoice(allowApps, orig != null && orig.effectiveAppMode != up.effectiveAppMode, BlockingV2.APP_BLOCKLIST_HELP, BlockingV2.APP_ALLOWLIST_HELP) { a ->
+            edit { BlockingV2.setAppMode(it, if (a) AppMode.ALLOWLIST else AppMode.BLOCKLIST) }
+        }
         up.appGroups.forEach { (id, g) ->
             val q = g.dailyQuotaMin
             val text = when {
@@ -293,13 +301,13 @@ private fun Editor(
             }
             SettingRow(g.label, subtitle = "${g.match.size} mẫu ứng dụng", changed = orig != null && orig.appGroups[id] != g,
                 onClick = { open(PolicyDialog.Group(id)) }) {
-                Text(text, style = MaterialTheme.typography.titleMedium)
+                Text(text, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             }
         }
-        SettingRow("Thêm nhóm ứng dụng", onClick = { open(PolicyDialog.Group(null)) }) {
+        SettingRow("Thêm nhóm ứng dụng", onClick = { open(PolicyDialog.Group(null)) }, last = allowApps) {
             Text("+", style = MaterialTheme.typography.titleLarge, color = Primary)
         }
-        Dropdown(
+        if (!allowApps) Dropdown(
             "Ứng dụng lạ",
             subtitle = when (up.newExecutable) {
                 NewExecutable.ASK -> "Chặn và hỏi anh trước"; NewExecutable.ALLOW -> "Cho chạy, chỉ ghi lại"; NewExecutable.BLOCK -> "Luôn chặn"
@@ -310,13 +318,13 @@ private fun Editor(
         ) { v -> edit { it.copy(newExecutable = v) } }
     }
 
-    SectionLabel("Chặn ứng dụng", Modifier.padding(top = 8.dp))
+    SectionLabel(if (allowApps) "Danh sách ứng dụng (cho phép / chặn)" else "Chặn ứng dụng", Modifier.padding(top = 8.dp))
     PolicyCard {
         Text(AppRules.ORDER_HELP, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(vertical = 10.dp))
         if (up.appRules.isEmpty()) SettingRow("Chưa có quy tắc nào", subtitle = "Ứng dụng không nằm trong nhóm hay quy tắc sẽ theo mục “Ứng dụng lạ”.")
         up.appRules.forEachIndexed { i, r ->
             SettingRow(
-                "${AppRules.actionLabel(r.action)} · ${AppRules.describe(r)}",
+                "${AppRules.actionLabel(r.action)} · ${AppRules.describe(r)}", trailingMax = 120.dp,
                 subtitle = "Quy tắc ${i + 1}/${up.appRules.size}",
                 changed = orig != null && orig.appRules.getOrNull(i) != r,
             ) {
@@ -330,12 +338,16 @@ private fun Editor(
         }
     }
 
+    SectionLabel("Dịch vụ", Modifier.padding(top = 8.dp))
+    PolicyCard { ServicesGrid(up, orig, catalog) { id -> edit { BlockingV2.toggleService(it, id) } } }
+
     val w = up.web
     val ow = orig?.web
     SectionLabel("Web", Modifier.padding(top = 8.dp))
     PolicyCard {
-        Dropdown("Chế độ", value = PolicyDiff.webModeLabel(w.mode), options = WebMode.entries.map { PolicyDiff.webModeLabel(it) to it },
-            changed = ow != null && ow.mode != w.mode) { v -> edit { it.copy(web = it.web.copy(mode = v)) } }
+        ModeChoice(w.mode == WebMode.ALLOWLIST, ow != null && ow.mode != w.mode, BlockingV2.WEB_BLOCKLIST_HELP, BlockingV2.WEB_ALLOWLIST_HELP) { a ->
+            edit { BlockingV2.setWebMode(it, if (a) WebMode.ALLOWLIST else WebMode.BLOCKLIST) }
+        }
         SettingRow("SafeSearch", changed = ow != null && ow.safeSearch != w.safeSearch) {
             McSwitch(w.safeSearch) { v -> edit { it.copy(web = it.web.copy(safeSearch = v)) } }
         }
@@ -353,6 +365,9 @@ private fun Editor(
         SettingRow("Ứng dụng miễn lọc mạng", subtitle = "${w.netExemptApps.size} ứng dụng", changed = ow != null && ow.netExemptApps != w.netExemptApps, last = true,
             onClick = { open(PolicyDialog.NetExempt) }) { Icon(Icons.Outlined.ChevronRight, null, tint = TextSecondary) }
     }
+
+    SectionLabel("Từ khóa bị cấm", Modifier.padding(top = 8.dp))
+    PolicyCard { KeywordsEditor(up, orig, edit) }
 
     val m = up.monitoring
     val om = orig?.monitoring
@@ -409,7 +424,7 @@ private fun <T> Dropdown(
     var open by remember { mutableStateOf(false) }
     SettingRow(title, subtitle = subtitle, changed = changed, last = last, onClick = { open = true }) {
         Box {
-            Text("$value ▾", style = MaterialTheme.typography.titleMedium, color = Primary)
+            Text("$value ▾", style = MaterialTheme.typography.titleMedium, color = Primary, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 options.forEach { (label, v) -> DropdownMenuItem(text = { Text(label) }, onClick = { open = false; onPick(v) }) }
             }
@@ -596,7 +611,7 @@ private fun NetExemptDialog(initial: List<AppMatch>, onDismiss: () -> Unit, onSa
 @Composable
 private fun RuleBtn(text: String, desc: String, enabled: Boolean, onClick: () -> Unit) {
     Text(
-        text, color = if (enabled) TextBody else Outline,
+        text, color = if (enabled) TextBody else io.github.nevminhnh.mincontrol.master.ui.theme.DisabledFg,
         modifier = Modifier.clip(CircleShape).then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .semantics { contentDescription = desc }.padding(horizontal = 10.dp, vertical = 8.dp),
     )
@@ -605,10 +620,10 @@ private fun RuleBtn(text: String, desc: String, enabled: Boolean, onClick: () ->
 /** Adds app rules: choose Chặn/Cho phép, then pick apps from the PC or type patterns. One rule is created per app pattern. */
 @Composable
 private fun AppRuleDialog(
-    vm: PolicyViewModel, activity: androidx.fragment.app.FragmentActivity, onDismiss: () -> Unit,
+    vm: PolicyViewModel, activity: androidx.fragment.app.FragmentActivity, up: UserPolicy, onDismiss: () -> Unit,
     onSave: (RuleAction, List<AppMatch>) -> Unit,
 ) {
-    var action by remember { mutableStateOf(RuleAction.BLOCK) }
+    var action by remember { mutableStateOf(if (up.effectiveAppMode == AppMode.ALLOWLIST) RuleAction.ALLOW else RuleAction.BLOCK) }
     val matches = remember { mutableStateListOf<AppMatch>() }
     val err = matches.firstNotNullOfOrNull { AppRules.matchError(AppRules.clean(it)) }
     AlertDialog(
@@ -616,7 +631,7 @@ private fun AppRuleDialog(
         title = { Text("Thêm quy tắc ứng dụng") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RuleAction.entries.forEach { a ->
                         io.github.nevminhnh.mincontrol.master.ui.components.FilterChip(AppRules.actionLabel(a), action == a, { action = a })
                     }
@@ -626,7 +641,7 @@ private fun AppRuleDialog(
                     else "Các ứng dụng này luôn được phép, dù khớp một quy tắc chặn nằm dưới. Quy tắc được thêm vào cuối danh sách; dùng ▲ để đưa lên trên quy tắc chặn.",
                     style = MaterialTheme.typography.bodySmall, color = TextSecondary,
                 )
-                AppMatchEditor(vm, activity, "", matches)
+                AppMatchEditor(vm, activity, "", matches, action = action, rules = up.appRules)
                 if (err != null) Text(err, style = MaterialTheme.typography.bodySmall, color = DangerText)
             }
         },
@@ -634,4 +649,41 @@ private fun AppRuleDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
         containerColor = Surface,
     )
+}
+
+@Composable
+private fun PolicyHeader(children: List<Child>, selected: Child?, onSelect: (Child) -> Unit, onSettings: (() -> Unit)?) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        TabHeader("Quy tắc", onSettings)
+        ChildSwitcher(children, selected, onSelect)
+    }
+}
+
+private val previewChildren = listOf(
+    Child("d1", "PC-PHONG-KHACH", "S-1", "Minh Anh", true, null, null),
+    Child("d2", "LAPTOP-HOC-TAP-CUA-CON", "S-2", "Bảo Ngọc Nguyễn Hoàng", false, null, null),
+    Child("d3", "PC-GAMING", "S-3", "Minh Anh", true, null, null),
+)
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Quy tắc · 3 máy · 1.3x", widthDp = 360, heightDp = 900, fontScale = 1.3f, showBackground = true, backgroundColor = 0xFFF4F6FA)
+@Composable
+private fun PolicyHeaderPreview() {
+    io.github.nevminhnh.mincontrol.master.ui.theme.MinControlTheme {
+        val up = io.github.nevminhnh.mincontrol.master.policy.PolicyDefaults.user("Minh Anh").copy(
+            keywords = io.github.nevminhnh.mincontrol.master.data.protocol.Keywords(listOf("đánh bài", "cá độ", "phim người lớn")),
+            web = io.github.nevminhnh.mincontrol.master.policy.PolicyDefaults.user("x").web.copy(blockedServices = listOf("tiktok")),
+        )
+        val catalog = ServiceCatalog(listOf(
+            io.github.nevminhnh.mincontrol.master.policy.Service("youtube", "YouTube", "video"),
+            io.github.nevminhnh.mincontrol.master.policy.Service("tiktok", "TikTok", "social"),
+            io.github.nevminhnh.mincontrol.master.policy.Service("roblox", "Roblox", "games"),
+            io.github.nevminhnh.mincontrol.master.policy.Service("epicgames", "Epic Games Store", "games"),
+        ))
+        Column(Modifier.background(Background).verticalScroll(rememberScrollState())) {
+            PolicyHeader(previewChildren, previewChildren[1], {}, {})
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Editor(up, up, false, {}, {}, catalog) {}
+            }
+        }
+    }
 }

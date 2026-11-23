@@ -61,16 +61,19 @@ private sealed interface SettingsDialog {
     data object Export : SettingsDialog
     data object Import : SettingsDialog
     data object Name : SettingsDialog
-    data object Reregister : SettingsDialog
-    data class Revoke(val device: DeviceInfo) : SettingsDialog
+    data class DeleteDevice(val device: DeviceInfo) : SettingsDialog
+    data object Reset1 : SettingsDialog
+    data object Reset2 : SettingsDialog
 }
 
-/** Settings: server, key fingerprints, seal-key backup (export/import), devices (revoke), re-register. */
+/** Settings: server, key fingerprints, seal-key backup (export/import), devices (delete), reset everything. */
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: () -> Unit = {}) {
     val ctx = LocalContext.current
     val graph = ctx.graph
     val scope = rememberCoroutineScope()
+    val activity = io.github.nevminhnh.mincontrol.master.ui.rememberActivity()
+    var resetting by remember { mutableStateOf(false) }
     val devices by graph.repo.devices.collectAsState(initial = emptyList())
     val snackbar = remember { SnackbarHostState() }
     var msg by remember { mutableStateOf<String?>(null) }
@@ -104,7 +107,7 @@ fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: 
             ) {
                 SectionLabel("Chung")
                 Card {
-                    SettingRow("Tên hiển thị", onClick = { dialog = SettingsDialog.Name }) { Text(name, style = MaterialTheme.typography.titleMedium) }
+                    SettingRow("Tên hiển thị", onClick = { dialog = SettingsDialog.Name }) { Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
                     SettingRow("Máy chủ", subtitle = graph.settings.serverUrl ?: "—")
                     SettingRow("Thông báo đẩy", subtitle = if (graph.push.available()) "Đã bật (Firebase)" else "Chưa cấu hình Firebase", last = true)
                 }
@@ -141,9 +144,7 @@ fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: 
                     }
                     SettingRow("Khóa đọc dữ liệu", subtitle = read?.let { "${algLabel(it.alg)} · ${it.keyId}" } ?: "—")
                     SettingRow("Chuyển sang điện thoại mới", subtitle = "Tạo mã QR trên điện thoại này để điện thoại mới nhận quyền quản lý",
-                        onClick = onTransfer) {}
-                    SettingRow("Đăng ký lại với máy chủ", subtitle = "Cần mã khôi phục. Mọi máy tính sẽ phải ghép nối lại",
-                        last = true, onClick = { dialog = SettingsDialog.Reregister }) {}
+                        last = true, onClick = onTransfer) {}
                 }
 
                 SectionLabel("Khóa giải mã ảnh màn hình", Modifier.padding(top = 8.dp))
@@ -166,8 +167,16 @@ fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: 
                                 " · ${d.users.count { it.managed }} tài khoản được quản lý",
                             last = i == devices.lastIndex,
                         ) {
-                            TextButton(onClick = { dialog = SettingsDialog.Revoke(d) }) { Text("Thu hồi", color = DangerText) }
+                            TextButton(onClick = { dialog = SettingsDialog.DeleteDevice(d) }) { Text("Xóa máy", color = DangerText, maxLines = 1) }
                         }
+                    }
+                }
+
+                SectionLabel("Vùng nguy hiểm", Modifier.padding(top = 8.dp))
+                Card {
+                    SettingRow("Đặt lại toàn bộ", subtitle = "Xóa mọi máy, lịch sử và khóa trên máy chủ và điện thoại này, rồi quay về màn hình thiết lập",
+                        last = true, onClick = { dialog = SettingsDialog.Reset1 }) {
+                        Text("Đặt lại", color = DangerText, style = MaterialTheme.typography.labelLarge, maxLines = 1)
                     }
                 }
             }
@@ -196,39 +205,70 @@ fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: 
             scope.launch {
                 try {
                     withContext(Dispatchers.Default) { graph.sealKeys.import(text, pass.toCharArray()) }
-                    msg = "Đã khôi phục khóa. Hãy đăng ký lại với máy chủ."
-                    dialog = SettingsDialog.Reregister
+                    msg = "Đã khôi phục khóa ảnh màn hình."
+                    dialog = null
                 } catch (e: SealKeyBackup.BadPassphrase) {
                     msg = "Sai mật khẩu hoặc bản sao lưu hỏng."
                 } catch (e: Exception) { msg = e.userMessage() }
             }
         }
-        SettingsDialog.Reregister -> TextDialog("Mã khôi phục", "", true, { dialog = null }) { secret ->
-            scope.launch {
-                try {
-                    graph.repo.register(graph.settings.serverUrl ?: error("no server"), secret)
-                    msg = "Đã đăng ký lại. Máy tính đã ghép nối vẫn dùng khóa cũ cho tới khi ghép nối lại."
-                    dialog = null
-                } catch (e: Exception) { msg = e.userMessage() }
-            }
-        }
-        is SettingsDialog.Revoke -> AlertDialog(
+        is SettingsDialog.DeleteDevice -> AlertDialog(
             onDismissRequest = { dialog = null },
-            title = { Text("Thu hồi ${d.device.hostname}?") },
-            text = { Text("Máy sẽ bị ngắt khỏi MinControl và phải ghép nối lại. Dữ liệu cũ vẫn được giữ theo thời hạn lưu.") },
+            title = { Text("Xóa ${d.device.hostname}?") },
+            text = { Text(DELETE_DEVICE_TEXT) },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        try { graph.repo.revokeDevice(d.device.deviceId); msg = "Đã thu hồi ${d.device.hostname}." } catch (e: Exception) { msg = e.userMessage() }
+                        try { graph.repo.deleteDevice(d.device.deviceId); msg = "Đã xóa ${d.device.hostname}." } catch (e: Exception) { msg = e.userMessage() }
                         dialog = null
                     }
-                }) { Text("Thu hồi", color = DangerText) }
+                }) { Text("Xóa máy", color = DangerText) }
             },
             dismissButton = { TextButton(onClick = { dialog = null }) { Text("Hủy") } },
+            containerColor = io.github.nevminhnh.mincontrol.master.ui.theme.Surface,
+        )
+        SettingsDialog.Reset1 -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text("Đặt lại toàn bộ?") },
+            text = { Text(RESET_TEXT_1) },
+            confirmButton = { TextButton(onClick = { dialog = SettingsDialog.Reset2 }) { Text("Tiếp tục", color = DangerText) } },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Hủy") } },
+            containerColor = io.github.nevminhnh.mincontrol.master.ui.theme.Surface,
+        )
+        SettingsDialog.Reset2 -> AlertDialog(
+            onDismissRequest = { if (!resetting) dialog = null },
+            title = { Text("Chắc chắn đặt lại?") },
+            text = { Text(RESET_TEXT_2) },
+            confirmButton = {
+                TextButton(enabled = !resetting, onClick = {
+                    resetting = true
+                    scope.launch {
+                        try {
+                            graph.repo.resetAll(activity)
+                            graph.transfers.wipeLocal()
+                            graph.securePrefs.clear()
+                            graph.settings.setRegistered(false)
+                        } catch (e: Exception) {
+                            msg = e.userMessage()
+                            dialog = null
+                        } finally {
+                            resetting = false
+                        }
+                    }
+                }) { Text("Đặt lại bằng vân tay", color = DangerText) }
+            },
+            dismissButton = { TextButton(enabled = !resetting, onClick = { dialog = null }) { Text("Hủy") } },
+            containerColor = io.github.nevminhnh.mincontrol.master.ui.theme.Surface,
         )
         null -> {}
     }
 }
+
+const val DELETE_DEVICE_TEXT = "Xóa máy và toàn bộ lịch sử của máy này trên máy chủ? " +
+    "(MinControl trên máy tính vẫn chạy với quy tắc cuối cho đến khi được gỡ cài đặt)"
+const val RESET_TEXT_1 = "Mọi máy tính, quy tắc, lịch sử, ảnh chụp và khóa trên máy chủ sẽ bị xóa. Điện thoại này trở về màn hình thiết lập. " +
+    "MinControl trên các máy tính vẫn chạy với quy tắc cuối cho đến khi được gỡ cài đặt."
+const val RESET_TEXT_2 = "Không thể hoàn tác. Xác nhận bằng vân tay để đặt lại toàn bộ."
 
 private fun algLabel(a: SigAlg) = when (a) { SigAlg.ED25519 -> "Ed25519"; SigAlg.ES256 -> "ECDSA P-256" }
 
@@ -290,4 +330,29 @@ private fun ImportDialog(onDismiss: () -> Unit, onImport: (String, String) -> Un
         confirmButton = { TextButton(enabled = text.isNotBlank() && pass.isNotEmpty(), onClick = { onImport(text, pass) }) { Text("Khôi phục") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
     )
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Cài đặt · 3 máy · 1.3x", widthDp = 360, heightDp = 900, fontScale = 1.3f, showBackground = true, backgroundColor = 0xFFF4F6FA)
+@Composable
+private fun SettingsPreview() {
+    io.github.nevminhnh.mincontrol.master.ui.theme.MinControlTheme {
+        Column(Modifier.background(io.github.nevminhnh.mincontrol.master.ui.theme.Background).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            BackHeader("Cài đặt", {})
+            SectionLabel("Chung")
+            Card {
+                SettingRow("Tên hiển thị") { Text("Nguyễn Hoàng Minh rất dài", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+                SettingRow("Máy chủ", subtitle = "https://mincontrol-rat-dai.example.workers.dev", last = true)
+            }
+            SectionLabel("Máy tính")
+            Card {
+                listOf("PC-PHONG-KHACH", "LAPTOP-HOC-TAP-CUA-CON-RAT-DAI", "PC-GAMING").forEachIndexed { i, h ->
+                    SettingRow(h, subtitle = "Đang online · 2 tài khoản được quản lý", last = i == 2) {
+                        TextButton(onClick = {}) { Text("Xóa máy", color = DangerText, maxLines = 1) }
+                    }
+                }
+            }
+            SectionLabel("Vùng nguy hiểm")
+            Card { SettingRow("Đặt lại toàn bộ", subtitle = "Xóa mọi máy, lịch sử và khóa", last = true) { Text("Đặt lại", color = DangerText) } }
+        }
+    }
 }
