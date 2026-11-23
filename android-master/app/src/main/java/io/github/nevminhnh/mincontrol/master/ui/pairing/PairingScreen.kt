@@ -105,6 +105,8 @@ sealed interface PairStage {
     /** QR fingerprint differs from the server's claim: hard error, no approve button. */
     data class Mismatch(val hostname: String) : PairStage
     data object Legacy : PairStage
+    /** First run: phone registered + claim approved, but the device row could not be loaded yet. No scan here. */
+    data class ResumeFailed(val after: AfterRegister, val message: String) : PairStage
 }
 
 class PairingViewModel(app: Application) : AndroidViewModel(app) {
@@ -127,20 +129,29 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
         else PairLink.pending.value?.let { PairLink.pending.value = null; openLink(it) }
     }
 
-    /** First run finished register-with-claim: load the (now authenticated) claim and go to "choose users". */
-    private fun resumeAfterRegister(a: AfterRegister) {
+    /** True while this screen continues the first run (title "Chọn tài khoản", never the scan home). */
+    val firstRun = MutableStateFlow(false)
+
+    /**
+     * First run finished register-with-claim (claim already approved): load the new device from the device list and
+     * go straight to "choose users". The claim itself is NOT fetched again (it answers 410 once approved).
+     */
+    fun resumeAfterRegister(a: AfterRegister) {
+        firstRun.value = true
         stage.value = PairStage.Loading
         viewModelScope.launch {
-            try {
-                val c = graph.repo.claim(a.claimId)
-                val fromList = runCatching { graph.repo.refreshDevices() }.getOrNull()?.firstOrNull { it.deviceId == a.deviceId }
-                deviceFp.value = Fingerprint.format(c.fp)
-                newDevice.value = fromList ?: DeviceInfo(
-                    deviceId = a.deviceId, hostname = c.hostname,
-                    users = c.localUsers.map { DeviceUser(sid = it.sid, name = it.name, isAdmin = it.isAdmin) },
-                )
-            } catch (e: Exception) {
-                message.value = e.userMessage(); stage.value = PairStage.Home
+            var step: ResumeStep = ResumeStep.Retry(FirstRunResume.RETRY_MESSAGE)
+            for (attempt in 0 until 5) {
+                if (attempt > 0) delay(1_500)
+                step = FirstRunResume.step(a, runCatching { graph.repo.refreshDevices() }.getOrNull())
+                if (step is ResumeStep.ChooseUsers) break
+            }
+            when (val s = step) {
+                is ResumeStep.ChooseUsers -> {
+                    deviceFp.value = Fingerprint.format(a.fp)
+                    newDevice.value = s.device
+                }
+                is ResumeStep.Retry -> stage.value = PairStage.ResumeFailed(a, s.message)
             }
         }
     }
@@ -260,6 +271,7 @@ fun PairingScreen(onBack: () -> Unit, vm: PairingViewModel = viewModel()) {
     val applying by vm.applying.collectAsState()
     val approving by vm.approving.collectAsState()
     val done by vm.done.collectAsState()
+    val firstRun by vm.firstRun.collectAsState()
     val message by vm.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     var now by remember { mutableStateOf(Instant.now()) }
@@ -289,7 +301,8 @@ fun PairingScreen(onBack: () -> Unit, vm: PairingViewModel = viewModel()) {
 
     Box(Modifier.fillMaxSize().background(Background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            BackHeader("Thêm máy tính", { if (stage is PairStage.Home || device != null) onBack() else vm.backHome() },
+            BackHeader(if (firstRun) "Chọn tài khoản" else "Thêm máy tính",
+                { if (firstRun || stage is PairStage.Home || device != null) onBack() else vm.backHome() },
                 Modifier.padding(start = 8.dp, end = 16.dp, top = 16.dp, bottom = 8.dp))
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
@@ -304,6 +317,7 @@ fun PairingScreen(onBack: () -> Unit, vm: PairingViewModel = viewModel()) {
                     PairStage.Loading -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Primary) }
                     is PairStage.Confirm -> ConfirmStage(st, approving, onApprove = { vm.approve(activity, st) }, onReject = { vm.reject(st) })
                     is PairStage.Mismatch -> MismatchStage(st.hostname, onBack = { vm.backHome() })
+                    is PairStage.ResumeFailed -> ResumeFailedStage(st.message, onRetry = { vm.resumeAfterRegister(st.after) })
                     PairStage.Legacy -> {
                         CodeCard(code, now, onNew = { vm.newCode() }, onCopy = {
                             code?.let {
@@ -396,6 +410,15 @@ private fun ConfirmStage(s: PairStage.Confirm, approving: Boolean, onApprove: ()
         PrimaryButton("Cho phép máy này", onApprove, Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp, icon = Icons.Outlined.Shield)
         SecondaryButton("Từ chối", onReject, Modifier.fillMaxWidth())
     }
+}
+
+@Composable
+private fun ResumeFailedStage(message: String, onRetry: () -> Unit) {
+    McCard(elevated = true, spacing = 12.dp) {
+        Text("Đã ghép nối máy tính", style = MaterialTheme.typography.titleMedium)
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = TextBody)
+    }
+    PrimaryButton("Thử lại", onRetry, Modifier.fillMaxWidth(), height = 56.dp, radius = 16.dp)
 }
 
 @Composable
@@ -527,7 +550,7 @@ private fun ChooseUsers(dev: DeviceInfo, applying: Boolean, fingerprintNote: Str
         }
         if (dev.users.isEmpty()) Text("Máy chưa báo danh sách tài khoản.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
     }
-    Text("Quy tắc mặc định: 2 giờ ngày thường, 3 giờ cuối tuần, game 1 giờ, chặn web người lớn/cờ bạc/VPN. Có thể sửa ở tab Quy tắc.",
+    Text(PolicyDefaults.SUMMARY,
         style = MaterialTheme.typography.bodySmall, color = TextSecondary)
     if (applying) {
         CircularProgressIndicator(color = Primary, modifier = Modifier.height(48.dp))

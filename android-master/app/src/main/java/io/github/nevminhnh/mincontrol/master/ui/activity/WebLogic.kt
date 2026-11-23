@@ -42,7 +42,7 @@ object WebLabels {
         WebCategory.AI -> "ChatGPT, Claude, Gemini, Copilot, DeepSeek, Qwen, Kimi… và các trang AI khác"
     }
 
-    const val CATEGORY_SOURCE_NOTE = "Danh sách tên miền: UT1 (Đại học Toulouse), tự cập nhật hằng ngày trên máy tính"
+    const val CATEGORY_SOURCE_NOTE = io.github.nevminhnh.mincontrol.master.policy.PolicyHelp.CATEGORY_SOURCE
     const val WEB_EMPTY = "Chưa có lịch sử. Lịch sử được đọc từ Edge/Chrome trên máy tính, cập nhật mỗi ~15 giây."
 }
 

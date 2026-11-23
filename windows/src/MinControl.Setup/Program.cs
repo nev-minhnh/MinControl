@@ -28,6 +28,9 @@ using MinControl.Setup;
 //       Stops the service, removes WFP filters, browser policies (all profiles) + native host registration,
 //       SafeBoot keys. Keeps state.db/device.key unless --purge. Without --from-msi it then removes the MSI
 //       product (msiexec /x) or, for a non-MSI install, deletes the service.
+//   admin-shortcuts install|remove --sid <S-1-5-21-…>
+//       "MinControl Connect" desktop shortcut + Windows 11 taskbar pin (per-user Start Layout policy) for the installing
+//       admin only (AdminShortcuts.cs). The MSI runs it as SYSTEM with [UserSID].
 //   unenroll --yes                                           (wipes identity + state only)
 // Common: [--data-dir <dir>] (tests only; default %ProgramData%\MinControl).
 // Exit codes: 0 ok, 1 failure, 2 usage, 3 not elevated.
@@ -72,6 +75,14 @@ internal static partial class Cli
                 case "uninstall":
                     if (!args.Contains("--yes")) { Console.Error.WriteLine("uninstall removes all enforcement from this PC; pass --yes"); return 2; }
                     return await UninstallAsync(paths, args.Contains("--purge"), args.Contains("--from-msi"));
+                case "admin-shortcuts":
+                    if (!IsElevated()) return RequireElevation();
+                    return args.Skip(1).FirstOrDefault() switch
+                    {
+                        "install" => AdminShortcuts.Install(Opt(args, "--sid"), InstallDir),
+                        "remove" => AdminShortcuts.Remove(Opt(args, "--sid"), InstallDir),
+                        _ => Usage(),
+                    };
                 case "unenroll":
                     if (!args.Contains("--yes")) { Console.Error.WriteLine("unenroll wipes the device identity and state; pass --yes"); return 2; }
                     return Unenroll(paths);
@@ -98,6 +109,7 @@ internal static partial class Cli
               MinControl.Setup status
               MinControl.Setup uninstall --yes [--purge]
               MinControl.Setup unenroll --yes
+              MinControl.Setup admin-shortcuts install|remove --sid <S-1-5-21-…>
             """);
         return 2;
     }

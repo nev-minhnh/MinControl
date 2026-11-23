@@ -1,0 +1,542 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "games",
+      "label": "Trò chơi",
+      "description": "Game trên máy tính, trình khởi chạy game (Steam, Epic, Riot, Garena…) và giả lập Android dùng để chơi game di động.",
+      "match": [
+        {
+          "publisher": "Riot Games*"
+        },
+        {
+          "publisher": "Valve*"
+        },
+        {
+          "publisher": "Epic Games*"
+        },
+        {
+          "publisher": "Mojang*"
+        },
+        {
+          "publisher": "Roblox Corporation*"
+        },
+        {
+          "publisher": "*miHoYo*"
+        },
+        {
+          "publisher": "COGNOSPHERE*"
+        },
+        {
+          "publisher": "KRAFTON*"
+        },
+        {
+          "publisher": "Garena*"
+        },
+        {
+          "publisher": "Blizzard Entertainment*"
+        },
+        {
+          "publisher": "Electronic Arts*"
+        },
+        {
+          "publisher": "Ubisoft*"
+        },
+        {
+          "publisher": "Rockstar Games*"
+        },
+        {
+          "publisher": "Activision*"
+        },
+        {
+          "publisher": "Pearl Abyss*"
+        },
+        {
+          "publisher": "NEXON*"
+        },
+        {
+          "exe": "LeagueClient.exe"
+        },
+        {
+          "exe": "LeagueClientUx.exe"
+        },
+        {
+          "exe": "LeagueClientUxRender.exe"
+        },
+        {
+          "exe": "League of Legends.exe"
+        },
+        {
+          "exe": "RiotClientServices.exe"
+        },
+        {
+          "exe": "RiotClientUx.exe"
+        },
+        {
+          "exe": "VALORANT.exe"
+        },
+        {
+          "exe": "VALORANT-Win64-Shipping.exe"
+        },
+        {
+          "exe": "LoR.exe"
+        },
+        {
+          "exe": "Garena.exe"
+        },
+        {
+          "exe": "fczf.exe"
+        },
+        {
+          "exe": "FIFA4Zf.exe"
+        },
+        {
+          "exe": "crossfire.exe"
+        },
+        {
+          "exe": "Audition.exe"
+        },
+        {
+          "exe": "RobloxPlayerBeta.exe"
+        },
+        {
+          "exe": "RobloxPlayerLauncher.exe"
+        },
+        {
+          "exe": "RobloxStudioBeta.exe"
+        },
+        {
+          "exe": "Windows10Universal.exe"
+        },
+        {
+          "exe": "Minecraft.Windows.exe"
+        },
+        {
+          "exe": "MinecraftLauncher.exe"
+        },
+        {
+          "exe": "prismlauncher.exe"
+        },
+        {
+          "path": "*\\.minecraft\\*"
+        },
+        {
+          "path": "*\\Microsoft.MinecraftUWP_*\\*"
+        },
+        {
+          "exe": "javaw.exe",
+          "path": "*\\.minecraft\\*"
+        },
+        {
+          "exe": "javaw.exe",
+          "path": "*\\Microsoft.4297127D64EC6_*\\LocalCache\\Local\\runtime\\*"
+        },
+        {
+          "exe": "EpicGamesLauncher.exe"
+        },
+        {
+          "exe": "FortniteClient-Win64-Shipping.exe"
+        },
+        {
+          "exe": "FortniteLauncher.exe"
+        },
+        {
+          "exe": "GenshinImpact.exe"
+        },
+        {
+          "exe": "YuanShen.exe"
+        },
+        {
+          "exe": "StarRail.exe"
+        },
+        {
+          "exe": "ZenlessZoneZero.exe"
+        },
+        {
+          "exe": "BH3.exe"
+        },
+        {
+          "exe": "Wuthering Waves.exe"
+        },
+        {
+          "path": "*\\Wuthering Waves Game\\*"
+        },
+        {
+          "exe": "TslGame.exe"
+        },
+        {
+          "exe": "cs2.exe"
+        },
+        {
+          "exe": "csgo.exe"
+        },
+        {
+          "exe": "dota2.exe"
+        },
+        {
+          "exe": "r5apex.exe"
+        },
+        {
+          "exe": "r5apex_dx12.exe"
+        },
+        {
+          "exe": "Overwatch.exe"
+        },
+        {
+          "exe": "GTA5.exe"
+        },
+        {
+          "exe": "GTA5_Enhanced.exe"
+        },
+        {
+          "exe": "PlayGTAV.exe"
+        },
+        {
+          "exe": "FiveM.exe"
+        },
+        {
+          "exe": "RocketLeague.exe"
+        },
+        {
+          "exe": "Among Us.exe"
+        },
+        {
+          "exe": "FallGuys_client_game.exe"
+        },
+        {
+          "exe": "FallGuys_client.exe"
+        },
+        {
+          "exe": "Brawlhalla.exe"
+        },
+        {
+          "exe": "osu!.exe"
+        },
+        {
+          "exe": "NarakaBladepoint.exe"
+        },
+        {
+          "exe": "LOSTARK.exe"
+        },
+        {
+          "exe": "BlackDesert64.exe"
+        },
+        {
+          "exe": "MapleStory.exe"
+        },
+        {
+          "exe": "Terraria.exe"
+        },
+        {
+          "exe": "Phasmophobia.exe"
+        },
+        {
+          "exe": "Lethal Company.exe"
+        },
+        {
+          "exe": "RainbowSix.exe"
+        },
+        {
+          "exe": "RainbowSix_Vulkan.exe"
+        },
+        {
+          "exe": "Palworld-Win64-Shipping.exe"
+        },
+        {
+          "exe": "EscapeFromTarkov.exe"
+        },
+        {
+          "exe": "RustClient.exe"
+        },
+        {
+          "exe": "left4dead2.exe"
+        },
+        {
+          "exe": "Warframe.x64.exe"
+        },
+        {
+          "exe": "steam.exe"
+        },
+        {
+          "exe": "steamwebhelper.exe"
+        },
+        {
+          "exe": "Battle.net.exe"
+        },
+        {
+          "exe": "EADesktop.exe"
+        },
+        {
+          "exe": "EALauncher.exe"
+        },
+        {
+          "exe": "Origin.exe"
+        },
+        {
+          "exe": "UbisoftConnect.exe"
+        },
+        {
+          "exe": "upc.exe"
+        },
+        {
+          "exe": "GalaxyClient.exe"
+        },
+        {
+          "exe": "HD-Player.exe"
+        },
+        {
+          "exe": "HD-MultiInstanceManager.exe"
+        },
+        {
+          "exe": "dnplayer.exe"
+        },
+        {
+          "exe": "Nox.exe"
+        },
+        {
+          "exe": "MEmu.exe"
+        },
+        {
+          "exe": "MEmuConsole.exe"
+        },
+        {
+          "exe": "AndroidEmulatorEn.exe"
+        },
+        {
+          "exe": "AndroidEmulator.exe"
+        },
+        {
+          "exe": "AppMarket.exe"
+        },
+        {
+          "exe": "MuMuPlayer.exe"
+        },
+        {
+          "exe": "NemuPlayer.exe"
+        }
+      ]
+    },
+    {
+      "id": "social-chat",
+      "label": "Mạng xã hội và nhắn tin",
+      "description": "Ứng dụng nhắn tin, gọi điện và trò chuyện như Discord, Telegram, Zalo, Messenger, WhatsApp.",
+      "match": [
+        {
+          "exe": "Discord.exe"
+        },
+        {
+          "exe": "DiscordPTB.exe"
+        },
+        {
+          "exe": "DiscordCanary.exe"
+        },
+        {
+          "exe": "Telegram.exe"
+        },
+        {
+          "exe": "Zalo.exe"
+        },
+        {
+          "exe": "Messenger.exe"
+        },
+        {
+          "exe": "WhatsApp.exe"
+        },
+        {
+          "exe": "Skype.exe"
+        },
+        {
+          "exe": "Viber.exe"
+        },
+        {
+          "exe": "Signal.exe"
+        },
+        {
+          "exe": "LINE.exe"
+        },
+        {
+          "exe": "WeChat.exe"
+        }
+      ]
+    },
+    {
+      "id": "video-entertainment",
+      "label": "Video và giải trí",
+      "description": "Ứng dụng xem video và giải trí như Netflix, TikTok, Twitch.",
+      "match": [
+        {
+          "exe": "Netflix.exe"
+        },
+        {
+          "exe": "TikTok.exe"
+        },
+        {
+          "exe": "TikTok LIVE Studio.exe"
+        },
+        {
+          "exe": "Twitch.exe"
+        }
+      ]
+    },
+    {
+      "id": "music",
+      "label": "Âm nhạc",
+      "description": "Ứng dụng nghe nhạc như Spotify, iTunes.",
+      "match": [
+        {
+          "exe": "Spotify.exe"
+        },
+        {
+          "exe": "iTunes.exe"
+        },
+        {
+          "exe": "AIMP.exe"
+        }
+      ]
+    },
+    {
+      "id": "browsers-other",
+      "label": "Trình duyệt khác",
+      "description": "Các trình duyệt ngoài Edge và Chrome (Firefox, Opera, Brave, Vivaldi, Tor, Yandex, Cốc Cốc…), có thể dùng để lách bộ lọc.",
+      "match": [
+        {
+          "exe": "firefox.exe"
+        },
+        {
+          "exe": "opera.exe"
+        },
+        {
+          "exe": "brave.exe"
+        },
+        {
+          "exe": "vivaldi.exe"
+        },
+        {
+          "exe": "tor.exe"
+        },
+        {
+          "exe": "chromium.exe"
+        },
+        {
+          "exe": "Maxthon.exe"
+        },
+        {
+          "path": "*\\YandexBrowser\\*"
+        },
+        {
+          "path": "*\\CocCoc\\*"
+        }
+      ]
+    },
+    {
+      "id": "study",
+      "label": "Học tập",
+      "description": "Ứng dụng học tập và làm việc như Word, Excel, PowerPoint, OneNote, Teams, Zoom. Không nên giới hạn thời gian.",
+      "match": [
+        {
+          "exe": "WINWORD.EXE"
+        },
+        {
+          "exe": "EXCEL.EXE"
+        },
+        {
+          "exe": "POWERPNT.EXE"
+        },
+        {
+          "exe": "ONENOTE.EXE"
+        },
+        {
+          "exe": "OUTLOOK.EXE"
+        },
+        {
+          "exe": "ms-teams.exe"
+        },
+        {
+          "exe": "Teams.exe"
+        },
+        {
+          "exe": "Zoom.exe"
+        },
+        {
+          "exe": "soffice.exe"
+        },
+        {
+          "exe": "soffice.bin"
+        },
+        {
+          "exe": "wps.exe"
+        },
+        {
+          "exe": "Anki.exe"
+        },
+        {
+          "exe": "GeoGebra.exe"
+        },
+        {
+          "exe": "Code.exe"
+        }
+      ]
+    },
+    {
+      "id": "creative",
+      "label": "Sáng tạo",
+      "description": "Ứng dụng thiết kế, dựng video và vẽ như Photoshop, Canva, CapCut, Blender.",
+      "match": [
+        {
+          "publisher": "Adobe*"
+        },
+        {
+          "exe": "Photoshop.exe"
+        },
+        {
+          "exe": "Illustrator.exe"
+        },
+        {
+          "exe": "Adobe Premiere Pro.exe"
+        },
+        {
+          "exe": "AfterFX.exe"
+        },
+        {
+          "exe": "Canva.exe"
+        },
+        {
+          "exe": "CapCut.exe"
+        },
+        {
+          "exe": "gimp-*.exe"
+        },
+        {
+          "exe": "krita.exe"
+        },
+        {
+          "exe": "blender.exe"
+        },
+        {
+          "exe": "paintdotnet.exe"
+        },
+        {
+          "exe": "Resolve.exe"
+        },
+        {
+          "exe": "obs64.exe"
+        },
+        {
+          "exe": "Audacity.exe"
+        },
+        {
+          "exe": "Figma.exe"
+        },
+        {
+          "exe": "inkscape.exe"
+        },
+        {
+          "exe": "CLIPStudioPaint.exe"
+        },
+        {
+          "exe": "FL64.exe"
+        }
+      ]
+    }
+  ]
+}

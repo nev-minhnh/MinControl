@@ -44,6 +44,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
+import io.github.nevminhnh.mincontrol.master.ui.theme.Surface
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.nevminhnh.mincontrol.master.ui.theme.TextSecondary
 
@@ -53,9 +61,10 @@ import io.github.nevminhnh.mincontrol.master.ui.theme.TextSecondary
 fun AppMatchEditor(
     vm: PolicyViewModel, activity: FragmentActivity, groupLabel: String, matches: MutableList<AppMatch>,
     action: RuleAction? = null, rules: List<AppRule> = emptyList(),
+    listHeight: Dp = 280.dp, startPicking: Boolean = false,
 ) {
     val inv by vm.inventory.collectAsState()
-    var picking by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(startPicking) }
     var manual by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var manualText by remember { mutableStateOf("") }
@@ -64,8 +73,9 @@ fun AppMatchEditor(
     LaunchedEffect(picking) { if (picking) vm.loadInventory() }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Ứng dụng (${matches.size})", style = MaterialTheme.typography.titleSmall)
-        if (matches.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Ứng dụng đã chọn (${matches.size})", style = MaterialTheme.typography.titleSmall)
+        // While the picker is open the chips collapse to a count, so the list and its button stay near the top.
+        if (matches.isNotEmpty() && !picking) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             matches.toList().forEach { m ->
                 InputChip(selected = false, onClick = { matches.remove(m) },
                     label = { Text(AppPicker.describe(m), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp)) },
@@ -108,9 +118,14 @@ fun AppMatchEditor(
                 )
                 if (!showAll && list.hiddenSystem > 0) Text("Đã ẩn ${list.hiddenSystem} ứng dụng hệ thống — chọn “Hiện tất cả” để xem.",
                     style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                    shown.take(300).forEach { a -> AppRow(a, a.id in selected) { if (it) selected.add(a.id) else selected.remove(a.id) } }
-                    if (shown.isEmpty()) Text("Không có ứng dụng phù hợp", color = TextSecondary)
+                // Fixed-height bordered box with its own scroll: the button below is always right under it.
+                val boxShape = RoundedCornerShape(12.dp)
+                LazyColumn(
+                    Modifier.fillMaxWidth().height(listHeight).clip(boxShape).border(1.dp, ChipBorder, boxShape).background(Surface),
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                ) {
+                    items(shown.take(300), key = { it.id }) { a -> AppRow(a, a.id in selected) { if (it) selected.add(a.id) else selected.remove(a.id) } }
+                    if (shown.isEmpty()) item { Text("Không có ứng dụng phù hợp", color = TextSecondary, modifier = Modifier.padding(12.dp)) }
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (selected.isNotEmpty()) TextButton(onClick = { selected.clear() }) { Text("Bỏ chọn") }
@@ -138,7 +153,7 @@ fun AppMatchEditor(
 
 @Composable
 private fun AppRow(a: InventoryApp, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }, verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked, onChange)
         Column(Modifier.weight(1f)) {
             Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)

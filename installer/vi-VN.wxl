@@ -21,8 +21,8 @@
   <String Id="NeedAdmin" Value="Cần tài khoản quản trị (Administrator) để cài MinControl." />
   <String Id="Need64" Value="MinControl cần Windows 64-bit." />
   <String Id="NeedWin10" Value="MinControl cần Windows 10 trở lên." />
-  <String Id="ShortcutName" Value="Kết nối MinControl với điện thoại" />
-  <String Id="ShortcutDescription" Value="Nhập mã ghép nối để kết nối máy này với điện thoại của cha mẹ" />
+  <String Id="ShortcutName" Value="MinControl Connect" />
+  <String Id="ShortcutDescription" Value="Kết nối máy này với điện thoại của cha mẹ (mã QR)" />
 
   <!-- welcome -->
   <String Id="WelcomeDlg_Title" Value="Cài đặt [ProductName]" />

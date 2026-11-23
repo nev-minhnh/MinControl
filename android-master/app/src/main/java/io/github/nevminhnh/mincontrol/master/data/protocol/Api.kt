@@ -289,9 +289,17 @@ data class DomainItem(
 @Serializable
 data class DomainsResponse(val items: List<DomainItem> = emptyList())
 
-/** API.md 16: `GET/PUT /v1/master/settings`. */
+/** API.md 16 + §19: `GET/PUT /v1/master/settings`. [alerts] is null when the server predates §19. */
 @Serializable
-data class MasterSettings(val notifyLogon: Boolean = false, val notifyLogoff: Boolean = false)
+data class MasterSettings(
+    val notifyLogon: Boolean = false,
+    val notifyLogoff: Boolean = false,
+    val alerts: Map<String, AlertSetting>? = null,
+)
+
+/** API.md §19: per alert type, account-wide. */
+@Serializable
+data class AlertSetting(val enabled: Boolean = false, val minIntervalMin: Int = 0)
 
 /** API.md 16: `GET /v1/master/usage` (Cloudflare free-tier D1 rows written today, UTC). */
 @Serializable

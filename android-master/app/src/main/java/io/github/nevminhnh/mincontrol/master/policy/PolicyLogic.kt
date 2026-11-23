@@ -1,7 +1,5 @@
 package io.github.nevminhnh.mincontrol.master.policy
 
-import io.github.nevminhnh.mincontrol.master.data.protocol.AppGroup
-import io.github.nevminhnh.mincontrol.master.data.protocol.AppMatch
 import io.github.nevminhnh.mincontrol.master.data.protocol.NewExecutable
 import io.github.nevminhnh.mincontrol.master.data.protocol.Policy
 import io.github.nevminhnh.mincontrol.master.data.protocol.ScreenTime
@@ -14,32 +12,34 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.WeekdayMinutes
 import io.github.nevminhnh.mincontrol.master.data.protocol.WeekdayWindows
 import io.github.nevminhnh.mincontrol.master.data.protocol.YouTubeMode
 
-/** Defaults for a newly managed child (policy v1 from the pairing flow). */
+/** Defaults for a newly managed child (policy v1 from the pairing flow), API.md §19. */
 object PolicyDefaults {
-    fun user(label: String) = UserPolicy(
+    /** §19: every policy category is blocked by default (incl. AI). */
+    val BLOCKED_CATEGORIES: List<WebCategory> = WebCategory.entries.toList()
+
+    fun user(label: String, groups: AppGroupCatalog = AppGroupCatalog.current) = UserPolicy(
         label = label.take(40).ifBlank { "Con" },
         screenTime = ScreenTime(
             dailyQuotaMin = WeekdayMinutes.of(120, 180),
             allowedWindows = WeekdayWindows.of(listOf("15:00-21:00"), listOf("08:00-21:30")),
         ),
-        appGroups = mapOf(
-            "games" to AppGroup(
-                label = "Game",
-                match = listOf(AppMatch(publisher = "Valve*"), AppMatch(exe = "Minecraft*.exe"), AppMatch(exe = "Roblox*.exe")),
-                dailyQuotaMin = WeekdayMinutes.of(60, 60),
-            ),
-        ),
+        // Default app groups with NO quota ("Không giới hạn"); the parent turns a limit on per group.
+        appGroups = groups.groups.associate { it.id to it.toPolicyGroup() },
         newExecutable = NewExecutable.ASK,
         web = WebPolicy(
             mode = WebMode.BLOCKLIST,
-            blockedCategories = listOf(WebCategory.ADULT, WebCategory.GAMBLING, WebCategory.PROXY_VPN, WebCategory.MALWARE),
+            blockedCategories = BLOCKED_CATEGORIES,
             safeSearch = true,
             youtube = YouTubeMode.STRICT,
         ),
     )
 
-    fun policy(users: Map<String, String>, version: Int = 1) =
-        Policy(version = version, users = users.mapValues { (_, label) -> user(label) })
+    fun policy(users: Map<String, String>, version: Int = 1, groups: AppGroupCatalog = AppGroupCatalog.current) =
+        Policy(version = version, users = users.mapValues { (_, label) -> user(label, groups) })
+
+    /** Short summary shown before the first policy is signed. */
+    const val SUMMARY = "Quy tắc mặc định: 2 giờ ngày thường, 3 giờ cuối tuần; chặn mọi danh mục web (cả AI); SafeSearch bật; " +
+        "YouTube hạn chế nghiêm ngặt; các nhóm ứng dụng (Game, Mạng xã hội…) chưa giới hạn giờ. Có thể sửa ở tab Quy tắc."
 }
 
 /** One human-readable change between two policies. */

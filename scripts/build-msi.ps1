@@ -37,7 +37,10 @@ param(
     # UT1 blacklists snapshot (GitHub mirror zip, read-only, no network): hashed into the shipped category seed.
     [string]$Ut1Zip = "D:\Coding_Project\MinControl\tools\ut1\ut1-blacklists-master.zip",
     # build an MSI without the shipped category lists
-    [switch]$NoCategories
+    [switch]$NoCategories,
+    # never fetch category data: reuse the seed of the previous build (artifacts\obj\categories-seed) when present,
+    # else build it from the cached UT1 snapshot (-Ut1Zip, already offline)
+    [switch]$SkipCategoryDownload
 )
 $ErrorActionPreference = "Stop"
 
@@ -120,7 +123,12 @@ try { [void]$cp1258.GetBytes($wxl) } catch { throw "vi-VN.wxl has characters cod
 
 # ------------------------------------------------------------------ category seed (UT1 snapshot + catalog domains)
 $seedDir = ""
-if (-not $NoCategories) {
+$cachedSeed = Join-Path $objDir "categories-seed"
+if (-not $NoCategories -and $SkipCategoryDownload -and (Test-Path (Join-Path $cachedSeed "seed-state.json"))) {
+    $seedDir = $cachedSeed
+    Write-Host "==> category seed: reusing $seedDir" -ForegroundColor Cyan
+}
+elseif (-not $NoCategories) {
     if (-not (Test-Path $Ut1Zip)) { throw "UT1 snapshot not found: $Ut1Zip (pass -Ut1Zip <path> or -NoCategories)" }
     $seedDir = Join-Path $objDir "categories-seed"
     if (Test-Path $seedDir) { Remove-Item -Recurse -Force $seedDir }

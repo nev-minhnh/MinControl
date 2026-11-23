@@ -16,7 +16,9 @@ public static class BlockReasons
 /// <param name="ConnectHost">Host to actually connect to (SafeSearch/YouTube rewrite); equals the request host otherwise.</param>
 /// <param name="Service">Catalog service id that caused the block (blockedServices, or a service of a blocked category).</param>
 /// <param name="Pattern">blockDomains pattern that matched (reason blocklist).</param>
-public sealed record WebDecision(bool Allowed, string? Reason, string? Category, string ConnectHost, string? Service = null, string? Pattern = null)
+/// <param name="SearchEngine">Search engine id of a SafeSearch block (API.md §19: only Google and Bing are allowed).</param>
+public sealed record WebDecision(bool Allowed, string? Reason, string? Category, string ConnectHost, string? Service = null, string? Pattern = null,
+    string? SearchEngine = null)
 {
     public bool Rewritten(string host) => !string.Equals(ConnectHost, host, StringComparison.Ordinal);
 }
@@ -30,6 +32,8 @@ public sealed record WebDecision(bool Allowed, string? Reason, string? Category,
 ///   *.youtube.com, youtu.be…) blocks every YouTube host of the catalog (ytimg, googlevideo, youtubei.googleapis.com…).</item>
 /// <item><c>blockedServices</c> → block (service) on any of the service's domains</item>
 /// <item><c>allowDomains</c> / <c>allowedServices</c> → allow (overrides categories and schedules)</item>
+/// <item><c>safeSearch</c> on and the host belongs to a search engine of <c>protocol/search-engines.json</c> → block
+///   (blocklist, rule "SafeSearch: chỉ cho phép Google và Bing", API.md §19)</item>
 /// <item>allowlist mode and not allowed above → block (allowlist_miss)</item>
 /// <item>IP literal (blocklist mode, if configured) → block (blocklist, category "ip")</item>
 /// <item>category in <c>blockedCategories</c> → block (category): category lists, plus the catalog services of that
@@ -42,12 +46,15 @@ public sealed class WebDecisionEngine
 {
     private readonly ICategoryStore _categories;
     private readonly ServiceCatalog _catalog;
+    private readonly SearchEngineCatalog _engines;
     private readonly bool _blockIpLiteralsInBlocklistMode;
 
-    public WebDecisionEngine(ICategoryStore categories, NetGuardOptions? options = null, ServiceCatalog? catalog = null)
+    public WebDecisionEngine(ICategoryStore categories, NetGuardOptions? options = null, ServiceCatalog? catalog = null,
+        SearchEngineCatalog? searchEngines = null)
     {
         _categories = categories;
         _catalog = catalog ?? ServiceCatalog.Shared;
+        _engines = searchEngines ?? SearchEngineCatalog.Shared;
         _blockIpLiteralsInBlocklistMode = options?.BlockIpLiteralsInBlocklistMode ?? false;
     }
 
@@ -67,6 +74,9 @@ public sealed class WebDecisionEngine
 
         if (DomainPattern.MatchesAny(web.AllowDomains, h) || ServiceCatalog.MatchHost(_catalog.FindAll(web.AllowedServices), h) is not null)
             return Allow(web, h);
+
+        if (web.SafeSearch && _engines.Match(h) is { } engine)
+            return Block(BlockReasons.Blocklist, null, h) with { SearchEngine = engine.Id };
 
         if (string.Equals(web.Mode, "allowlist", StringComparison.OrdinalIgnoreCase))
             return Block(BlockReasons.AllowlistMiss, null, h);

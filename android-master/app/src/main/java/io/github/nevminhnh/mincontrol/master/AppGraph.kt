@@ -95,6 +95,7 @@ class MinControlApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         graph = AppGraph(this)
+        io.github.nevminhnh.mincontrol.master.policy.AppGroupCatalog.current = io.github.nevminhnh.mincontrol.master.policy.AppGroupCatalog.load(this)
         Notifications.createChannels(this)
         // A transfer that wiped the keys but died before leaving the screen: back to first-run.
         if (graph.settings.registered.value && !runCatching { graph.keys.hasKeys() }.getOrDefault(true)) graph.settings.setRegistered(false)

@@ -15,6 +15,9 @@
     <!-- API.md §17 service catalog, read at build time; a YouTube-only placeholder until protocol/services.json exists -->
     <EmbeddedResource Include="..\..\..\protocol\services.json" LogicalName="MinControl.Services.json" Condition="Exists('..\..\..\protocol\services.json')" />
     <EmbeddedResource Include="Catalog\services.placeholder.json" LogicalName="MinControl.Services.json" Condition="!Exists('..\..\..\protocol\services.json')" />
+    <!-- API.md §19 search engines blocked under SafeSearch; a small placeholder until protocol/search-engines.json exists -->
+    <EmbeddedResource Include="..\..\..\protocol\search-engines.json" LogicalName="MinControl.SearchEngines.json" Condition="Exists('..\..\..\protocol\search-engines.json')" />
+    <EmbeddedResource Include="Catalog\search-engines.placeholder.json" LogicalName="MinControl.SearchEngines.json" Condition="!Exists('..\..\..\protocol\search-engines.json')" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="MinControl.Core.Tests" />

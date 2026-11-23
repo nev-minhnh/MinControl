@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -74,6 +75,8 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.WeekdayWindows
 import io.github.nevminhnh.mincontrol.master.data.protocol.YouTubeMode
 import io.github.nevminhnh.mincontrol.master.data.protocol.RuleAction
 import io.github.nevminhnh.mincontrol.master.policy.AppRules
+import io.github.nevminhnh.mincontrol.master.policy.PolicyHelp
+import io.github.nevminhnh.mincontrol.master.data.protocol.AppRule
 import io.github.nevminhnh.mincontrol.master.policy.PolicyDiff
 import io.github.nevminhnh.mincontrol.master.refresh.AutoRefreshEffect
 import io.github.nevminhnh.mincontrol.master.refresh.RefreshBox
@@ -117,7 +120,8 @@ private sealed interface PolicyDialog {
     data object Categories : PolicyDialog
     data class Domains(val block: Boolean) : PolicyDialog
     data object NetExempt : PolicyDialog
-    data object AppRuleAdd : PolicyDialog
+    data class AppRuleAdd(val action: RuleAction) : PolicyDialog
+    data object Services : PolicyDialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -144,6 +148,8 @@ fun PolicyScreen(onSettings: (() -> Unit)? = null, vm: PolicyViewModel = viewMod
     val orig = c?.let { current?.original?.users?.get(it.sid) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val catalog = remember { ServiceCatalog.load(ctx) }
+    val engines = remember { io.github.nevminhnh.mincontrol.master.policy.SearchEngines.load(ctx) }
+    val groupCatalog = remember { io.github.nevminhnh.mincontrol.master.policy.AppGroupCatalog.current }
 
     Box(Modifier.fillMaxSize().background(Background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -158,7 +164,7 @@ fun PolicyScreen(onSettings: (() -> Unit)? = null, vm: PolicyViewModel = viewMod
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         UpdatedLine(vm.refresher)
-                        Editor(up, orig, perDay, { perDay = !perDay }, vm::edit, catalog) { dialog = it }
+                        Editor(up, orig, perDay, { perDay = !perDay }, vm::edit, catalog, engines, groupCatalog) { dialog = it }
                     }
                 }
             }
@@ -187,7 +193,7 @@ fun PolicyScreen(onSettings: (() -> Unit)? = null, vm: PolicyViewModel = viewMod
             vm.edit { u -> u.copy(screenTime = u.screenTime.copy(allowedWindows = d.days.fold(u.screenTime.allowedWindows) { w, day -> w.with(day, list) })) }
             dialog = null
         }
-        is PolicyDialog.Group -> GroupDialog(vm, activity, d.id, d.id?.let { up.appGroups[it] }, { dialog = null }) { id, g ->
+        is PolicyDialog.Group -> GroupEditor(vm, activity, d.id, d.id?.let { up.appGroups[it] }, up.appGroups.keys, { dialog = null }) { id, g ->
             vm.edit { u -> u.copy(appGroups = if (g == null) u.appGroups - id else u.appGroups + (id to g)) }
             dialog = null
         }
@@ -199,7 +205,7 @@ fun PolicyScreen(onSettings: (() -> Unit)? = null, vm: PolicyViewModel = viewMod
             vm.edit { u -> u.copy(web = if (d.block) u.web.copy(blockDomains = list) else u.web.copy(allowDomains = list)) }
             dialog = null
         }
-        PolicyDialog.AppRuleAdd -> AppRuleDialog(vm, activity, up, { dialog = null }) { action, matches ->
+        is PolicyDialog.AppRuleAdd -> AppRuleDialog(vm, activity, up, d.action, { dialog = null }) { action, matches ->
             vm.edit { u -> u.copy(appRules = AppRules.add(u.appRules, action, matches)) }
             dialog = null
         }
@@ -207,6 +213,7 @@ fun PolicyScreen(onSettings: (() -> Unit)? = null, vm: PolicyViewModel = viewMod
             vm.edit { u -> u.copy(web = u.web.copy(netExemptApps = list)) }
             dialog = null
         }
+        PolicyDialog.Services -> ServicesSheet(up, orig, catalog, { dialog = null }) { id, st -> vm.edit { BlockingV2.setServiceState(it, id, st) } }
         null -> {}
     }
 
@@ -243,7 +250,8 @@ fun PolicyScreen(onSettings: (() -> Unit)? = null, vm: PolicyViewModel = viewMod
 @Composable
 private fun Editor(
     up: UserPolicy, orig: UserPolicy?, perDay: Boolean, togglePerDay: () -> Unit,
-    edit: ((UserPolicy) -> UserPolicy) -> Unit, catalog: ServiceCatalog, open: (PolicyDialog) -> Unit,
+    edit: ((UserPolicy) -> UserPolicy) -> Unit, catalog: ServiceCatalog, engines: List<String>,
+    groupCatalog: io.github.nevminhnh.mincontrol.master.policy.AppGroupCatalog, open: (PolicyDialog) -> Unit,
 ) {
     val st = up.screenTime
     val ost = orig?.screenTime
@@ -292,21 +300,6 @@ private fun Editor(
         ModeChoice(allowApps, orig != null && orig.effectiveAppMode != up.effectiveAppMode, BlockingV2.APP_BLOCKLIST_HELP, BlockingV2.APP_ALLOWLIST_HELP) { a ->
             edit { BlockingV2.setAppMode(it, if (a) AppMode.ALLOWLIST else AppMode.BLOCKLIST) }
         }
-        up.appGroups.forEach { (id, g) ->
-            val q = g.dailyQuotaMin
-            val text = when {
-                q == null -> "Không giới hạn"
-                Weekday.entries.map { q.get(it) }.distinct().size == 1 -> "${formatMinutes(q.mon)} / ngày"
-                else -> "${formatMinutes(q.mon)} · ${formatMinutes(q.sat)}"
-            }
-            SettingRow(g.label, subtitle = "${g.match.size} mẫu ứng dụng", changed = orig != null && orig.appGroups[id] != g,
-                onClick = { open(PolicyDialog.Group(id)) }) {
-                Text(text, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
-            }
-        }
-        SettingRow("Thêm nhóm ứng dụng", onClick = { open(PolicyDialog.Group(null)) }, last = allowApps) {
-            Text("+", style = MaterialTheme.typography.titleLarge, color = Primary)
-        }
         if (!allowApps) Dropdown(
             "Ứng dụng lạ",
             subtitle = when (up.newExecutable) {
@@ -318,28 +311,50 @@ private fun Editor(
         ) { v -> edit { it.copy(newExecutable = v) } }
     }
 
-    SectionLabel(if (allowApps) "Danh sách ứng dụng (cho phép / chặn)" else "Chặn ứng dụng", Modifier.padding(top = 8.dp))
+    val (allowedRules, blockedRules) = AppRules.sections(up.appRules)
+    RuleSection("Ứng dụng được phép", if (allowApps) PolicyHelp.APPS_ALLOWED_HELP_ALLOWLIST else PolicyHelp.APPS_ALLOWED_HELP_BLOCKLIST,
+        allowedRules, up.appRules.size, orig, RuleAction.ALLOW, "Thêm ứng dụng được phép", edit, open)
+    RuleSection("Ứng dụng bị chặn", if (allowApps) PolicyHelp.APPS_BLOCKED_HELP_ALLOWLIST else PolicyHelp.APPS_BLOCKED_HELP_BLOCKLIST,
+        blockedRules, up.appRules.size, orig, RuleAction.BLOCK, "Thêm ứng dụng bị chặn", edit, open)
+    if (allowedRules.isNotEmpty() && blockedRules.isNotEmpty())
+        Text(AppRules.ORDER_HELP, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(horizontal = 4.dp))
+
+    SectionLabel("Nhóm ứng dụng & giới hạn giờ", Modifier.padding(top = 8.dp))
     PolicyCard {
-        Text(AppRules.ORDER_HELP, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(vertical = 10.dp))
-        if (up.appRules.isEmpty()) SettingRow("Chưa có quy tắc nào", subtitle = "Ứng dụng không nằm trong nhóm hay quy tắc sẽ theo mục “Ứng dụng lạ”.")
-        up.appRules.forEachIndexed { i, r ->
-            SettingRow(
-                "${AppRules.actionLabel(r.action)} · ${AppRules.describe(r)}", trailingMax = 120.dp,
-                subtitle = "Quy tắc ${i + 1}/${up.appRules.size}",
-                changed = orig != null && orig.appRules.getOrNull(i) != r,
-            ) {
-                RuleBtn("▲", "Đưa lên", i > 0) { edit { u -> u.copy(appRules = AppRules.move(u.appRules, i, -1)) } }
-                RuleBtn("▼", "Đưa xuống", i < up.appRules.lastIndex) { edit { u -> u.copy(appRules = AppRules.move(u.appRules, i, 1)) } }
-                RuleBtn("✕", "Xóa quy tắc", true) { edit { u -> u.copy(appRules = AppRules.remove(u.appRules, i)) } }
+        Text(PolicyHelp.GROUPS_HELP, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
+        up.appGroups.forEach { (id, g) ->
+            val q = g.dailyQuotaMin
+            val limitText = when {
+                q == null -> "Không giới hạn"
+                Weekday.entries.map { q.get(it) }.distinct().size == 1 -> "${formatMinutes(q.mon)} / ngày"
+                else -> "${formatMinutes(q.mon)} ngày thường · ${formatMinutes(q.sat)} cuối tuần"
+            }
+            val desc = groupCatalog.byId(id)?.description?.takeIf { it.isNotBlank() } ?: "${g.match.size} mẫu ứng dụng"
+            SettingRow(g.label, subtitle = "$limitText · $desc",
+                changed = orig != null && orig.appGroups[id] != g, trailingMax = 64.dp,
+                onClick = { open(PolicyDialog.Group(id)) }) {
+                McSwitch(q != null) { on ->
+                    edit { u ->
+                        val cur = u.appGroups[id]
+                        if (cur == null) u else u.copy(appGroups = u.appGroups + (id to cur.copy(dailyQuotaMin = if (on) WeekdayMinutes.of(60, 60) else null)))
+                    }
+                }
             }
         }
-        SettingRow("Thêm quy tắc chặn / cho phép", last = true, onClick = { open(PolicyDialog.AppRuleAdd) }) {
+        SettingRow("Thêm nhóm ứng dụng", onClick = { open(PolicyDialog.Group(null)) }, last = true) {
             Text("+", style = MaterialTheme.typography.titleLarge, color = Primary)
         }
     }
 
     SectionLabel("Dịch vụ", Modifier.padding(top = 8.dp))
-    PolicyCard { ServicesGrid(up, orig, catalog) { id -> edit { BlockingV2.toggleService(it, id) } } }
+    PolicyCard {
+        val svcChanged = orig != null && (orig.web.blockedServices.orEmpty().toSet() != up.web.blockedServices.orEmpty().toSet() ||
+            orig.web.allowedServices.orEmpty().toSet() != up.web.allowedServices.orEmpty().toSet())
+        SettingRow("Dịch vụ", subtitle = BlockingV2.servicesSummary(up.web) + " · ${catalog.services.size} dịch vụ (YouTube, TikTok, Roblox…)",
+            changed = svcChanged, last = true, onClick = { open(PolicyDialog.Services) }) {
+            Icon(Icons.Outlined.ChevronRight, contentDescription = "Mở danh sách dịch vụ", tint = TextSecondary)
+        }
+    }
 
     val w = up.web
     val ow = orig?.web
@@ -348,11 +363,14 @@ private fun Editor(
         ModeChoice(w.mode == WebMode.ALLOWLIST, ow != null && ow.mode != w.mode, BlockingV2.WEB_BLOCKLIST_HELP, BlockingV2.WEB_ALLOWLIST_HELP) { a ->
             edit { BlockingV2.setWebMode(it, if (a) WebMode.ALLOWLIST else WebMode.BLOCKLIST) }
         }
-        SettingRow("SafeSearch", changed = ow != null && ow.safeSearch != w.safeSearch) {
+        SettingRow("SafeSearch", subtitle = if (w.safeSearch) "Bật · chỉ cho phép Google và Bing" else "Tắt",
+            changed = ow != null && ow.safeSearch != w.safeSearch, last = true) {
             McSwitch(w.safeSearch) { v -> edit { it.copy(web = it.web.copy(safeSearch = v)) } }
         }
-        Dropdown("YouTube", value = PolicyDiff.youtubeLabel(w.youtube), options = YouTubeMode.entries.map { PolicyDiff.youtubeLabel(it) to it },
-            changed = ow != null && ow.youtube != w.youtube) { v -> edit { it.copy(web = it.web.copy(youtube = v)) } }
+        InfoNote(PolicyHelp.safeSearch(engines), Modifier.padding(bottom = 8.dp))
+        Dropdown("YouTube · chế độ hạn chế", value = PolicyDiff.youtubeLabel(w.youtube), options = YouTubeMode.entries.map { PolicyDiff.youtubeLabel(it) to it },
+            changed = ow != null && ow.youtube != w.youtube, last = true) { v -> edit { it.copy(web = it.web.copy(youtube = v)) } }
+        InfoNote(PolicyHelp.YOUTUBE, Modifier.padding(bottom = 8.dp))
         val catText = (w.blockedCategories.map { it.label } + w.categorySchedules.orEmpty().keys.map { "${it.label} (giờ học)" })
             .joinToString(", ").ifEmpty { "Không chặn danh mục nào" }
         SettingRow("Danh mục chặn", subtitle = catText,
@@ -467,43 +485,93 @@ private fun WindowsDialog(title: String, initial: List<String>, onDismiss: () ->
 }
 
 @Composable
-private fun GroupDialog(vm: PolicyViewModel, activity: androidx.fragment.app.FragmentActivity, id: String?, group: AppGroup?, onDismiss: () -> Unit, onSave: (String, AppGroup?) -> Unit) {
+private fun GroupEditor(
+    vm: PolicyViewModel, activity: androidx.fragment.app.FragmentActivity, id: String?, group: AppGroup?, existingIds: Set<String>,
+    onDismiss: () -> Unit, onSave: (String, AppGroup?) -> Unit,
+) {
     var label by remember { mutableStateOf(group?.label ?: "") }
-    var key by remember { mutableStateOf(id ?: "") }
     val matches = remember { mutableStateListOf<AppMatch>().apply { addAll(group?.match.orEmpty()) } }
     var limited by remember { mutableStateOf(group?.dailyQuotaMin != null) }
     var weekday by remember { mutableStateOf(group?.dailyQuotaMin?.mon ?: 60) }
     var weekend by remember { mutableStateOf(group?.dailyQuotaMin?.sat ?: 60) }
-    val keyOk = Regex("^[a-z][a-z0-9_-]{0,31}$").matches(key)
-    val ok = keyOk && label.isNotBlank() && matches.isNotEmpty()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (group == null) "Nhóm ứng dụng mới" else "Nhóm ${group.label}") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(label, { label = it.take(40) }, singleLine = true, label = { Text("Tên nhóm") }, modifier = Modifier.fillMaxWidth())
-                if (id == null) OutlinedTextField(key, { key = it.lowercase().take(32) }, singleLine = true, label = { Text("Mã nhóm (vd: games)") },
-                    isError = key.isNotEmpty() && !keyOk, modifier = Modifier.fillMaxWidth())
-                AppMatchEditor(vm, activity, label, matches)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Giới hạn thời gian", modifier = Modifier.weight(1f))
-                    McSwitch(limited) { limited = it }
+    val key = id ?: GroupKeys.slug(label, existingIds)
+    val ok = label.isNotBlank() && matches.isNotEmpty()
+    FullScreenEditor(
+        title = if (group == null) "Nhóm ứng dụng mới" else "Nhóm ${group.label}",
+        saveEnabled = ok, onDismiss = onDismiss,
+        onSave = { onSave(key, AppGroup(label.trim(), matches.toList(), if (limited) WeekdayMinutes.of(weekday, weekend) else null)) },
+        bottom = {
+            // Pinned: always visible, never pushed off-screen by a long app list.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Giới hạn thời gian", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                    Text(if (limited) "Tổng thời gian mỗi ngày cho cả nhóm" else "Không giới hạn", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 }
-                if (limited) {
-                    QuotaRow("Ngày thường", weekday, false, { weekday = it }, weekday)
-                    QuotaRow("Cuối tuần", weekend, false, { weekend = it }, weekend)
-                }
-                if (id != null) TextButton(onClick = { onSave(id, null) }) { Text("Xóa nhóm này", color = DangerText) }
+                McSwitch(limited) { limited = it }
+            }
+            if (limited) {
+                QuotaRow("Ngày thường", weekday, false, { weekday = it }, weekday)
+                QuotaRow("Cuối tuần", weekend, false, { weekend = it }, weekend)
             }
         },
-        confirmButton = {
-            TextButton(enabled = ok, onClick = {
-                onSave(key, AppGroup(label.trim(), matches.toList(), if (limited) WeekdayMinutes.of(weekday, weekend) else null))
-            }) { Text("Lưu") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
-        containerColor = Surface,
-    )
+    ) { listHeight ->
+        OutlinedTextField(label, { label = it.take(40) }, singleLine = true, label = { Text("Tên nhóm") }, modifier = Modifier.fillMaxWidth())
+        AppMatchEditor(vm, activity, label, matches, listHeight = listHeight, startPicking = group == null)
+        if (id != null) TextButton(onClick = { onSave(id, null) }) { Text("Xóa nhóm này", color = DangerText) }
+    }
+}
+
+/** Group ids for new groups are derived from the name (the parent never types an id). */
+internal object GroupKeys {
+    private val ID = Regex("^[a-z][a-z0-9_-]{0,31}$")
+
+    fun slug(label: String, existing: Set<String>): String {
+        val ascii = java.text.Normalizer.normalize(label.lowercase().replace('đ', 'd'), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "").replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        var base = (if (ascii.firstOrNull()?.isLetter() == true) ascii else "nhom-$ascii").trimEnd('-').take(28).trimEnd('-')
+        if (!ID.matches(base)) base = "nhom"
+        if (base !in existing) return base
+        var n = 2
+        while ("$base-$n" in existing) n++
+        return "$base-$n"
+    }
+}
+
+/**
+ * Full-screen editor: top bar (Hủy · title · Lưu), a scrolling middle and an optional pinned [bottom] area.
+ * The middle gets a fixed-height app list ([content] receives its height: ~40 % of the screen, 160–360 dp).
+ */
+@Composable
+private fun FullScreenEditor(
+    title: String, saveEnabled: Boolean, onDismiss: () -> Unit, onSave: () -> Unit, saveLabel: String = "Lưu",
+    bottom: (@Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit)? = null,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.(androidx.compose.ui.unit.Dp) -> Unit,
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(Background)) {
+            val listHeight = (maxHeight * 0.4f).coerceIn(160.dp, 360.dp)
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+                Row(Modifier.fillMaxWidth().background(Surface).padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onDismiss) { Text("Hủy", color = TextBody, style = MaterialTheme.typography.labelLarge) }
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = TextPrimary, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                    TextButton(onClick = onSave, enabled = saveEnabled) { Text(saveLabel, style = MaterialTheme.typography.labelLarge) }
+                }
+                HorizontalDivider(color = Outline)
+                Column(
+                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) { content(listHeight) }
+                if (bottom != null) {
+                    HorizontalDivider(color = Outline)
+                    Column(Modifier.fillMaxWidth().background(Surface).padding(horizontal = 16.dp, vertical = 8.dp), content = bottom)
+                }
+            }
+        }
+    }
 }
 
 private enum class CatState(val label: String) { OFF("Không chặn"), ALWAYS("Luôn chặn"), SCHEDULE("Trong giờ học") }
@@ -527,6 +595,7 @@ private fun CategoriesDialog(up: UserPolicy, onDismiss: () -> Unit, onSave: (Lis
         title = { Text("Danh mục chặn") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                InfoNote(PolicyHelp.CATEGORY_SOURCE, Modifier.padding(bottom = 4.dp))
                 WebCategory.entries.forEach { c ->
                     val s = state[c] ?: CatState.OFF
                     var open by remember { mutableStateOf(false) }
@@ -545,7 +614,6 @@ private fun CategoriesDialog(up: UserPolicy, onDismiss: () -> Unit, onSave: (Lis
                         }
                     }
                 }
-                Text(WebLabels.CATEGORY_SOURCE_NOTE, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(top = 8.dp))
                 if (state.values.any { it == CatState.SCHEDULE }) {
                     OutlinedTextField(study, { study = it }, label = { Text("Giờ học (Thứ 2 – Thứ 6)") }, isError = studyErr != null, modifier = Modifier.fillMaxWidth())
                     studyErr?.let { Text(it, color = DangerText, style = MaterialTheme.typography.bodySmall) }
@@ -617,38 +685,54 @@ private fun RuleBtn(text: String, desc: String, enabled: Boolean, onClick: () ->
     )
 }
 
-/** Adds app rules: choose Chặn/Cho phép, then pick apps from the PC or type patterns. One rule is created per app pattern. */
+/** Adds app rules to "Ứng dụng được phép" / "Ứng dụng bị chặn": pick apps from the PC or type patterns. One rule per pattern. */
 @Composable
 private fun AppRuleDialog(
-    vm: PolicyViewModel, activity: androidx.fragment.app.FragmentActivity, up: UserPolicy, onDismiss: () -> Unit,
+    vm: PolicyViewModel, activity: androidx.fragment.app.FragmentActivity, up: UserPolicy, action: RuleAction, onDismiss: () -> Unit,
     onSave: (RuleAction, List<AppMatch>) -> Unit,
 ) {
-    var action by remember { mutableStateOf(if (up.effectiveAppMode == AppMode.ALLOWLIST) RuleAction.ALLOW else RuleAction.BLOCK) }
     val matches = remember { mutableStateListOf<AppMatch>() }
     val err = matches.firstNotNullOfOrNull { AppRules.matchError(AppRules.clean(it)) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Thêm quy tắc ứng dụng") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RuleAction.entries.forEach { a ->
-                        io.github.nevminhnh.mincontrol.master.ui.components.FilterChip(AppRules.actionLabel(a), action == a, { action = a })
-                    }
-                }
-                Text(
-                    if (action == RuleAction.BLOCK) "Các ứng dụng này sẽ bị chặn chạy. Quy tắc chặn được đặt phía trên các quy tắc “Cho phép”."
-                    else "Các ứng dụng này luôn được phép, dù khớp một quy tắc chặn nằm dưới. Quy tắc được thêm vào cuối danh sách; dùng ▲ để đưa lên trên quy tắc chặn.",
-                    style = MaterialTheme.typography.bodySmall, color = TextSecondary,
-                )
-                AppMatchEditor(vm, activity, "", matches, action = action, rules = up.appRules)
-                if (err != null) Text(err, style = MaterialTheme.typography.bodySmall, color = DangerText)
+    FullScreenEditor(
+        title = if (action == RuleAction.ALLOW) "Thêm ứng dụng được phép" else "Thêm ứng dụng bị chặn",
+        saveEnabled = matches.isNotEmpty() && err == null, saveLabel = "Thêm", onDismiss = onDismiss,
+        onSave = { onSave(action, matches.toList()) },
+    ) { listHeight ->
+        Text(
+            if (action == RuleAction.BLOCK) "Các ứng dụng này sẽ không chạy được trên máy của con."
+            else "Các ứng dụng này luôn được phép chạy.",
+            style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+        )
+        AppMatchEditor(vm, activity, "", matches, action = action, rules = up.appRules, listHeight = listHeight, startPicking = true)
+        if (err != null) Text(err, style = MaterialTheme.typography.bodySmall, color = DangerText)
+    }
+}
+
+/** One of the two rule lists. Indexes are positions in `appRules` (= evaluation order). */
+@Composable
+private fun RuleSection(
+    title: String, help: String, list: List<IndexedValue<AppRule>>, total: Int, orig: UserPolicy?, action: RuleAction, addLabel: String,
+    edit: ((UserPolicy) -> UserPolicy) -> Unit, open: (PolicyDialog) -> Unit,
+) {
+    SectionLabel(title, Modifier.padding(top = 8.dp))
+    PolicyCard {
+        Text(help, style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
+        if (list.isEmpty()) Text("Chưa có ứng dụng nào.", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(vertical = 8.dp))
+        list.forEach { (i, r) ->
+            SettingRow(
+                AppRules.describe(r), trailingMax = 132.dp,
+                subtitle = "Thứ tự xét ${i + 1}/$total",
+                changed = orig != null && orig.appRules.getOrNull(i) != r,
+            ) {
+                RuleBtn("▲", "Xét sớm hơn", i > 0) { edit { u -> u.copy(appRules = AppRules.move(u.appRules, i, -1)) } }
+                RuleBtn("▼", "Xét muộn hơn", i < total - 1) { edit { u -> u.copy(appRules = AppRules.move(u.appRules, i, 1)) } }
+                RuleBtn("✕", "Xóa ${AppRules.describe(r)}", true) { edit { u -> u.copy(appRules = AppRules.remove(u.appRules, i)) } }
             }
-        },
-        confirmButton = { TextButton(enabled = matches.isNotEmpty() && err == null, onClick = { onSave(action, matches.toList()) }) { Text("Thêm") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
-        containerColor = Surface,
-    )
+        }
+        SettingRow(addLabel, last = true, onClick = { open(PolicyDialog.AppRuleAdd(action)) }) {
+            Text("+", style = MaterialTheme.typography.titleLarge, color = Primary)
+        }
+    }
 }
 
 @Composable
@@ -682,7 +766,8 @@ private fun PolicyHeaderPreview() {
         Column(Modifier.background(Background).verticalScroll(rememberScrollState())) {
             PolicyHeader(previewChildren, previewChildren[1], {}, {})
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Editor(up, up, false, {}, {}, catalog) {}
+                Editor(up, up, false, {}, {}, catalog, io.github.nevminhnh.mincontrol.master.policy.SearchEngines.FALLBACK,
+                    io.github.nevminhnh.mincontrol.master.policy.AppGroupCatalog.BUILTIN) {}
             }
         }
     }

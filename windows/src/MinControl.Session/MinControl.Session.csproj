@@ -5,7 +5,13 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>MinControl.Session</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>..\..\assets\mincontrol.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- window / toast icon (multi-size 16..256) and logo, loaded from the assembly so they never depend on files on disk -->
+    <EmbeddedResource Include="..\..\assets\mincontrol.ico" LogicalName="MinControl.Icon.ico" />
+    <EmbeddedResource Include="..\..\assets\mincontrol-512.png" LogicalName="MinControl.Logo.png" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MinControl.Core\MinControl.Core.csproj" />
     <!-- IPC framing/message model is shared with the Service (single source of truth). -->

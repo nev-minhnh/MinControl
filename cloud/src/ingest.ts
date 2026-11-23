@@ -3,7 +3,7 @@
 // inside one atomic batch (keeps the query count low on the Workers free plan).
 import { sendNoticePushes } from "./fcm";
 import { loadSettings } from "./settings";
-import { type AlertDraft, BURST_TYPES, BURST_WINDOW_MS, type RuleContext, alertForEvent, burstAlert, burstDetails, detectBurst, saveAndPushAlerts } from "./alerts";
+import { type AlertDraft, BURST_TYPES, applyAlertSettings, BURST_WINDOW_MS, type RuleContext, alertForEvent, burstAlert, burstDetails, detectBurst, saveAndPushAlerts } from "./alerts";
 import type { Env } from "./env";
 import { localDay, normTs, nowIso } from "./lib/time";
 import { validateEvent } from "./generated/validators";
@@ -222,7 +222,7 @@ async function ruleContext(env: Env, device: DeviceInfo): Promise<RuleContext> {
 }
 
 async function evaluateAlerts(env: Env, device: DeviceInfo, fresh: IngestEvent[]): Promise<AlertDraft[]> {
-  const needsSingle = fresh.some((e) => e.type === "quota.exhausted" || e.type === "request.exe_approval" || e.type.startsWith("tamper."));
+  const needsSingle = fresh.some((e) => e.type === "quota.exhausted" || e.type === "quota.warning" || e.type === "request.exe_approval" || e.type.startsWith("tamper.") || BURST_TYPES.has(e.type));
   const blockedUsers = new Map<string, number>(); // sid -> earliest new blocked ts (ms)
   for (const e of fresh) {
     if (BURST_TYPES.has(e.type) && e.userSid) {
@@ -353,8 +353,23 @@ export async function notifySessions(env: Env, device: DeviceInfo, fresh: Ingest
   );
   if (sess.length === 0) return;
   const settings = await loadSettings(env.DB);
-  const wanted = sess.filter((e) => (e.type === "session.logon" ? settings.notifyLogon : settings.notifyLogoff));
+  // same on/off + minIntervalMin rules as alert rows (API.md section 19); notices keep their last time in `config`
+  const lastKey = (key: string, t: { deviceId: string; userSid: string | null }) => `alertlast:${t.deviceId}:${t.userSid ?? ""}:${key}`;
+  const wanted = await applyAlertSettings(
+    sess.map((e) => ({ ...e, deviceId: device.id, userSid: e.userSid ?? null })),
+    settings,
+    async (key, t) => {
+      const r = await env.DB.prepare("SELECT v FROM config WHERE k = ?").bind(lastKey(key, t)).first<{ v: string }>();
+      return r ? Date.parse(r.v) : null;
+    },
+  );
   if (wanted.length === 0) return;
+  for (const e of wanted) {
+    const cfg = settings.alerts[e.type as "session.logon" | "session.logoff"];
+    if (cfg.minIntervalMin > 0) {
+      await env.DB.prepare("INSERT OR REPLACE INTO config (k, v, updated_at) VALUES (?, ?, ?)").bind(lastKey(e.type, e), e.ts, nowIso()).run();
+    }
+  }
   const users = (
     await env.DB.prepare("SELECT user_sid, name, label FROM managed_users WHERE device_id = ? AND managed = 1")
       .bind(device.id)

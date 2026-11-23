@@ -1,0 +1,14 @@
+{
+  "version": 0,
+  "engines": [
+    { "id": "duckduckgo", "name": "DuckDuckGo", "domains": ["*.duckduckgo.com", "*.ddg.gg", "*.duck.com"] },
+    { "id": "yandex", "name": "Yandex", "domains": ["*.yandex.com", "*.yandex.ru", "*.ya.ru"] },
+    { "id": "yahoo", "name": "Yahoo Search", "domains": ["search.yahoo.com", "*.search.yahoo.com"] },
+    { "id": "brave", "name": "Brave Search", "domains": ["search.brave.com"] },
+    { "id": "ecosia", "name": "Ecosia", "domains": ["*.ecosia.org"] },
+    { "id": "startpage", "name": "Startpage", "domains": ["*.startpage.com"] },
+    { "id": "qwant", "name": "Qwant", "domains": ["*.qwant.com"] },
+    { "id": "baidu", "name": "Baidu", "domains": ["*.baidu.com"] },
+    { "id": "mojeek", "name": "Mojeek", "domains": ["*.mojeek.com"] }
+  ]
+}

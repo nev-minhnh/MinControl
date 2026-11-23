@@ -57,7 +57,9 @@ describe("alert rules", () => {
     const t = alertForEvent(ev("tamper.clock_jump", { jumpSec: 3600 }, { userSid: undefined }), ctx)!;
     expect(t).toMatchObject({ severity: "critical", title: "Cảnh báo can thiệp", userSid: null });
     expect(alertForEvent(ev("web.visit", { url: "https://x", browser: "chrome" }), ctx)).toBeNull();
-    expect(alertForEvent(ev("quota.warning", { scope: "total", remainingMin: 5 }), ctx)).toBeNull();
+    expect(alertForEvent(ev("quota.warning", { scope: "total", remainingMin: 5 }), ctx)).toMatchObject({ type: "quota.warning", title: "Sắp hết giờ" });
+    expect(alertForEvent(ev("web.blocked", { host: "x.test" }), ctx)).toMatchObject({ type: "web.blocked", severity: "info" });
+    expect(alertForEvent(ev("process.blocked", { exe: "g.exe" }), ctx)).toMatchObject({ type: "process.blocked" });
   });
 
   it("alert data = event data (exe approval carries the file identity)", () => {
