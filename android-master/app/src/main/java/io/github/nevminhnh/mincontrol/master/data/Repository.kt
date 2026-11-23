@@ -262,6 +262,11 @@ class Repository(
     }
 
     suspend fun subscribePush(token: String) = api.subscribePush(token)
+
+    suspend fun domains(deviceId: String, sid: String?, day: String) = api.domains(deviceId, sid, day).items
+    suspend fun masterSettings() = api.settings()
+    suspend fun saveMasterSettings(s: io.github.nevminhnh.mincontrol.master.data.protocol.MasterSettings) = api.putSettings(s)
+    suspend fun cloudUsage() = api.cloudUsage()
 }
 
 data class AlertView(val item: AlertItem, val acked: Boolean)

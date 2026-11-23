@@ -4,6 +4,7 @@ import { runCron } from "./cron";
 import { DeviceHub } from "./device-hub";
 import type { Env } from "./env";
 import { json } from "./lib/http";
+import { meteredEnv } from "./meter";
 import { Router } from "./router";
 import { deviceWs, postEvents, putBlob, putInventory } from "./routes/device";
 import { approveClaim, enrollStart, getClaim, getClaimByCode, pollClaim, registerWithClaim, rejectClaim } from "./routes/claims";
@@ -50,6 +51,10 @@ export const router = new Router()
   .add("GET", "/v1/master/devices/:id/usage", "master", m.getUsage)
   .add("GET", "/v1/master/devices/:id/apps", "master", m.getApps)
   .add("GET", "/v1/master/devices/:id/screenshots", "master", m.listScreenshots)
+  .add("GET", "/v1/master/devices/:id/domains", "master", m.listDomains)
+  .add("GET", "/v1/master/settings", "master", m.getSettings)
+  .add("PUT", "/v1/master/settings", "master", m.putSettings)
+  .add("GET", "/v1/master/usage", "master", m.getMeterUsage)
   .add("GET", "/v1/master/blobs/*key", "master", m.getBlob)
   .add("GET", "/v1/master/alerts", "master", m.listAlerts)
   .add("POST", "/v1/master/alerts/:id/ack", "master", m.ackAlert)
@@ -57,10 +62,10 @@ export const router = new Router()
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    return router.handle(request, env, ctx);
+    return router.handle(request, meteredEnv(env, (p) => ctx.waitUntil(p)), ctx);
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    await runCron(env, ctx, controller.scheduledTime);
+    await runCron(meteredEnv(env, (p) => ctx.waitUntil(p)), ctx, controller.scheduledTime);
   },
 } satisfies ExportedHandler<Env>;

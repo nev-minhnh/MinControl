@@ -11,6 +11,9 @@ import io.github.nevminhnh.mincontrol.master.data.protocol.TransferStatus
 import io.github.nevminhnh.mincontrol.master.data.protocol.InventoryResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApiErrorBody
 import io.github.nevminhnh.mincontrol.master.data.protocol.ApiJson
+import io.github.nevminhnh.mincontrol.master.data.protocol.CloudUsage
+import io.github.nevminhnh.mincontrol.master.data.protocol.DomainsResponse
+import io.github.nevminhnh.mincontrol.master.data.protocol.MasterSettings
 import io.github.nevminhnh.mincontrol.master.data.protocol.CommandResponse
 import io.github.nevminhnh.mincontrol.master.data.protocol.CommandStatus
 import io.github.nevminhnh.mincontrol.master.data.protocol.DeviceList
@@ -181,6 +184,16 @@ class MasterApi(
             "cursor" to cursor, "limit" to limit.coerceAtMost(200).toString()),
         out = Page.serializer(EventItem.serializer()),
     )
+
+    suspend fun domains(id: String, user: String?, day: String): DomainsResponse =
+        call("GET", "v1/master/devices/$id/domains", query = listOf("user" to user, "day" to day), out = DomainsResponse.serializer())
+
+    suspend fun settings(): MasterSettings = call("GET", "v1/master/settings", out = MasterSettings.serializer())
+
+    suspend fun putSettings(s: MasterSettings): MasterSettings =
+        call("PUT", "v1/master/settings", body = ApiJson.encodeToString(MasterSettings.serializer(), s).toByteArray(), out = MasterSettings.serializer())
+
+    suspend fun cloudUsage(): CloudUsage = call("GET", "v1/master/usage", out = CloudUsage.serializer())
 
     suspend fun web(
         id: String, user: String? = null, from: Instant? = null, to: Instant? = null, q: String? = null,

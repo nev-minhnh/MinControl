@@ -13,7 +13,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import io.github.nevminhnh.mincontrol.master.data.protocol.CloudUsage
+import io.github.nevminhnh.mincontrol.master.data.protocol.MasterSettings
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -72,6 +76,20 @@ fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: 
     var msg by remember { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
     var name by remember { mutableStateOf(graph.settings.parentName) }
+    var ms by remember { mutableStateOf(MasterSettings()) }
+    var msLoaded by remember { mutableStateOf(false) }
+    var cloud by remember { mutableStateOf<CloudUsage?>(null) }
+    LaunchedEffect(Unit) {
+        runCatching { graph.repo.masterSettings() }.onSuccess { ms = it; msLoaded = true }
+        runCatching { graph.repo.cloudUsage() }.onSuccess { cloud = it }
+    }
+    fun saveMs(next: MasterSettings) {
+        val prev = ms
+        ms = next
+        scope.launch {
+            try { ms = graph.repo.saveMasterSettings(next) } catch (e: Exception) { ms = prev; msg = e.userMessage() }
+        }
+    }
     LaunchedEffect(msg) { msg?.let { snackbar.showSnackbar(it); msg = null } }
 
     val sign = remember { runCatching { graph.keys.publicKey(KeyRole.SIGN) }.getOrNull() }
@@ -89,6 +107,31 @@ fun SettingsScreen(onBack: () -> Unit, onTransfer: () -> Unit = {}, onDiagnose: 
                     SettingRow("Tên hiển thị", onClick = { dialog = SettingsDialog.Name }) { Text(name, style = MaterialTheme.typography.titleMedium) }
                     SettingRow("Máy chủ", subtitle = graph.settings.serverUrl ?: "—")
                     SettingRow("Thông báo đẩy", subtitle = if (graph.push.available()) "Đã bật (Firebase)" else "Chưa cấu hình Firebase", last = true)
+                }
+
+                SectionLabel("Thông báo", Modifier.padding(top = 8.dp))
+                Card {
+                    SettingRow("Báo khi con đăng nhập máy", subtitle = "Gửi thông báo mỗi khi tài khoản được quản lý đăng nhập") {
+                        Switch(ms.notifyLogon, { saveMs(ms.copy(notifyLogon = it)) }, enabled = msLoaded)
+                    }
+                    SettingRow("Báo khi con đăng xuất", last = true) {
+                        Switch(ms.notifyLogoff, { saveMs(ms.copy(notifyLogoff = it)) }, enabled = msLoaded)
+                    }
+                }
+
+                SectionLabel("Hạn mức Cloudflare hôm nay", Modifier.padding(top = 8.dp))
+                Card {
+                    val u = cloud
+                    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (u == null) Text("Đang tải…", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        else {
+                            val lv = CloudUsageLogic.level(u)
+                            Text(CloudUsageLogic.label(u), style = MaterialTheme.typography.titleMedium, color = if (lv == 2) DangerText else MaterialTheme.colorScheme.onSurface)
+                            LinearProgressIndicator(progress = { CloudUsageLogic.fraction(u) }, modifier = Modifier.fillMaxWidth(),
+                                color = if (lv == 2) DangerText else Primary)
+                        }
+                        Text(CloudUsageLogic.RESET_NOTE, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    }
                 }
 
                 SectionLabel("Khóa điều khiển", Modifier.padding(top = 8.dp))

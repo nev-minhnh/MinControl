@@ -78,26 +78,26 @@ export function alertPushData(a: AlertRow): Record<string, string> {
   };
 }
 
-/** Sends every alert to every subscribed token; drops tokens FCM reports as unregistered. */
-export async function sendAlertPushes(env: Env, alerts: AlertRow[]): Promise<void> {
+/** Sends each data payload to every subscribed token; drops tokens FCM reports as unregistered. Returns the delivered item indexes. */
+async function pushAll(env: Env, items: Record<string, string>[]): Promise<{ delivered: Set<number>; dead: Set<string> }> {
+  const delivered = new Set<number>();
+  const dead = new Set<string>();
   const sa = parseServiceAccount(env.FCM_SERVICE_ACCOUNT_JSON);
-  if (!sa || alerts.length === 0) return;
+  if (!sa || items.length === 0) return { delivered, dead };
   const subs = (await env.DB.prepare("SELECT id, fcm_token FROM push_subscriptions").all<{ id: string; fcm_token: string }>()).results;
-  if (subs.length === 0) return;
+  if (subs.length === 0) return { delivered, dead };
   const token = await accessToken(sa);
   const url = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(sa.project_id)}/messages:send`;
-  const dead = new Set<string>();
-  const pushed = new Set<string>();
-  for (const a of alerts) {
+  for (const [i, data] of items.entries()) {
     for (const s of subs) {
       if (dead.has(s.id)) continue;
       const res = await fetch(url, {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ message: { token: s.fcm_token, data: alertPushData(a), android: { priority: "high" } } }),
+        body: JSON.stringify({ message: { token: s.fcm_token, data, android: { priority: "high" } } }),
       });
       if (res.ok) {
-        pushed.add(a.id);
+        delivered.add(i);
       } else if (res.status === 404 || res.status === 400) {
         const text = await res.text();
         if (res.status === 404 || text.includes("UNREGISTERED") || text.includes("registration token")) dead.add(s.id);
@@ -110,10 +110,40 @@ export async function sendAlertPushes(env: Env, alerts: AlertRow[]): Promise<voi
       }
     }
   }
-  const db = env.DB;
+  return { delivered, dead };
+}
+
+const deadTokenStmts = (env: Env, dead: Set<string>) => [...dead].map((id) => env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ?").bind(id));
+
+/** Sends every alert to every subscribed token; drops tokens FCM reports as unregistered. */
+export async function sendAlertPushes(env: Env, alerts: AlertRow[]): Promise<void> {
+  const { delivered, dead } = await pushAll(env, alerts.map(alertPushData));
   const stmts = [
-    ...[...dead].map((id) => db.prepare("DELETE FROM push_subscriptions WHERE id = ?").bind(id)),
-    ...[...pushed].map((id) => db.prepare("UPDATE alerts SET pushed_at = ? WHERE id = ?").bind(nowIso(), id)),
+    ...deadTokenStmts(env, dead),
+    ...[...delivered].map((i) => env.DB.prepare("UPDATE alerts SET pushed_at = ? WHERE id = ?").bind(nowIso(), alerts[i]!.id)),
   ];
-  if (stmts.length > 0) await db.batch(stmts);
+  if (stmts.length > 0) await env.DB.batch(stmts);
+}
+
+/** Notice push without an alert row (session notifications, free-tier meter). `type:"notice"` data message. */
+export interface NoticePush {
+  deviceId?: string;
+  userSid?: string | null;
+  severity?: "info" | "warn" | "critical";
+  title: string;
+  body: string;
+}
+
+export async function sendNoticePushes(env: Env, notices: NoticePush[]): Promise<void> {
+  const data = notices.map((n) => ({
+    type: "notice",
+    severity: n.severity ?? "info",
+    title: n.title,
+    body: n.body,
+    ...(n.deviceId ? { deviceId: n.deviceId } : {}),
+    ...(n.userSid ? { userSid: n.userSid } : {}),
+  }));
+  const { dead } = await pushAll(env, data);
+  const stmts = deadTokenStmts(env, dead);
+  if (stmts.length > 0) await env.DB.batch(stmts);
 }

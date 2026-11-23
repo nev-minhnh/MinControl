@@ -265,3 +265,27 @@ data class MasterKeyEntry(val keyId: String, val alg: SigAlg, val publicKey: Str
 /** Body of a `kind: "master_keys"` envelope (signed-body.schema.json `$defs/masterKeys`). */
 @Serializable
 data class MasterKeysBody(val keys: List<MasterKeyEntry>, val sealPubKey: String)
+
+/** API.md 16: `GET /v1/master/devices/:id/domains` item (aggregated per host). */
+@Serializable
+data class DomainItem(
+    val host: String,
+    val apps: List<String> = emptyList(),
+    val connections: Int = 0,
+    val bytesOut: Long = 0,
+    val bytesIn: Long = 0,
+    val blocked: Boolean = false,
+    val firstSeen: String = "",
+    val lastSeen: String = "",
+)
+
+@Serializable
+data class DomainsResponse(val items: List<DomainItem> = emptyList())
+
+/** API.md 16: `GET/PUT /v1/master/settings`. */
+@Serializable
+data class MasterSettings(val notifyLogon: Boolean = false, val notifyLogoff: Boolean = false)
+
+/** API.md 16: `GET /v1/master/usage` (Cloudflare free-tier D1 rows written today, UTC). */
+@Serializable
+data class CloudUsage(val day: String = "", val rowsWritten: Long = 0, val limit: Long = 100_000, val percent: Double = 0.0)

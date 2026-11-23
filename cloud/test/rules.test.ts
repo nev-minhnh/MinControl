@@ -159,12 +159,12 @@ describe("ingest rows", () => {
       "Asia/Ho_Chi_Minh",
       "2026-11-22T09:00:00.000Z",
     );
-    expect(rows.events).toHaveLength(9);
+    expect(rows.events).toHaveLength(5); // usage.tick / net.domain are aggregate-only (API.md section 16)
     expect(rows.web.map((r) => r[4])).toEqual(["visit", "search", "blocked"]);
     expect(rows.web[0]![6]).toBe("example.com");
     expect(rows.usage).toEqual([[DEV, SID, "2026-11-22", "minecraft.exe", "games", 110]]);
     expect(rows.domains).toHaveLength(1);
-    expect(rows.domains[0]!.slice(6)).toEqual([5, 0, 10]);
+    expect(rows.domains[0]!.slice(6)).toEqual([5, 0, 10, "2026-11-22T08:40:00.000Z", "2026-11-22T08:45:00.000Z"]);
     expect(rows.screenshots).toHaveLength(1);
   });
 
